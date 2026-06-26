@@ -1,13 +1,12 @@
 ---
 # hordr-1503
 title: Test signal detection (test-green / test-red)
-status: todo
+status: completed
 type: task
 priority: high
 created_at: 2026-06-26T00:00:00Z
-updated_at: 2026-06-26T00:00:00Z
+updated_at: 2026-06-26T10:21:28Z
 parent: hordr-1005
-order: E3
 ---
 
 ## Requirement
@@ -28,3 +27,10 @@ Create `src/harness/test-signal.ts`. `detectTestSignal(paneId)` → reads recent
 ## Test Plan
 
 Table-driven: sample outputs with green, red, neither, both. Verify fail-safe on ambiguity.
+
+## Summary of Changes
+
+- src/harness/test-signal.ts: detectTestSignal(paneLabel) -> 'green' | 'red' | null.
+- Reads output via readAgentOutput (from launcher.ts), scans for literal 'test-green'/'test-red' (case-sensitive).
+- Red checked FIRST -> satisfies 'both present -> red' fail-safe AC for free. Ordering is load-bearing, documented in comment.
+- 6 table-driven tests: green, red, neither, both, empty, case-sensitivity.

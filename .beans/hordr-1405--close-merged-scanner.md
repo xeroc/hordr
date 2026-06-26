@@ -1,12 +1,12 @@
 ---
-title: "`close-merged` scanner"
-status: todo
+# hordr-1405
+title: '`close-merged` scanner'
+status: completed
 type: task
 priority: high
 created_at: 2026-06-26T00:00:00Z
-updated_at: 2026-06-26T00:00:00Z
+updated_at: 2026-06-26T10:20:57Z
 parent: hordr-1004
-order: D5
 ---
 
 ## Requirement
@@ -27,3 +27,10 @@ Create `src/engine/close-merged.ts`. For each Run with `status: pr-open`: run `g
 ## Test Plan
 
 Mock `gh` output for merged/open/not-found. Verify correct transitions. Test with zero pr-open Runs.
+
+## Summary of Changes
+
+- src/engine/close-merged.ts: closeMerged(deps) -> {closed, skipped, failed}.
+- For each pr-open run: gh pr view --json state,mergedAt --branch <worktree.branch>. MERGED -> beans.setStatus completed + deps.removeWorktree + transition closed. OPEN -> skipped. gh failure -> failed (continue).
+- gh missing -> throws CloseMergedError('gh CLI not found on PATH') (pre-checked once).
+- gh shell fn injectable for tests via _setGhForTesting/_resetGh seam.

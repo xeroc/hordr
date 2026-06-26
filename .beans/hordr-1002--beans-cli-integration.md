@@ -1,11 +1,11 @@
 ---
 # hordr-1002
 title: Beans CLI integration
-status: in-progress
+status: completed
 type: epic
 priority: high
 created_at: 2026-06-26T00:00:00Z
-updated_at: 2026-06-26T09:14:08Z
+updated_at: 2026-06-26T09:30:06Z
 ---
 
 Wrap the `beans` CLI for status reads/writes, body reads, workflow field management, and spec validation.
@@ -20,11 +20,11 @@ Thin wrapper functions that shell out to `beans` and parse JSON output where ava
 
 ## Acceptance Criteria
 
-- [ ] Can read a bean's status and body via `beans` CLI
-- [ ] Can transition status (todo → draft → todo → in-progress → completed)
-- [ ] `validate-spec` checks for non-empty Requirement, Spec, Acceptance Criteria, Test Plan
-- [ ] Can set and read the `workflow:` frontmatter field
-- [ ] Commit trailer format helper returns `Refs: <prefix><id>`
+- [x] Can read a bean's status and body via beans CLI (hordr-1201: getBean/getStatus/getBody)
+- [x] Can transition status (setStatus validates + returns new status) (hordr-1201)
+- [x] validate-spec checks 4 sections non-empty, AC requires a checkbox (hordr-1202)
+- [x] workflow assignment persists as body marker <!-- hordr:workflow=X --> via beans update (beans CLI has no frontmatter setter; documented reinterpretation) (hordr-1201)
+- [x] Commit trailer + PR title helpers (hordr-1203)
 
 ## Test Plan
 

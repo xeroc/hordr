@@ -1,13 +1,12 @@
 ---
 # hordr-1301
 title: Herdr worktree lifecycle wrapper
-status: todo
+status: completed
 type: task
 priority: high
 created_at: 2026-06-26T00:00:00Z
-updated_at: 2026-06-26T00:00:00Z
+updated_at: 2026-06-26T15:16:42Z
 parent: hordr-1003
-order: C1
 ---
 
 ## Requirement
@@ -28,3 +27,11 @@ Create `src/herdr/worktree.ts`. Functions: `createWorktree({base, branch, focus?
 ## Test Plan
 
 Integration test inside a running herdr session. Create, open, remove cycle. Verify workspace list reflects changes.
+
+## Summary of Changes
+
+- src/herdr/worktree.ts: createWorktree/openWorktree/removeWorktree + branchFor(beanId, prefix) helper.
+- All wrap real herdr CLI subcommands (verified surface): worktree create/open/remove --json.
+- HerdrError on JSON error envelopes; HerdrError wrapping execFileSync failures (stderr snippet).
+- Sync execFileSync via _setShellForTesting/_resetShell seam.
+- 14 tests: happy paths, arg shapes, validation (xor cwd/workspaceId, requires branch/path), --focus propagation, error envelopes, branchFor.

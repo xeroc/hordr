@@ -9,7 +9,17 @@ export const RunStateSchema = z.object({
   step: z.number(),
   updated_unix: z.number(),
   workflow: z.string(),
-  worktree: z.object({branch: z.string(), workspace_id: z.string()}).nullable(),
+  worktree: z
+    .object({
+      branch: z.string(),
+      path: z.string().optional(),
+      // Set to true by on-worktree-removed event hook when herdr removes the
+      // worktree out-of-band. Branch is preserved so close-merged can still
+      // find the PR by branch name; handlers skip herdr calls when removed.
+      removed: z.boolean().optional(),
+      workspace_id: z.string(),
+    })
+    .nullable(),
 })
 
 export type RunState = z.infer<typeof RunStateSchema>

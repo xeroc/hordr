@@ -1,13 +1,12 @@
 ---
 # hordr-1602
 title: Execution commands (run, advance, supervise, take, reset)
-status: todo
+status: completed
 type: task
 priority: high
 created_at: 2026-06-26T00:00:00Z
-updated_at: 2026-06-26T00:00:00Z
+updated_at: 2026-06-26T16:15:49Z
 parent: hordr-1006
-order: F2
 ---
 
 ## Requirement
@@ -29,3 +28,13 @@ Wire the execution-phase commands. These drive a bean through its workflow.
 ## Test Plan
 
 Integration inside herdr: run a bean through to implement step, advance manually, verify state. Test reset cleans up worktree + state.
+
+## Summary of Changes
+
+- src/commands/{run,advance,supervise,take,reset}.ts: replaced stubs.
+- run: validates bean is 'todo' + run is 'queued', calls enqueue (spawns supervisor pane).
+- advance: wraps engine/advance, prints done/block/terminal/status/step. Supports --all and --json.
+- supervise: wraps engine/supervise (blocking loop). Exits on terminal/blocked/closed.
+- take: shells out 'herdr pane zoom <pane_id> --on' on last-inserted pane (insertion-order heuristic for 'most recently blocked'). Documented as v1 shortcut.
+- reset: confirms y/N prompt unless --force, removes worktree (warns on failure), deletes run state, bean → todo.
+- 25 tests.

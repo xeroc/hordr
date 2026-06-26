@@ -1,13 +1,12 @@
 ---
 # hordr-1501
 title: Harness resolution + persona injection
-status: todo
+status: completed
 type: task
 priority: high
 created_at: 2026-06-26T00:00:00Z
-updated_at: 2026-06-26T00:00:00Z
+updated_at: 2026-06-26T10:21:28Z
 parent: hordr-1005
-order: E1
 ---
 
 ## Requirement
@@ -29,3 +28,11 @@ Create `src/harness/launcher.ts`. `resolveHarness(role, config)` → looks up `c
 ## Test Plan
 
 Unit test resolveHarness (found / not found). Unit test buildOpeningPrompt output contains required fields. Integration: launch, read pane, verify prompt arrived.
+
+## Summary of Changes
+
+- src/harness/launcher.ts: resolveHarness(role, config), buildOpeningPrompt(role, config, beanId), launchAgent({workspaceId, beanId, role, cwd}).
+- resolveHarness: command -v <harness>; throws HarnessError("harness '<name>' not on PATH") exact AC message.
+- buildOpeningPrompt: persona verbatim + '---' + Bean: <id> + Title + ## Requirement section + ## Acceptance Criteria section (or '(missing)' per section).
+- launchAgent: loadConfig + resolveHarness + buildOpeningPrompt + herdr pane split --label hordr:<beanId>:<role> --cwd + send-text harness + send-text prompt. Returns {paneLabel}.
+- Seams: _setHerdrForTesting (herdr shell-out), _setWhichForTesting (PATH check). Reuses beans client seams for bean body reads.

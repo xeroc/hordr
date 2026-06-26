@@ -1,13 +1,12 @@
 ---
 # hordr-1601
 title: Planning commands (plan, validate-spec, approve)
-status: todo
+status: completed
 type: task
 priority: high
 created_at: 2026-06-26T00:00:00Z
-updated_at: 2026-06-26T00:00:00Z
+updated_at: 2026-06-26T16:15:49Z
 parent: hordr-1006
-order: F1
 ---
 
 ## Requirement
@@ -29,3 +28,11 @@ Create OCLIF command classes in `src/commands/`. `plan <bean>`: create Run (stat
 ## Test Plan
 
 Smoke test each command against a test project with mock harness. Verify bean status transitions. Test approve-rejects-on-invalid-spec.
+
+## Summary of Changes
+
+- src/commands/{plan,validate-spec,approve}.ts: replaced stubs with real wiring.
+- plan: creates Run in 'planning', sets workflow via setWorkflow (body marker), creates worktree via deps, calls advance() to drive draft-spec step. Bean → draft, Run → awaiting-approval.
+- validate-spec: pure body validator wrapper. process.exitCode=1 on invalid (NOT this.error which is exit 2). --json emits {valid, missing, empty}.
+- approve: validates spec, transitions bean draft→todo, transitions Run awaiting-approval→queued, calls enqueue.
+- 13 tests covering happy paths, rejection paths, --json output.

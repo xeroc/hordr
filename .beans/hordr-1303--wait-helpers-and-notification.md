@@ -1,13 +1,12 @@
 ---
 # hordr-1303
 title: Wait helpers and notification
-status: todo
+status: completed
 type: task
 priority: high
 created_at: 2026-06-26T00:00:00Z
-updated_at: 2026-06-26T00:00:00Z
+updated_at: 2026-06-26T15:16:42Z
 parent: hordr-1003
-order: C3
 ---
 
 ## Requirement
@@ -27,3 +26,10 @@ Create `src/herdr/wait.ts`. Functions: `waitOutput(paneId, pattern, timeoutMs)` 
 ## Test Plan
 
 Integration: send text to a pane, wait for it, verify match. Start an agent, wait for done, verify. Fire a notification, verify it appears.
+
+## Summary of Changes
+
+- src/herdr/wait.ts: waitOutput (regex/plain, --source/--lines/--timeout), waitAgentStatus (5-status closed enum), HerdrWaitTimeout subclass for timeout-vs-error distinction.
+- src/herdr/notify.ts: notify(title, body?, position?, sound?) wrapping herdr notification show.
+- Both use _setShellForTesting seam. parseHerdrResult helper handles JSON-RPC envelopes + plain-text fallback.
+- 16 tests: happy paths, regex flag, timeout throws HerdrWaitTimeout with pane_id, status enum validation, notify option forwarding, empty-stdout success.

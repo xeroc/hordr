@@ -1,13 +1,12 @@
 ---
 # hordr-1401
 title: Run state machine (transitions + zod schema)
-status: todo
+status: completed
 type: task
 priority: high
 created_at: 2026-06-26T00:00:00Z
-updated_at: 2026-06-26T00:00:00Z
+updated_at: 2026-06-26T10:20:08Z
 parent: hordr-1004
-order: D1
 ---
 
 ## Requirement
@@ -28,3 +27,10 @@ Create `src/engine/run.ts`. States: `planning`, `awaiting-approval`, `queued`, `
 ## Test Plan
 
 Table-driven: every valid transition succeeds. Every invalid transition throws. Verify `updated_unix` bumps.
+
+## Summary of Changes
+
+- src/engine/run.ts: transition(run, newState) with ALLOWED_TRANSITIONS table (Record<RunStatus, RunStatus[]>). Reuses RunState/RunStatus from src/state/schema.ts.
+- TransitionError class extending Error; message: 'Invalid transition: <from> -> <to> (allowed: ...)'.
+- updated_unix bumped on every successful transition.
+- ~20 table-driven tests covering every valid + invalid transition.

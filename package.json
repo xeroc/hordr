@@ -62,6 +62,7 @@
   "scripts": {
     "build": "shx rm -rf dist && tsc -b",
     "lint": "eslint",
+    "typecheck": "tsc --noEmit",
     "postpack": "shx rm -f oclif.manifest.json",
     "posttest": "bun run lint",
     "prepack": "oclif manifest && oclif readme",
