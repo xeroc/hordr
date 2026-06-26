@@ -40,7 +40,24 @@ export const commit: StepHandler = (run) => {
   }
 
   git(['add', '-A'], cwd)
-  git(['commit', `--trailer=${trailer}`, '-m', `${run.bean}: automated commit`], cwd)
+
+  // Try signed commit first; if gpg signing fails (e.g. agent locked,
+  // pinentry timeout), retry without signing. The commit is still valid
+  // unsigned — the trailer is the audit hook, not the signature.
+  const commitArgs = ['commit', `--trailer=${trailer}`, '-m', `${run.bean}: automated commit`]
+  try {
+    git(commitArgs, cwd)
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error)
+    if (/gpg|sign|GnuPG/i.test(msg)) {
+      // Retry without signing. ponytail: log to stderr so the user sees it
+      // but it doesn't pollute captured stdout.
+      process.stderr.write(`warning: gpg signing failed for ${run.bean}; committing unsigned\n`)
+      git(['-c', 'commit.gpgsign=false', ...commitArgs], cwd)
+    } else {
+      throw error
+    }
+  }
 
   return {done: true}
 }

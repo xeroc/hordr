@@ -1,4 +1,5 @@
 import {spawn} from 'node:child_process'
+import process from 'node:process'
 
 import type {EngineDeps} from './types.js'
 
@@ -19,10 +20,21 @@ export function capacity(): number {
 
 // ponytail: fire-and-forget supervisor spawn via detached child. hordr-1006
 // wires the real herdr pane; tests inject a recording stub.
+//
+// Honors HERDR_BIN_PATH so test harnesses can redirect to /bin/true.
+// Spawn errors (binary missing, permission denied) are swallowed — this is
+// fire-and-forget; the supervisor pane is a UX nicety, not a correctness
+// requirement. If it fails to start, the run is still in 'running' state
+// and `hordr advance <bean>` will drive it manually.
+const HORDR_BIN = process.env.HERDR_BIN_PATH ?? 'hordr'
+
 export function defaultSpawnSupervisor(beanId: string): void {
-  const child = spawn('hordr', ['supervise', beanId], {
+  const child = spawn(HORDR_BIN, ['supervise', beanId], {
     detached: true,
     stdio: 'ignore',
+  })
+  child.on('error', () => {
+    // Swallow — see comment above.
   })
   child.unref()
 }

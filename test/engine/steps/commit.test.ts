@@ -21,6 +21,9 @@ describe('commit handler', () => {
     execFileSync('git', ['init', '--quiet'], {cwd: gitDir, stdio: 'pipe'})
     execFileSync('git', ['config', 'user.email', 'test@hordr.test'], {cwd: gitDir, stdio: 'pipe'})
     execFileSync('git', ['config', 'user.name', 'Hordr Test'], {cwd: gitDir, stdio: 'pipe'})
+    // Disable gpg signing by default for hermetic tests; the signing-retry
+    // test below re-enables it locally.
+    execFileSync('git', ['config', 'commit.gpgsign', 'false'], {cwd: gitDir, stdio: 'pipe'})
     writeFileSync(path.join(gitDir, 'file.txt'), 'content\n')
   })
 
@@ -52,5 +55,24 @@ describe('commit handler', () => {
     const run = makeRun({worktree: null})
 
     expect(() => commit(run, step, makeDeps())).to.throw(StepError, /no worktree/)
+  })
+
+  it('retries without signing when gpg fails', () => {
+    // Configure the repo to require signing AND fail (no gpg binary).
+    execFileSync('git', ['config', 'commit.gpgsign', 'true'], {cwd: gitDir, stdio: 'pipe'})
+    execFileSync('git', ['config', 'gpg.format', 'x509'], {cwd: gitDir, stdio: 'pipe'})
+    // x509 without a signer will fail deterministically without pinentry.
+
+    const run = makeRun({worktree: {branch: 'bean/hordr-test', workspace_id: gitDir}})
+
+    // Should not throw — falls back to unsigned.
+    const result = commit(run, step, makeDeps())
+
+    expect(result.done).to.be.true
+    const log = execFileSync('git', ['log', '--format=%B', '-1'], {cwd: gitDir, encoding: 'utf8'})
+    expect(log).to.include('Refs: hordr-test')
+    // Verify the commit has no signature.
+    const sig = execFileSync('git', ['log', '--format=%G?', '-1'], {cwd: gitDir, encoding: 'utf8'}).trim()
+    expect(sig).to.equal('N') // N = no signature
   })
 })
