@@ -5,7 +5,7 @@ status: todo
 type: epic
 priority: high
 created_at: 2026-06-26T20:48:54Z
-updated_at: 2026-06-26T20:48:54Z
+updated_at: 2026-06-26T20:59:44Z
 ---
 
 ## Requirement
@@ -32,11 +32,11 @@ See SPEC-delta-planning.md for the full design. Key changes:
 
 <!-- filled by hordr decompose; empty until decomposition runs -->
 
-- [ ] hordr-2000 — Cleanup: commit signing retry + queue spawn resilience
-- [ ] hordr-2001 — Type-aware validate-spec (epic 6 sections, task/bug 4 sections)
-- [ ] hordr-2002 — `hordr decompose <epic>` command
-- [ ] hordr-2003 — `hordr run <child>` skips planning for tasks with completed epic parent
-- [ ] hordr-2004 — Update SPEC.md (merge delta) + archive SPEC-delta-planning.md
+- [x] hordr-itiu — Cleanup: commit signing retry + queue spawn resilience
+- [ ] hordr-jd9m — Type-aware validate-spec (epic 6 sections, task/bug 4 sections)
+- [ ] hordr-cqjx — hordr decompose <epic> command
+- [ ] hordr-gn70 — hordr run <child> skips planning for tasks with completed epic parent
+- [ ] hordr-si47 — Update SPEC.md (merge delta) + archive SPEC-delta-planning.md
 
 ## Acceptance Criteria
 
