@@ -1,11 +1,11 @@
 ---
 # hordr-jd9m
 title: Type-aware validate-spec
-status: todo
+status: completed
 type: task
 priority: high
 created_at: 2026-06-26T20:59:34Z
-updated_at: 2026-06-26T20:59:34Z
+updated_at: 2026-06-26T21:05:21Z
 parent: hordr-1t2j
 ---
 
@@ -54,3 +54,12 @@ Update `src/commands/validate-spec.ts` to call the type-aware validator: read be
 ## Test Plan
 
 Table-driven: complete epic body, each epic section missing individually, each epic section empty (esp. Decisions/Decomposition allowed empty), no AC checkbox in epic. Existing task tests unchanged.
+
+## Summary of Changes
+
+- src/beans/validate-spec.ts: validateSpec(body, type='task') now dispatches on bean type. Epics require 6 sections (Requirement/Spec/Decisions/Decomposition/AC/TestPlan); tasks/bugs keep 4 sections. Decisions + Decomposition are header-only-OK for epics (body may be empty).
+- src/commands/validate-spec.ts: reads bean.type via getBean and dispatches. --json emits type alongside {valid, missing, empty}.
+- test/beans/validate-spec.test.ts: 9 new epic-path tests. Total 21 tests (was 12).
+- All 287 project tests passing, lint clean (one warning in unrelated manifest test).
+
+ADR-0008 (epic bean IS the spec) implemented.
