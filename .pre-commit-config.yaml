@@ -1,0 +1,61 @@
+# Pre-commit hooks for hordr (TypeScript / oclif / bun)
+# Tailored: no monorepo filters, no languages we don't use, no prettier
+# (eslint-config-prettier already disables conflicting rules).
+# Run `pre-commit run --all-files` to apply to the whole repo.
+minimum_pre_commit_version: '4.0.0'
+
+repos:
+  # ===== CORE HYGIENE =====
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: check-added-large-files
+        args: ['--maxkb=1000']
+      - id: detect-private-key
+
+  # ===== SECRETS =====
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
+
+  # ===== COMMIT MESSAGE (gitmoji + conventional) =====
+  - repo: https://github.com/ljnsn/cz-conventional-gitmoji
+    rev: v0.7.0
+    hooks:
+      - id: conventional-gitmoji
+
+  # ===== TYPESCRIPT (local hooks reuse existing toolchain) =====
+  - repo: local
+    hooks:
+      - id: lint
+        name: eslint (bun run lint)
+        entry: bun run lint
+        language: system
+        types: [ts]
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: typecheck
+        name: tsc --noEmit
+        entry: bun run typecheck
+        language: system
+        types: [ts]
+        pass_filenames: false
+        stages: [pre-commit]
+
+      # Tests run on pre-push to keep commits fast.
+      - id: test
+        name: mocha (bun run test)
+        entry: bun run test
+        language: system
+        types: [ts]
+        pass_filenames: false
+        stages: [pre-push]

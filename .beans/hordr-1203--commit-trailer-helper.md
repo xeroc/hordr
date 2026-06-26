@@ -1,11 +1,11 @@
 ---
 # hordr-1203
 title: Commit trailer format helper
-status: in-progress
+status: completed
 type: task
 priority: medium
 created_at: 2026-06-26T00:00:00Z
-updated_at: 2026-06-26T09:14:09Z
+updated_at: 2026-06-26T09:29:24Z
 parent: hordr-1002
 ---
 
@@ -25,3 +25,10 @@ Create `src/beans/trailer.ts`. Function: `commitTrailer(beanId)` → `Refs: <bea
 ## Test Plan
 
 Pure function tests. Edge: empty id, id without prefix.
+
+## Summary of Changes
+
+- src/beans/trailer.ts: commitTrailer(beanId) -> 'Refs: <beanId>' and prTitle(beanId, subject, type='feat') -> '<type>: <subject> (Refs: <beanId>)'.
+- Both throw on empty beanId; prTitle throws on empty subject.
+- Id is used as-is (already includes prefix per SPEC).
+- 7 tests covering exact AC matches + edge cases (empty id, empty subject, custom type, no prefix enforcement).

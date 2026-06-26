@@ -1,11 +1,11 @@
 ---
 # hordr-1202
 title: Bean body validator (4 required sections)
-status: in-progress
+status: completed
 type: task
 priority: high
 created_at: 2026-06-26T00:00:00Z
-updated_at: 2026-06-26T09:14:09Z
+updated_at: 2026-06-26T09:29:24Z
 parent: hordr-1002
 ---
 
@@ -27,3 +27,11 @@ Create `src/beans/validate-spec.ts`. Parse the body for `## Requirement`, `## Sp
 ## Test Plan
 
 Table-driven: complete body, each section missing individually, each section empty individually, no AC checkboxes, extra sections ignored.
+
+## Summary of Changes
+
+- src/beans/validate-spec.ts: pure function validateSpec(body) returning {valid, missing, empty}.
+- Scans for exact-match (case-sensitive, trimmed) headers: ## Requirement, ## Spec, ## Acceptance Criteria, ## Test Plan.
+- ## Acceptance Criteria additionally requires at least one '- [ ]' checkbox line (/^\s*- \[ \]\s*\S/).
+- Section content runs until the next ## header or EOF.
+- 12 table-driven tests: complete body, each section missing individually (4), each empty individually (4), AC-without-checkbox, extra sections ignored, blank-line tolerance.
