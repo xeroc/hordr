@@ -1,0 +1,78 @@
+id = "herdr.hordr"
+name = "Hordr"
+version = "0.1.0"
+min_herdr_version = "0.7.0"
+description = "Manage a horde of coding agents through beans, worktrees, and workflows"
+platforms = ["linux", "macos"]
+
+# All actions delegate to the globally-installed `hordr` OCLIF binary.
+# The binary must be on PATH. Install with: npm install -g hordr
+
+[[actions]]
+id = "plan"
+title = "Plan a bean (draft spec)"
+contexts = ["workspace"]
+command = ["hordr", "plan"]
+
+[[actions]]
+id = "validate-spec"
+title = "Validate bean spec sections"
+contexts = ["workspace"]
+command = ["hordr", "validate-spec"]
+
+[[actions]]
+id = "approve"
+title = "Approve a bean spec (HITL gate)"
+contexts = ["workspace"]
+command = ["hordr", "approve"]
+
+[[actions]]
+id = "run"
+title = "Run a bean through its workflow"
+contexts = ["workspace"]
+command = ["hordr", "run"]
+
+[[actions]]
+id = "advance"
+title = "Advance a bean one step"
+contexts = ["workspace"]
+command = ["hordr", "advance"]
+
+[[actions]]
+id = "take"
+title = "Take over a blocked bean interactively"
+contexts = ["workspace"]
+command = ["hordr", "take"]
+
+[[actions]]
+id = "status"
+title = "Show horde status"
+contexts = ["workspace"]
+command = ["hordr", "status"]
+
+[[actions]]
+id = "drain"
+title = "Drain the queue (start ready beans)"
+contexts = ["workspace"]
+command = ["hordr", "drain"]
+
+[[actions]]
+id = "reset"
+title = "Reset a bean's run (delete worktree + state)"
+contexts = ["workspace"]
+command = ["hordr", "reset"]
+
+[[actions]]
+id = "close-merged"
+title = "Close beans whose PRs have merged"
+contexts = ["workspace"]
+command = ["hordr", "close-merged"]
+
+# Event hooks
+[[events]]
+on = "worktree.created"
+command = ["hordr", "on-worktree-created"]
+
+[[events]]
+on = "worktree.removed"
+command = ["hordr", "on-worktree-removed"]

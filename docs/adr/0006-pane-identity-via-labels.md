@@ -1,0 +1,3 @@
+# Pane identity is by label, not stored pane id
+
+Hordr labels every pane it spawns with `hordr:<bean-id>:<role>` (e.g. `hordr:hordr-abcd:implementer`) and resolves panes by filtering `herdr pane list` on label. Raw herdr pane ids are never persisted to Run state because they compact when tabs/panes/workspaces close — a stored id may point at a different pane after a restart. Labels are stable across compaction and restarts. This makes `hordr advance` idempotent: it can find existing agent panes without relying on a stale id. Rejected alternative: store pane id and invalidate on `pane.exited` events — more state, more event handling, more failure modes.

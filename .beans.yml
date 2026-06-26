@@ -1,0 +1,62 @@
+beans:
+  path: .beans
+  prefix: hordr-
+  id_length: 4
+  default_status: todo
+  default_type: task
+hordr:
+  concurrency: 3
+  primary_branch: develop
+  worktree_branch_prefix: bean/
+  agents:
+    implementer:
+      harness: opencode
+      persona: |
+        You are the implementer. Read the bean spec, implement the change, commit with trailer Refs: <bean-id>.
+    tester:
+      harness: opencode
+      persona: |
+        You are the tester. Run the test plan and report green/red.
+    reviewer:
+      harness: opencode
+      persona: |
+        You are the reviewer. Review the diff for correctness and style.
+    planner:
+      harness: opencode
+      persona: |
+        You are the planner. Draft the four body sections of the bean spec.
+    open_pr:
+      harness: opencode
+      persona: |
+        You open pull requests with trailer Refs: <bean-id>.
+  workflows:
+    plan:
+      steps:
+        - kind: draft-spec
+          agent: planner
+          pane: root
+          wait: 'agent-status: done'
+        - kind: hitl
+    implement:
+      steps:
+        - kind: implement
+          agent: implementer
+          pane: root
+          wait: 'agent-status: done'
+        - kind: test
+          agent: tester
+          pane: sibling
+          wait: 'test-(green|red)'
+        - kind: review
+          agent: reviewer
+          optional: true
+          wait: 'agent-status: done'
+        - kind: commit
+        - kind: pr
+          agent: open_pr
+          wait: 'pr-url'
+        - kind: hitl
+          optional: false
+  routing:
+    default_workflow: implement
+    plan_workflow: plan

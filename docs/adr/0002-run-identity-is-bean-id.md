@@ -1,0 +1,3 @@
+# Run identity is the bean id (natural key)
+
+A hordr Run is identified by its bean id (e.g. `hordr-abcd`). One bean has at most one Run, ever. The state file is `$HERDR_PLUGIN_STATE_DIR/<bean-id>.json` and the worktree branch is `bean/<bean-id>`. This avoids surrogate ids, FK lookups, and worktree-branch collision logic. "Start over" on the same bean is an explicit `hordr reset <bean>` (deletes state + worktree + branch), not a new Run. Rejected alternative: surrogate `run-<uuid>` ids with FK to bean — adds indirection and branch-naming complexity for a multi-attempt model we don't need in v1.

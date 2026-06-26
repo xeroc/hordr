@@ -1,0 +1,3 @@
+# Action-driven v1: no daemon, no background scheduler
+
+Hordr v1 has no long-running daemon. All Runs are driven by explicit CLI invocations (`hordr run <bean>`) or per-Run supervisor panes (`hordr supervise <bean>`). The queue drains on-demand via `hordr run`, `hordr drain`, and `hordr advance --all`. A daemon that auto-claims `ready` beans, schedules N concurrent workflows, and survives crashes is a real scheduler — most of this project's complexity. We defer it to phase 2. The supervisor pane model (one blocking `hordr supervise` per active Run) gives concurrent execution without a scheduler, and per-Run state persistence (`hordr advance` is idempotent) gives crash recovery without a daemon.

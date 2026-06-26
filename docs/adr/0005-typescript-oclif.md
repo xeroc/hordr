@@ -1,0 +1,3 @@
+# TypeScript + OCLIF for v1
+
+Hordr is written in TypeScript and built with OCLIF, distributed as a global npm binary. Herdr is Rust; the "obvious" choice would be Rust for consistency. We chose TS because: (1) the workflow DSL, step kinds, and state schema are still in flux — TS's hot-reload iteration cycle is decisive during design instability; (2) the workload is I/O-bound (subprocess + socket + CLI orchestration), so Rust's performance advantage is unmeasurable here; (3) agent ecosystems (output parsing, persona injection, JSONL) are TS-native. The herdr plugin manifest is language-agnostic (argv), so switching to Rust later costs one manifest edit. Port trigger: stable for one release cycle + desire for a static binary or herdr-core absorption.

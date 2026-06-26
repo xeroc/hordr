@@ -1,0 +1,3 @@
+# No auto-merge: PR creation is terminal, merge is human + GitHub
+
+The implement workflow's terminal step is PR creation (`open_pr` agent via `gh pr create`). Hordr never merges PRs and never pushes to `develop` or `main`. After the PR is opened, the Run enters `pr-open` state and waits. A human reviews and merges on GitHub. `hordr close-merged` then scans for merged PRs, flips the bean to `completed` on `develop`, and removes the worktree. This enforces the HITL contract: an agent never decides that its own work is merged. Rejected alternative: auto-merge on green CI — removes the human review gate, which is the point of the workflow.

@@ -1,0 +1,3 @@
+# Bean status stays coarse; fine-grained workflow state lives in Run
+
+Beans-native statuses (`todo`, `draft`, `in-progress`, `completed`, `scrapped`) remain the only bean statuses. Hordr does not add `spec-review`, `ready`, `queued`, or `pr-open` to the bean. Those fine-grained workflow positions live in the hordr Run state file and are surfaced via `hordr status`. This keeps the Beans boundary clean (Beans is unaware of hordr), avoids modifying Beans' status enum, and prevents two sources of truth fighting. The HITL gate is `draft`; "ready" is `todo` with a complete body (the body's four sections are the real readiness signal).
