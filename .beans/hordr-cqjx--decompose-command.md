@@ -1,11 +1,11 @@
 ---
 # hordr-cqjx
 title: decompose command
-status: todo
+status: completed
 type: task
 priority: high
 created_at: 2026-06-26T20:59:34Z
-updated_at: 2026-06-26T20:59:34Z
+updated_at: 2026-06-27T11:27:00Z
 parent: hordr-1t2j
 ---
 
@@ -47,3 +47,11 @@ Idempotency: refuse if Decomposition non-empty (the planner already ran). `--for
 ## Test Plan
 
 Mock deps + beans shell. Test precondition refusals (wrong type, already-decomposed). Test happy path with mock planner that creates 2 children. Verify epic transitioned to completed. Verify no worktree created (deps.createWorktree not called).
+
+## Summary of Changes
+
+- src/commands/decompose.ts: stateless command per ADR-0009. Preconditions (epic type, todo status, valid 6-section body, empty Decomposition unless --force). Spawns planner pane via findAnyPane + splitLabeled (label hordr:<epic>:planner). Waits for done via waitAgentStatus. Marks epic → completed.
+- src/herdr/pane.ts: added findAnyPane() (no workspace filter, uses _shell seam for testability). Refactored listPanes to share implementation.
+- .beans.yml: planner persona updated to full decompose-instructions text per SPEC-delta §6.
+- test/commands/decompose.test.ts: 8 tests covering all ACs (refusals, happy path, --force, persona label, --json).
+- 295 tests passing, lint clean.

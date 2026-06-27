@@ -1,6 +1,7 @@
 export {HerdrNotifyError, notify, type NotifyOpts} from './notify.js'
 export {
   closePane,
+  findAnyPane,
   findPane,
   HerdrError as HerdrPaneError,
   listPanes,

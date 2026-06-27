@@ -222,7 +222,20 @@ export function findPane(workspaceId: string, paneId: string): null | PaneInfo {
  */
 export function listPanes(workspaceId: string): PaneInfo[] {
   requireNonEmpty(workspaceId, 'workspaceId')
-  const raw = herdr(['pane', 'list', '--workspace', workspaceId, '--json'])
+  return listPanesImpl(['--workspace', workspaceId])
+}
+
+/**
+ * Find any pane in any workspace (no workspace filter). Used by commands like
+ * `decompose` that spawn a planner pane from wherever the human happens to be.
+ * Returns the pane_id of the first pane, or undefined if no panes exist.
+ */
+export function findAnyPane(): string | undefined {
+  return listPanesImpl([])[0]?.pane_id
+}
+
+function listPanesImpl(extraArgs: string[]): PaneInfo[] {
+  const raw = herdr(['pane', 'list', ...extraArgs, '--json'])
   const data = parseJSON<{
     error?: {code?: string; message?: string}
     result?: {panes?: PaneInfo[]}
