@@ -1,4 +1,4 @@
-/* eslint-disable camelcase -- round-trips SPEC.md §3 snake_case JSON fields */
+/* eslint-disable camelcase -- round-trips SPEC.md §3 snake_case JSON fields; RunState fields use snake_case per on-disk contract */
 import type {Config} from '@oclif/core'
 
 import {expect} from 'chai'
@@ -61,8 +61,25 @@ hordr:
   concurrency: 2
 `
 
+const VALID_BODY = `## Requirement
+
+Need a thing.
+
+## Spec
+
+Build it.
+
+## Acceptance Criteria
+
+- [ ] AC one
+
+## Test Plan
+
+Run tests.
+`
+
 const BEAN_JSON_TODO = JSON.stringify({
-  body: '',
+  body: VALID_BODY,
   created_at: '2026-01-01T00:00:00Z',
   etag: 'e1',
   id: 'hordr-1602',
@@ -197,5 +214,94 @@ describe('commands/run', () => {
     const parsed = JSON.parse(res.stdout.trim()) as {bean: string; outcome: string}
     expect(parsed.bean).to.equal('hordr-1602')
     expect(parsed.outcome).to.equal('running')
+  })
+
+  // ---- ADR-0010: decomposed children skip planning ----
+
+  it('child of completed epic with no Run: creates Run directly at queued (ADR-0010)', async () => {
+    // Bean with a completed epic parent. Mock beans to return parent info.
+    const childBean = JSON.stringify({
+      ...JSON.parse(BEAN_JSON_TODO),
+      id: 'hordr-child1',
+      parent_id: 'hordr-epic1',
+    })
+    const epicBean = JSON.stringify({
+      body: VALID_BODY,
+      created_at: '2026-01-01T00:00:00Z',
+      etag: 'e2',
+      id: 'hordr-epic1',
+      path: 'hordr-epic1.md',
+      priority: 'normal',
+      slug: 'epic',
+      status: 'completed',
+      title: 'Epic',
+      type: 'epic',
+      updated_at: '2026-01-01T00:00:00Z',
+    })
+    let callCount = 0
+    _setShellForTesting(() => {
+      callCount++
+      // Alternating: child, epic, child (for getBody), then child (for setWorkflow return).
+      return callCount % 2 === 1 ? childBean : epicBean
+    })
+    _setDepsForTesting({
+      createWorktree: () => ({branch: 'bean/x', workspaceId: 'wX'}),
+      detectTestSignal: () => null,
+      launchAgent: () => ({paneLabel: 'wX:p1'}),
+      paneExists: () => true,
+      readAgentOutput: () => '',
+      removeWorktree() {},
+      waitForAgentDone() {},
+    } as unknown as Parameters<typeof _setDepsForTesting>[0])
+
+    const res = await invoke(['hordr-child1'])
+
+    expect(res.error, res.error?.message).to.be.undefined
+    expect(res.stdout).to.match(/started hordr-child1/)
+  })
+
+  it('child of non-completed epic: falls through to standalone path (requires prior plan)', async () => {
+    const childBean = JSON.stringify({
+      ...JSON.parse(BEAN_JSON_TODO),
+      id: 'hordr-child2',
+      parent_id: 'hordr-epic2',
+    })
+    const epicBean = JSON.stringify({
+      body: VALID_BODY,
+      created_at: '2026-01-01T00:00:00Z',
+      etag: 'e3',
+      id: 'hordr-epic2',
+      path: 'hordr-epic2.md',
+      priority: 'normal',
+      slug: 'epic',
+      status: 'todo', // not completed yet
+      title: 'Epic',
+      type: 'epic',
+      updated_at: '2026-01-01T00:00:00Z',
+    })
+    let callCount = 0
+    _setShellForTesting(() => {
+      callCount++
+      return callCount % 2 === 1 ? childBean : epicBean
+    })
+
+    const res = await invoke(['hordr-child2'])
+
+    expect(res.error).to.exist
+    // Falls through to "no run found" since no prior plan created one.
+    expect(res.error!.message).to.match(/no run found/)
+  })
+
+  it('refuses if body fails validate-spec (protects against half-decomposed children)', async () => {
+    const badBean = JSON.stringify({
+      ...JSON.parse(BEAN_JSON_TODO),
+      body: '## Requirement\n\nOnly this.\n', // missing 3 sections
+    })
+    _setShellForTesting(() => badBean)
+
+    const res = await invoke(['hordr-1602'])
+
+    expect(res.error).to.exist
+    expect(res.error!.message).to.match(/body invalid/)
   })
 })
