@@ -21,7 +21,7 @@ import {execFileSync} from 'node:child_process'
 import {getBean} from '../beans/client.js'
 import {loadConfig} from '../config/loader.js'
 import {type HordrConfig} from '../config/schema.js'
-import {listPanes, paneLabel as makePaneLabel, runInPane, sendText,splitPane} from '../herdr/pane.js'
+import {listPanes, paneLabel as makePaneLabel, runInPane, splitPane} from '../herdr/pane.js'
 
 export class HarnessError extends Error {
   constructor(message: string) {
@@ -136,10 +136,9 @@ export function launchAgent(opts: {beanId: string; cwd: string; role: string; wo
     parentPaneId,
   })
 
-  // Send the harness binary as a runnable command (pane run = text + Enter).
+  // Start the harness, then send the prompt with Enter so it's submitted.
   runInPane(pane.pane_id, harness)
-  // Send the prompt as raw text (no Enter — harness reads stdin).
-  sendText(pane.pane_id, prompt)
+  runInPane(pane.pane_id, prompt)
 
   return {paneLabel: pane.pane_id}
 }

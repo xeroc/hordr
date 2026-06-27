@@ -209,17 +209,15 @@ describe('harness/launcher', () => {
       expect(rename!.args).to.include('wX:pNEW')
       expect(rename!.args).to.include('hordr:hordr-1501:implementer')
 
-      // 4. pane run sends the harness binary as a command (text + Enter)
-      const run = paneCalls.find((c) => c.args[0] === 'pane' && c.args[1] === 'run')
-      assert.ok(run, 'pane run was called')
-      expect(run!.args).to.include('wX:pNEW')
-      expect(run!.args).to.include('opencode')
+      // 4. pane run sends the harness binary (first run call)
+      const runs = paneCalls.filter((c) => c.args[0] === 'pane' && c.args[1] === 'run')
+      assert.lengthOf(runs, 2, 'two pane run calls: harness + prompt')
+      expect(runs[0].args).to.include('wX:pNEW')
+      expect(runs[0].args).to.include('opencode')
 
-      // 5. pane send-text sends the prompt (no Enter — harness reads stdin)
-      const send = paneCalls.find((c) => c.args[0] === 'pane' && c.args[1] === 'send-text')
-      assert.ok(send, 'pane send-text was called')
-      expect(send!.args).to.include('wX:pNEW')
-      const promptArg = send!.args[send!.args.length - 1]
+      // 5. second pane run sends the prompt (with Enter)
+      expect(runs[1].args).to.include('wX:pNEW')
+      const promptArg = runs[1].args.at(-1)
       expect(promptArg).to.contain('Bean: hordr-1501')
     })
 

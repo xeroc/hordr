@@ -6,7 +6,7 @@
  * via rename for human UX only.
  */
 /* eslint-disable camelcase -- field names mirror herdr's JSON contract */
-import {execFileSync} from 'node:child_process'
+import { execFileSync } from 'node:child_process'
 import process from 'node:process'
 
 const HERDR_BIN = process.env.HERDR_BIN_PATH ?? 'herdr'
@@ -19,7 +19,7 @@ export class HerdrError extends Error {
 }
 
 // --- test seam ---
-export type ShellFn = (args: string[], opts?: {cwd?: string}) => string
+export type ShellFn = (args: string[], opts?: { cwd?: string }) => string
 
 const defaultShell: ShellFn = (args, opts) =>
   execFileSync(HERDR_BIN, args, {
@@ -42,7 +42,7 @@ function herdr(args: string[]): string {
   try {
     return _shell(args)
   } catch (error) {
-    const e = error as {message?: string; stderr?: string}
+    const e = error as { message?: string; stderr?: string }
     throw new HerdrError(
       `herdr command failed: herdr ${args.join(' ')}\n${(e.stderr ?? e.message ?? '').slice(0, 200)}`,
     )
@@ -78,24 +78,24 @@ export interface PaneSplitOpts {
 // --- split ---
 
 export function splitPane(opts: PaneSplitOpts): PaneInfo {
-  const args = ['pane', 'split', '--json', '--direction', opts.direction, '--pane', opts.parentPaneId]
+  const args = ['pane', 'split', '--direction', opts.direction, '--pane', opts.parentPaneId]
   if (opts.cwd) args.push('--cwd', opts.cwd)
   if (opts.focus === true) args.push('--focus')
   else if (opts.focus === false) args.push('--no-focus')
 
   const raw = herdr(args)
   const data = parseJSON<
-    Partial<PaneInfo> & {error?: {code?: string}; pane?: PaneInfo; result?: Partial<PaneInfo> & {pane?: PaneInfo}}
+    Partial<PaneInfo> & { error?: { code?: string }; pane?: PaneInfo; result?: Partial<PaneInfo> & { pane?: PaneInfo } }
   >(raw, 'pane split')
 
   if (data.error) throw new HerdrError(`herdr pane split failed: ${JSON.stringify(data.error)}`)
 
-  const result = (data.result ?? data) as Partial<PaneInfo> & {pane?: PaneInfo}
+  const result = (data.result ?? data) as Partial<PaneInfo> & { pane?: PaneInfo }
   const pane = result.pane ?? result
-  const {pane_id} = pane
+  const { pane_id } = pane
   if (!pane_id) throw new HerdrError(`herdr pane split returned no pane_id: ${raw.slice(0, 200)}`)
 
-  const info: PaneInfo = {cwd: pane.cwd, pane_id, tab_id: pane.tab_id, workspace_id: pane.workspace_id}
+  const info: PaneInfo = { cwd: pane.cwd, pane_id, tab_id: pane.tab_id, workspace_id: pane.workspace_id }
 
   if (opts.label) {
     herdr(['pane', 'rename', pane_id, opts.label])
@@ -112,9 +112,9 @@ export function paneLabel(beanId: string, role: string): string {
 // --- find ---
 
 export function findPane(paneId: string): null | PaneInfo {
-  const raw = herdr(['pane', 'get', paneId, '--json'])
+  const raw = herdr(['pane', 'get', paneId])
   const data = parseJSON<
-    Partial<PaneInfo> & {error?: {code?: string; message?: string}; result?: Partial<PaneInfo> & {pane?: PaneInfo}}
+    Partial<PaneInfo> & { error?: { code?: string; message?: string }; result?: Partial<PaneInfo> & { pane?: PaneInfo } }
   >(raw, 'pane get')
 
   if (data.error) {
@@ -122,10 +122,10 @@ export function findPane(paneId: string): null | PaneInfo {
     throw new HerdrError(`herdr pane get failed: ${JSON.stringify(data.error)}`)
   }
 
-  const result = (data.result ?? data) as Partial<PaneInfo> & {pane?: PaneInfo}
+  const result = (data.result ?? data) as Partial<PaneInfo> & { pane?: PaneInfo }
   const pane = result.pane ?? result
   if (!pane.pane_id) return null
-  return {cwd: pane.cwd, pane_id: pane.pane_id, tab_id: pane.tab_id, workspace_id: pane.workspace_id}
+  return { cwd: pane.cwd, pane_id: pane.pane_id, tab_id: pane.tab_id, workspace_id: pane.workspace_id }
 }
 
 // --- list ---
@@ -139,8 +139,8 @@ export function findAnyPane(): string | undefined {
 }
 
 function listPanesImpl(extraArgs: string[]): PaneInfo[] {
-  const raw = herdr(['pane', 'list', ...extraArgs, '--json'])
-  const data = parseJSON<{error?: {code?: string}; result?: {panes?: PaneInfo[]}}>(raw, 'pane list')
+  const raw = herdr(['pane', 'list', ...extraArgs])
+  const data = parseJSON<{ error?: { code?: string }; result?: { panes?: PaneInfo[] } }>(raw, 'pane list')
   if (data.error) throw new HerdrError(`herdr pane list failed: ${JSON.stringify(data.error)}`)
   return data.result?.panes ?? []
 }

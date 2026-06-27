@@ -14,8 +14,8 @@
  * marker, and we never edit `.beans/*.md` directly — `beans` stays the sole
  * authority on disk. Same outcome, no schema change.
  */
-import {execFileSync} from 'node:child_process'
-import {z} from 'zod'
+import { execFileSync } from 'node:child_process'
+import { z } from 'zod'
 
 const BEAN_BIN = 'beans'
 const WORKFLOW_MARKER_RE = /<!-- hordr:workflow=(\S+) -->/
@@ -107,9 +107,9 @@ function assertBeansOnPath(): void {
 /** Run `beans <args>`; any non-zero exit becomes a BeansError naming the bean + command + stderr. */
 function runBeans(args: string[], beanId: string): string {
   try {
-    return _shell(BEAN_BIN, args, {encoding: 'utf8'})
+    return _shell(BEAN_BIN, args, { encoding: 'utf8' })
   } catch (error) {
-    const e = error as {message?: string; stderr?: string}
+    const e = error as { message?: string; stderr?: string }
     const snippet = (e.stderr ?? e.message ?? '').slice(0, 200)
     throw new BeansError(`beans command failed for ${beanId}: ${BEAN_BIN} ${args.join(' ')}\n${snippet}`)
   }
@@ -136,7 +136,7 @@ export function getBean(beanId: string): BeanRecord {
     throw new BeansError(`bean ${beanId} has invalid status: ${JSON.stringify(loose.data.status) ?? '<missing>'}`)
   }
 
-  return {...loose.data, status: statusResult.data}
+  return { ...loose.data, status: statusResult.data }
 }
 
 export function getStatus(beanId: string): BeanStatus {
@@ -160,10 +160,10 @@ export function setStatus(beanId: string, status: BeanStatus): BeanStatus {
     throw new BeansError(`beans update returned non-JSON for ${beanId}: ${(error as Error).message}`)
   }
 
-  const result = BEAN_STATUS_SCHEMA.safeParse((data as {status?: unknown}).status)
+  const result = BEAN_STATUS_SCHEMA.safeParse((data as { status?: unknown }).status)
   if (!result.success) {
     throw new BeansError(
-      `beans update returned invalid status for ${beanId}: ${JSON.stringify((data as {status?: unknown}).status)}`,
+      `beans update returned invalid status for ${beanId}: ${JSON.stringify((data as { status?: unknown }).status)}`,
     )
   }
 

@@ -4,7 +4,7 @@ import process from 'node:process'
 import {getBean, getBody, setStatus} from '../beans/client.js'
 import {loadConfig} from '../config/loader.js'
 import {buildOpeningPrompt, resolveHarness} from '../harness/launcher.js'
-import {findAnyPane, paneLabel, runInPane, sendText, splitPane} from '../herdr/pane.js'
+import {findAnyPane, paneLabel, runInPane, splitPane} from '../herdr/pane.js'
 import {waitAgentStatus} from '../herdr/wait.js'
 
 /**
@@ -77,7 +77,7 @@ export default class Decompose extends Command {
 
     const split = splitPane({cwd, direction: 'right', label, parentPaneId})
     runInPane(split.pane_id, harness)
-    sendText(split.pane_id, prompt)
+    runInPane(split.pane_id, prompt)
 
     // 5. Wait for the planner to signal done.
     try {
