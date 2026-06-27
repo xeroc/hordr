@@ -1,13 +1,15 @@
 # Hordr — Specification
 
-> **Status:** Draft v2 — 2026-06-27
-> Hordr is a herdr plugin (standalone OCLIF binary, registered via `herdr-plugin.toml`) that orchestrates a horde of coding agents through Beans, git worktrees, and herdr panes.
+> **Status:** Draft v3 — 2026-06-27
+> Hordr is a herdr plugin (standalone OCLIF binary) that orchestrates a horde of coding agents. It sequences agents through workflows with HITL gates and concurrency limits. Domain-specific behavior (what the agent does — commit, test, PR, research) lives entirely in agent personas, not in engine code.
 
 ---
 
 ## 1. Overview
 
-Hordr turns each approved bean into an agent-executed PR. Discovery (spec + ADR authoring) lives **outside** hordr — a skill working on `develop` produces an epic bean (whose body IS the spec) and ADR files. Hordr's role is decomposition (`hordr decompose`) and implementation (`hordr run`). The human stays on `develop`, captures requirements as epic beans, runs decomposition, and reviews PRs. Hordr handles the rest: worktree creation, agent pane spawning, test execution, commit formatting, and PR opening.
+Hordr is a **generic agent orchestrator** (ADR-0011). It sequences agents through workflows with HITL gates and concurrency limits. The engine has two step kinds: `agent` (spawn + wait for done/blocked) and `hitl` (block for external signal). All domain-specific behavior — commits, tests, PRs, research methodology — lives in agent persona text, not engine code.
+
+Discovery (spec + ADR authoring) lives **outside** hordr. A skill working on `develop` produces an epic bean (whose body IS the spec) and ADR files. Hordr's role is decomposition (`hordr decompose`) and implementation (`hordr run`).
 
 ### End-to-end flow
 
@@ -220,19 +222,41 @@ There are two ways to enter the Run state machine:
 
 ---
 
-## 4. Step kinds (closed set, v1)
+## 4. Step kinds (ADR-0011)
 
-| Kind              | Agent       | Description                                             | Completion signal                        |
-| ----------------- | ----------- | ------------------------------------------------------- | ---------------------------------------- |
-| `draft-spec`      | planner     | Planner fills body sections, sets bean → `draft`        | `wait agent-status done` on planner pane |
-| `hitl` (approve)  | —           | Blocks until `hordr approve <bean>`                     | Run state transition                     |
-| `hitl` (external) | —           | Blocks until external event (e.g. PR merge)             | `hordr close-merged` detects             |
-| `implement`       | implementer | Harness runs in worktree root pane                      | `wait agent-status done`                 |
-| `test`            | tester      | Harness runs in sibling pane                            | `wait output "test-green\|test-red"`     |
-| `review`          | reviewer    | Optional; harness reviews diff                          | `wait agent-status done`                 |
-| `commit`          | —           | Implementer commits with trailer `Refs: <prefix><id>`   | Commit created on worktree branch        |
-| `pr`              | open_pr     | Harness opens PR via `gh pr create --base develop`      | PR URL in output                         |
-| `cleanup`         | —           | Post-merge: bean → `completed`, `herdr worktree remove` | Worktree removed                         |
+Two kinds. That's it.
+
+| Kind    | Agent? | Description                                                            | Completion signal                      |
+| ------- | ------ | ---------------------------------------------------------------------- | -------------------------------------- |
+| `agent` | yes    | Spawn a role-configured agent, wait for `done` or `blocked` (ADR-0013) | Agent's herdr status                   |
+| `hitl`  | no     | Block until an external command resolves the gate                      | `hordr approve` / `hordr close-merged` |
+
+**`agent` steps** are configured with `{agent: <role>}`. The engine spawns the harness binary for that role (from `config.agents.<role>.harness`), injects the persona text, and waits. The agent's self-reported herdr status IS the signal — the engine never parses agent output. `done` → advance. `blocked` → run blocks.
+
+**`hitl` steps** are configured with `{hitl: 'approve'}` or `{hitl: 'external'}`. The engine blocks the run until an external command resolves the gate.
+
+All domain-specific behavior (commit trailers, test execution, PR creation, code review, research methodology) lives in the **agent persona** — the opening prompt text defined in `config.agents.<role>.persona`. The engine is domain-agnostic.
+
+### Workflow YAML
+
+```yaml
+workflows:
+  implement:
+    worktree: true # ADR-0012: worktree is workflow-level
+    steps:
+      - agent: implementer
+      - agent: tester
+      - agent: reviewer
+      - hitl: external # blocks until hordr close-merged
+  plan:
+    steps:
+      - agent: planner
+      - hitl: approve # blocks until hordr approve
+  research:
+    steps: # no worktree — non-coding workflow
+      - agent: researcher
+      - hitl: approve
+```
 
 ---
 
@@ -298,22 +322,21 @@ Pane identity is by label (`hordr:<bean-id>:<role>`), resolved via `herdr pane l
 
 ```yaml
 hordr:
-  concurrency: 3 # max running + blocked Runs
-  primary_branch: develop # worktree base + PR target
-  worktree_branch_prefix: bean/ # → bean/<bean-id>
+  concurrency: 3
+  primary_branch: develop
+  worktree_branch_prefix: bean/
   agents:
     <role>:
       harness: opencode # binary on PATH
-      persona: | # opening prompt
+      persona: | # opening prompt — ALL domain behavior lives here
         ...
   workflows:
     <name>:
+      worktree: true # ADR-0012: optional, default false
       steps:
-        - kind: implement # from closed set
-          agent: implementer # references agents.<role>
-          optional: false # LLM/handler may skip if true
-          pane: root|sibling # where the harness runs
-          wait: 'regex' # output match that completes the step
+        - agent: <role> # spawn agent, wait for done/blocked
+        - hitl: approve # block until hordr approve
+        - hitl: external # block until hordr close-merged
   routing:
     default_workflow: implement
     plan_workflow: plan

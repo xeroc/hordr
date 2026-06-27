@@ -1,9 +1,7 @@
 import type {RunState} from '../../state/schema.js'
 import type {EngineDeps} from '../types.js'
 
-// StepError lives here (not in index.ts) to avoid a runtime circular import:
-// index.ts imports handlers, handlers import StepError. Keeping StepError in
-// shared.ts breaks the cycle while index.ts re-exports it for callers.
+// StepError lives here (not in index.ts) to avoid a runtime circular import.
 export class StepError extends Error {
   constructor(message: string) {
     super(message)
@@ -11,27 +9,14 @@ export class StepError extends Error {
   }
 }
 
-// SPEC §4 default agent roles per step kind (used when step.agent is absent).
-export const DEFAULT_ROLE: Record<string, string> = {
-  'draft-spec': 'planner',
-  implement: 'implementer',
-  pr: 'open_pr',
-  review: 'reviewer',
-  test: 'tester',
-}
-
 export interface LaunchResult {
   label: string
   panes: RunState['panes']
 }
 
-// Common idempotency pattern for agent-bearing steps: reuse an existing live
-// pane by label, or spawn a fresh one via deps. Returns the pane label and the
-// updated panes map. Callers persist the panes via runPatch.
-//
-// ponytail: workspace_id is used as both the herdr workspace id and the cwd
-// for the harness. hordr-1006 wires real worktree path resolution; tests pass
-// temp dirs as workspace_id.
+// Common idempotency pattern for agent steps: reuse an existing live
+// pane, or spawn a fresh one via deps. Returns the pane label and the
+// updated panes map.
 export function launchOrReuse(run: RunState, role: string, deps: EngineDeps): LaunchResult {
   const stored = run.panes[role]
 
@@ -40,9 +25,10 @@ export function launchOrReuse(run: RunState, role: string, deps: EngineDeps): La
   }
 
   const workspaceId = run.worktree?.workspace_id ?? run.bean
+  const cwd = run.worktree?.path ?? workspaceId
   const pane = deps.launchAgent({
     beanId: run.bean,
-    cwd: workspaceId,
+    cwd,
     role,
     workspaceId,
   })

@@ -9,4 +9,3 @@ export {
   resolveHarness,
   type WhichFn,
 } from './launcher.js'
-export {detectTestSignal} from './test-signal.js'

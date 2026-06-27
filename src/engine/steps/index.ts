@@ -1,37 +1,25 @@
-import type {HordrConfig} from '../../config/schema.js'
 import type {RunState} from '../../state/schema.js'
 import type {EngineDeps, StepResult} from '../types.js'
 
-import {cleanup} from './cleanup.js'
-import {commit} from './commit.js'
-import {draftSpec} from './draft-spec.js'
+import {agent} from './agent.js'
 import {hitl} from './hitl.js'
-import {implement} from './implement.js'
-import {pr} from './pr.js'
-import {review} from './review.js'
-import {testStep} from './test.js'
-
-// Re-export StepError here for callers; it is defined in shared.ts to break the
-// runtime circular import (index → handlers → shared, index → shared).
-export {StepError} from './shared.js'
-
-// Reuse the config step type via indexed access (not a redefinition). The
-// `flavor` field extends hitl steps with approve/external semantics that the
-// config schema does not yet model; harmless intersection.
-export type StepKind = HordrConfig['workflows'][string]['steps'][number]['kind']
-export type StepConfig = HordrConfig['workflows'][string]['steps'][number] & {
-  flavor?: 'approve' | 'external'
-}
 
 export type StepHandler = (run: RunState, step: StepConfig, deps: EngineDeps) => StepResult
 
-export const STEP_HANDLERS: Record<StepKind, StepHandler> = {
-  cleanup,
-  commit,
-  'draft-spec': draftSpec,
-  hitl,
-  implement,
-  pr,
-  review,
-  test: testStep,
+// ADR-0011: workflow steps are either {agent: <role>} or {hitl: <flavor>}.
+export interface StepConfig {
+  agent?: string
+  hitl?: 'approve' | 'external'
+}
+
+export {agent} from './agent.js'
+export {hitl} from './hitl.js'
+export {StepError} from './shared.js'
+export {launchOrReuse} from './shared.js'
+
+// Dispatch on step shape (ADR-0011).
+export function dispatchStep(run: RunState, step: StepConfig, deps: EngineDeps): StepResult {
+  if (step.agent) return agent(run, step, deps)
+  if (step.hitl) return hitl(run, step, deps)
+  throw new Error(`invalid step: must have .agent or .hitl — got ${JSON.stringify(step)}`)
 }

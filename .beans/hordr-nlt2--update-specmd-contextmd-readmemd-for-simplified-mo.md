@@ -1,11 +1,11 @@
 ---
 # hordr-nlt2
 title: Update SPEC.md, CONTEXT.md, README.md for simplified model
-status: todo
+status: completed
 type: task
 priority: high
 created_at: 2026-06-27T12:57:50Z
-updated_at: 2026-06-27T12:57:50Z
+updated_at: 2026-06-27T13:21:38Z
 parent: hordr-rt1e
 ---
 
@@ -45,3 +45,10 @@ README.md:
 ## Test Plan
 
 Manual review: read updated docs end-to-end, verify consistency.
+
+## Summary of Changes
+
+- SPEC.md → Draft v3: §1 updated (generic orchestrator), §4 rewritten (2 step kinds), §6 config schema updated (worktree field, simplified step syntax).
+- CONTEXT.md: Step definition updated (agent/hitl), Worktree definition updated (workflow-level config, ADR-0012).
+- README.md: created from scratch. Overview, flow, step kinds, workflow example, command reference, architecture summary, dev setup.
+- ADRs 0011-0013 referenced throughout.

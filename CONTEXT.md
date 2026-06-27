@@ -17,7 +17,7 @@ A named, ordered list of steps defined in `.beans.yml` under `hordr.workflows`. 
 _Avoid_: Pipeline, process.
 
 **Step**:
-A single phase within a workflow. Has a kind (draft-spec, hitl, implement, test, review, commit, pr, cleanup), an optional agent role, and a success/wait signal. The set of step kinds is closed in v1.
+A single phase within a workflow. Has a kind of `agent` or `hitl` (ADR-0011). Agent steps spawn a role-configured harness; hitl steps block for external signals. All domain behavior lives in agent personas.
 _Avoid_: Stage, phase.
 
 **Agent (role)**:
@@ -33,7 +33,7 @@ The opening prompt text injected into a harness when an agent pane starts. Defin
 _Avoid_: System prompt (overloaded), character.
 
 **Worktree**:
-A git worktree created and owned by herdr (`herdr worktree create`). Branched from the primary branch as `bean/<bean-id>`. Hordr references it by herdr workspace id and branch name; it never calls `git worktree` directly.
+A git worktree created and owned by herdr (`herdr worktree create`). Branched from the primary branch as `bean/<bean-id>`. Worktree creation is **workflow-level config** (ADR-0012): `worktree: true` in the workflow definition. Hordr creates it when the Run starts and removes it when the Run terminates.
 _Avoid_: Checkout, clone.
 
 **Pane**:

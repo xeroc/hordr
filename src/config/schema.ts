@@ -1,18 +1,15 @@
 /* eslint-disable camelcase -- keys mirror SPEC §6 YAML config field names */
 import {z} from 'zod'
 
-export const StepKindSchema = z.enum(['draft-spec', 'hitl', 'implement', 'test', 'review', 'commit', 'pr', 'cleanup'])
-
-export const StepDefSchema = z.object({
-  agent: z.string().min(1).optional(),
-  kind: StepKindSchema,
-  optional: z.boolean().default(false),
-  pane: z.enum(['root', 'sibling']).optional(),
-  wait: z.string().optional(),
-})
+// ADR-0011: steps are either {agent: <role>} or {hitl: <flavor>}.
+const AgentStepSchema = z.object({agent: z.string().min(1)})
+const HitlStepSchema = z.object({hitl: z.enum(['approve', 'external'])})
+export const StepDefSchema = z.union([AgentStepSchema, HitlStepSchema])
 
 export const WorkflowDefSchema = z.object({
   steps: z.array(StepDefSchema),
+  // ADR-0012: worktree is workflow-level config.
+  worktree: z.boolean().default(false),
 })
 
 export const AgentDefSchema = z.object({

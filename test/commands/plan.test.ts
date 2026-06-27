@@ -18,9 +18,8 @@ hordr:
   workflows:
     plan:
       steps:
-        - kind: draft-spec
-          agent: planner
-        - kind: hitl
+        - agent: planner
+        - hitl: approve
   routing:
     default_workflow: implement
     plan_workflow: plan
@@ -45,12 +44,12 @@ function beanJson(status: string): string {
 function mockDeps(beanId: string): EngineDeps {
   return {
     createWorktree: () => ({branch: `bean/${beanId}`, workspaceId: `/tmp/wt-${beanId}`}),
-    detectTestSignal: () => null,
     launchAgent: (opts) => ({paneLabel: `hordr:${opts.beanId}:${opts.role}`}),
     paneExists: () => false,
-    readAgentOutput: () => '',
     removeWorktree() {},
-    waitForAgentDone() {},
+    waitForAgentDone() {
+      return 'done' as const
+    },
   }
 }
 

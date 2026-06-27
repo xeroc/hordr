@@ -246,12 +246,10 @@ describe('commands/run', () => {
     })
     _setDepsForTesting({
       createWorktree: () => ({branch: 'bean/x', workspaceId: 'wX'}),
-      detectTestSignal: () => null,
       launchAgent: () => ({paneLabel: 'wX:p1'}),
       paneExists: () => true,
-      readAgentOutput: () => '',
       removeWorktree() {},
-      waitForAgentDone() {},
+      waitForAgentDone() { return 'done' as const },
     } as unknown as Parameters<typeof _setDepsForTesting>[0])
 
     const res = await invoke(['hordr-child1'])

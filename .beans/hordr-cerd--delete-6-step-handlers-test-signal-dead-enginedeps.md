@@ -1,11 +1,11 @@
 ---
 # hordr-cerd
 title: Delete 6 step handlers + test-signal + dead EngineDeps methods
-status: todo
+status: completed
 type: task
 priority: critical
 created_at: 2026-06-27T12:56:39Z
-updated_at: 2026-06-27T12:56:39Z
+updated_at: 2026-06-27T13:17:57Z
 parent: hordr-rt1e
 ---
 
@@ -43,3 +43,7 @@ Update src/engine/types.ts STUB_DEPS to remove deleted methods.
 ## Test Plan
 
 Existing step handler tests for deleted handlers are removed. Remaining tests (hitl) still pass.
+
+## Summary of Changes
+
+Implemented as part of the collapse to 2 step kinds (ADR-0011).

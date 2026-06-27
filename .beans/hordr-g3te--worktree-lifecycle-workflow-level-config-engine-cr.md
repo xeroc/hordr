@@ -1,11 +1,11 @@
 ---
 # hordr-g3te
 title: 'Worktree lifecycle: workflow-level config + engine create/remove'
-status: todo
+status: completed
 type: task
 priority: high
 created_at: 2026-06-27T12:57:20Z
-updated_at: 2026-06-27T12:57:20Z
+updated_at: 2026-06-27T13:17:57Z
 parent: hordr-rt1e
 ---
 
@@ -38,3 +38,7 @@ Worktree creation/removal moves from step-driven to workflow-driven (ADR-0012). 
 ## Test Plan
 
 Test: workflow with worktree: true → run creates worktree, step handler gets worktree cwd. Workflow with worktree: false → no worktree created, cwd is process.cwd().
+
+## Summary of Changes
+
+Implemented as part of the collapse to 2 step kinds (ADR-0011).

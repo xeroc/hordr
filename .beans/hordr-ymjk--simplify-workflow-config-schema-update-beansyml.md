@@ -1,11 +1,11 @@
 ---
 # hordr-ymjk
 title: Simplify workflow config schema + update .beans.yml
-status: todo
+status: completed
 type: task
 priority: high
 created_at: 2026-06-27T12:57:34Z
-updated_at: 2026-06-27T12:57:34Z
+updated_at: 2026-06-27T13:17:57Z
 parent: hordr-rt1e
 ---
 
@@ -53,3 +53,7 @@ The workflow config currently uses `kind: implement` / `kind: hitl` / etc with f
 ## Test Plan
 
 Config schema tests updated. Valid/invalid workflow configs tested.
+
+## Summary of Changes
+
+Implemented as part of the collapse to 2 step kinds (ADR-0011).

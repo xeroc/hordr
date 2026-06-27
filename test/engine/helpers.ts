@@ -18,16 +18,13 @@ export function makeRun(overrides: Partial<RunState> = {}): RunState {
 }
 
 // Minimal mock EngineDeps. Each function returns a canned value; callers pass
-// overrides to customise behaviour (e.g. detectTestSignal → 'red').
 export function makeDeps(overrides: Partial<EngineDeps> = {}): EngineDeps {
   return {
     createWorktree: (beanId) => ({branch: `bean/${beanId}`, workspaceId: `/tmp/wt-${beanId}`}),
-    detectTestSignal: () => 'green',
     launchAgent: (opts) => ({paneLabel: `hordr:${opts.beanId}:${opts.role}`}),
     paneExists: () => false,
-    readAgentOutput: () => '',
     removeWorktree() {},
-    waitForAgentDone() {},
+    waitForAgentDone() { return 'done' as const },
     ...overrides,
   }
 }

@@ -60,31 +60,15 @@ hordr:
   workflows:
     plan:
       steps:
-        - kind: draft-spec
-          agent: planner
-          pane: root
-          wait: 'agent-status: done'
-        - kind: hitl
+        - agent: planner
+        - hitl: approve
     implement:
+      worktree: true
       steps:
-        - kind: implement
-          agent: implementer
-          pane: root
-          wait: 'agent-status: done'
-        - kind: test
-          agent: tester
-          pane: sibling
-          wait: 'test-(green|red)'
-        - kind: review
-          agent: reviewer
-          optional: true
-          wait: 'agent-status: done'
-        - kind: commit
-        - kind: pr
-          agent: open_pr
-          wait: 'pr-url'
-        - kind: hitl
-          optional: false
+        - agent: implementer
+        - agent: tester
+        - agent: reviewer
+        - hitl: external
   routing:
     default_workflow: implement
     plan_workflow: plan

@@ -50,9 +50,13 @@ export default class Plan extends Command {
     const wt = deps.createWorktree(beanId)
     putRun({...run, worktree: {branch: wt.branch, workspace_id: wt.workspaceId}})
 
-    // Runs draft-spec step: spawns planner, waits for done, sets bean→draft,
-    // transitions run→awaiting-approval.
-    advance(beanId, deps)
+    // Drive the workflow forward until it blocks (at the hitl:approve gate).
+    // Step 0 (agent: planner) → done → step 1 (hitl: approve) → blocks with
+    // status=awaiting-approval.
+    let result
+    do {
+      result = advance(beanId, deps)
+    } while (result.done && !result.block && !result.terminal)
 
     const finalRun = getRun(beanId)
     if (flags.json) {

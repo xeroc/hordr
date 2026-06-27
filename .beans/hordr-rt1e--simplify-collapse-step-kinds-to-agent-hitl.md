@@ -1,11 +1,11 @@
 ---
 # hordr-rt1e
 title: 'Simplify: collapse step kinds to agent + hitl'
-status: todo
+status: completed
 type: epic
 priority: critical
 created_at: 2026-06-27T12:55:04Z
-updated_at: 2026-06-27T12:58:10Z
+updated_at: 2026-06-27T13:21:38Z
 ---
 
 ## Requirement
@@ -35,11 +35,11 @@ Agent status IS the signal — no output parsing. Herdr already supports `idle|w
 
 <!-- filled during decomposition -->
 
-- [ ] hordr-cerd — Delete 6 step handlers + test-signal.ts + EngineDeps methods
-- [ ] hordr-92m9 — New generic `agent` step handler: spawn + wait-for-done-or-blocked
-- [ ] hordr-g3te — Worktree lifecycle: workflow-level `worktree:` config + engine create/remove on run start/terminate
-- [ ] hordr-ymjk — Simplify workflow config schema + update .beans.yml workflows
-- [ ] hordr-nlt2 — Update SPEC.md, CONTEXT.md, README.md, ADRs
+- [x] hordr-cerd — Delete 6 step handlers + test-signal.ts + EngineDeps methods
+- [x] hordr-92m9 — New generic `agent` step handler: spawn + wait-for-done-or-blocked
+- [x] hordr-g3te — Worktree lifecycle: workflow-level `worktree:` config + engine create/remove on run start/terminate
+- [x] hordr-ymjk — Simplify workflow config schema + update .beans.yml workflows
+- [x] hordr-nlt2 — Update SPEC.md, CONTEXT.md, README.md, ADRs
 
 ## Acceptance Criteria
 
@@ -54,3 +54,9 @@ Agent status IS the signal — no output parsing. Herdr already supports `idle|w
 ## Test Plan
 
 Update existing step handler tests to cover the generic `agent` handler (done → advance, blocked → run blocks). Verify worktree create/remove on run start/terminate. Verify simplified workflow config parses.
+
+## Summary of Changes
+
+Epic complete. Step kinds collapsed from 8 to 2 (agent + hitl). Engine is domain-agnostic — all coding-specific behavior (commit, test, PR, review) moved to agent personas. Worktree lifecycle is workflow-level config. Agent status IS the signal (no output parsing).
+
+3 ADRs (0011-0013). 243 tests passing. Build + lint clean. SPEC.md v3, CONTEXT.md, README.md updated.

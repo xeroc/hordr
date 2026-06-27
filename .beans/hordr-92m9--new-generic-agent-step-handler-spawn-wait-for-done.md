@@ -1,11 +1,11 @@
 ---
 # hordr-92m9
 title: 'New generic agent step handler: spawn + wait-for-done-or-blocked'
-status: todo
+status: completed
 type: task
 priority: critical
 created_at: 2026-06-27T12:56:55Z
-updated_at: 2026-06-27T12:56:55Z
+updated_at: 2026-06-27T13:17:57Z
 parent: hordr-rt1e
 ---
 
@@ -44,3 +44,7 @@ Update EngineDeps.waitForAgentDone signature to return 'done' | 'blocked' instea
 ## Test Plan
 
 Unit test with mock deps: launchAgent returns pane, waitForAgentDone returns 'done' → advance. Returns 'blocked' → run blocks. Idempotency: existing pane reused.
+
+## Summary of Changes
+
+Implemented as part of the collapse to 2 step kinds (ADR-0011).

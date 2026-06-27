@@ -1,14 +1,6 @@
 /**
  * Production EngineDeps composition.
- *
- * Wires together the real implementations from src/herdr/* (worktree, pane,
- * wait), src/harness/* (launcher, test-signal), and src/beans/* (no-op here,
- * beans client is called directly by engine code). Commands import
- * `createEngineDeps()` and pass the result to engine functions.
- *
- * Test seam: `_setDepsForTesting(deps)` swaps the dep object for the duration
- * of a test. Commands should call `getDeps()` (not `createEngineDeps()`
- * directly) so the test override takes effect.
+ * Commands call getDeps(); tests override via _setDepsForTesting.
  */
 import process from 'node:process'
 
@@ -16,16 +8,10 @@ import type {EngineDeps, WorktreeInfo} from './engine/types.js'
 
 import {loadConfig} from './config/loader.js'
 import {launchAgent as harnessLaunchAgent} from './harness/launcher.js'
-import {detectTestSignal} from './harness/test-signal.js'
-import {findPane, readPane} from './herdr/pane.js'
+import {findPane} from './herdr/pane.js'
 import {waitAgentStatus} from './herdr/wait.js'
 import {branchFor, createWorktree, removeWorktree} from './herdr/worktree.js'
 
-/**
- * Build a fresh EngineDeps bound to the current process environment.
- * Each call returns an independent object (no shared mutable state beyond
- * the underlying module-level seams in src/herdr/* and src/harness/*).
- */
 export function createEngineDeps(): EngineDeps {
   return {
     createWorktree(beanId: string): WorktreeInfo {
@@ -39,16 +25,9 @@ export function createEngineDeps(): EngineDeps {
       return {branch: wt.branch, workspaceId: wt.workspace_id}
     },
 
-    detectTestSignal(paneId: string): 'green' | 'red' | null {
-      return detectTestSignal(paneId)
-    },
-
     launchAgent(opts: {beanId: string; cwd: string; role: string; workspaceId: string}): {
       paneLabel: string
     } {
-      // Delegate to the harness launcher — it handles persona + bean context
-      // internally. The cwd passed by the engine (the worktree path) flows
-      // through to herdr pane split --cwd.
       return harnessLaunchAgent(opts)
     },
 
@@ -57,16 +36,37 @@ export function createEngineDeps(): EngineDeps {
       return findPane(ws, paneId) !== null
     },
 
-    readAgentOutput(paneId: string, lines?: number): string {
-      return readPane({lines, paneId})
-    },
-
     removeWorktree(workspaceId: string): void {
       removeWorktree({workspaceId})
     },
 
-    waitForAgentDone(paneId: string, timeoutMs: number): void {
-      waitAgentStatus({paneId, status: 'done', timeoutMs})
+    waitForAgentDone(paneId: string, timeoutMs: number): 'blocked' | 'done' {
+      // ADR-0013: wait for done or blocked. Herdr's wait agent-status takes
+      // one status, so we poll with short intervals until we see done/blocked
+      // or the overall deadline expires.
+      const deadline = Date.now() + timeoutMs
+      const pollMs = Math.min(timeoutMs, 2000)
+
+      while (Date.now() < deadline) {
+        const remaining = deadline - Date.now()
+        const slice = Math.min(pollMs, remaining > 0 ? remaining : 1)
+        try {
+          waitAgentStatus({paneId, status: 'done', timeoutMs: slice})
+          return 'done'
+        } catch {
+          // Not done yet — try blocked.
+        }
+
+        try {
+          waitAgentStatus({paneId, status: 'blocked', timeoutMs: slice})
+          return 'blocked'
+        } catch {
+          // Not blocked either — keep polling.
+        }
+      }
+
+      // Timeout: treat as blocked (fail-safe).
+      return 'blocked'
     },
   }
 }
@@ -75,16 +75,10 @@ export function createEngineDeps(): EngineDeps {
 
 let _override: EngineDeps | null = null
 
-/**
- * Swap the dep object returned by `getDeps()`. Pass a full EngineDeps (use
- * STUB_DEPS as a base and override only what your test exercises). Pass `null`
- * to reset.
- */
 export function _setDepsForTesting(deps: EngineDeps | null): void {
   _override = deps
 }
 
-/** Commands call this; tests can override via `_setDepsForTesting`. */
 export function getDeps(): EngineDeps {
   return _override ?? createEngineDeps()
 }

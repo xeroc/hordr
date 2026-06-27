@@ -80,7 +80,7 @@ describe('commands/advance', () => {
     process.chdir(configDir)
     deps = makeDeps({
       launchAgent: (opts) => ({paneLabel: `hordr:${opts.beanId}:implementer`}),
-      waitForAgentDone() {},
+      waitForAgentDone() { return 'done' as const },
     })
     _setDepsForTesting(deps)
   })
