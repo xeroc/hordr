@@ -110,7 +110,7 @@ export function readWorktreeEvent(): WorktreeEvent {
  *
  * Example: "bean/hordr-1234" with prefix "bean/" → "hordr-1234".
  */
-export function beanIdFromBranch(branch: string, prefix = 'bean/'): null | string {
+export function beanIdFromBranch(branch: string, prefix: string): null | string {
   if (!branch.startsWith(prefix)) return null
   const id = branch.slice(prefix.length)
   return id.length > 0 ? id : null

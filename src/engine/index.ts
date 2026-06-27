@@ -4,5 +4,4 @@ export {activeCount, capacity, defaultSpawnSupervisor, drain, enqueue} from './q
 export {ALLOWED_TRANSITIONS, transition, TransitionError} from './run.js'
 export {dispatchStep, type StepConfig, StepError, type StepHandler} from './steps/index.js'
 export {supervise} from './supervise.js'
-export type {AgentPaneInfo, EngineDeps, StepResult, WorktreeInfo} from './types.js'
-export {STUB_DEPS} from './types.js'
+export type {EngineDeps, StepResult, WorktreeInfo} from './types.js'

@@ -1,5 +1,4 @@
 export {
-  closePane,
   findAnyPane,
   findPane,
   HerdrError as HerdrPaneError,
@@ -7,12 +6,8 @@ export {
   type PaneInfo,
   paneLabel,
   type PaneSplitOpts,
-  readPane,
-  type ReadPaneOpts,
-  renamePane,
   runInPane,
   sendText,
-  splitLabeled,
   splitPane,
 } from './pane.js'
 export {HerdrError as HerdrWaitError, HerdrWaitTimeout, waitAgentStatus, type WaitAgentStatusOpts} from './wait.js'

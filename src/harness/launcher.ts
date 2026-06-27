@@ -21,8 +21,7 @@ import {execFileSync} from 'node:child_process'
 import {getBean} from '../beans/client.js'
 import {loadConfig} from '../config/loader.js'
 import {type HordrConfig} from '../config/schema.js'
-import {paneLabel as makePaneLabel, type PaneInfo, runInPane, sendText, splitLabeled} from '../herdr/pane.js'
-import {listPanes} from '../herdr/pane.js'
+import {listPanes, paneLabel as makePaneLabel, runInPane, sendText,splitPane} from '../herdr/pane.js'
 
 export class HarnessError extends Error {
   constructor(message: string) {
@@ -58,20 +57,7 @@ export function _resetWhich(): void {
   _which = defaultWhich
 }
 
-// --- workspace root pane lookup (test seam) ---
-
-// Used by launchAgent to find the parent pane for splitting.
-let _listPanes: (workspaceId: string) => PaneInfo[] = listPanes
-
-export function _setListPanesForTesting(fn: (workspaceId: string) => PaneInfo[]): void {
-  _listPanes = fn
-}
-
-export function _resetListPanes(): void {
-  _listPanes = listPanes
-}
-
-// --- section extraction (same header-scan logic as beans/validate-spec.ts) ---
+// --- section extraction ---
 
 /** Body of a `## Header` section until the next `## ` line; `(missing)` if absent. */
 function extractSection(body: string, header: string): string {
@@ -135,7 +121,7 @@ export function launchAgent(opts: {beanId: string; cwd: string; role: string; wo
 
   // Find the workspace's root pane to split from. The worktree-create call
   // ensures the workspace has at least one pane (the root pane from JSON output).
-  const panes = _listPanes(opts.workspaceId)
+  const panes = listPanes(opts.workspaceId)
   if (panes.length === 0) {
     throw new HarnessError(`workspace ${opts.workspaceId} has no panes to split from`)
   }
@@ -143,7 +129,7 @@ export function launchAgent(opts: {beanId: string; cwd: string; role: string; wo
   const parentPaneId = panes[0].pane_id
 
   // Split + rename in one call. Direction 'right' is the conventional default.
-  const pane = splitLabeled({
+  const pane = splitPane({
     cwd: opts.cwd,
     direction: 'right',
     label,

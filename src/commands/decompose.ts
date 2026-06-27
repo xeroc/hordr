@@ -5,7 +5,7 @@ import {getBean, getBody, setStatus} from '../beans/client.js'
 import {validateSpec} from '../beans/validate-spec.js'
 import {loadConfig} from '../config/loader.js'
 import {buildOpeningPrompt, resolveHarness} from '../harness/launcher.js'
-import {findAnyPane, paneLabel, runInPane, sendText, splitLabeled} from '../herdr/pane.js'
+import {findAnyPane, paneLabel, runInPane, sendText, splitPane} from '../herdr/pane.js'
 import {waitAgentStatus} from '../herdr/wait.js'
 
 /**
@@ -88,7 +88,7 @@ export default class Decompose extends Command {
       this.error('no herdr panes found — run `hordr decompose` inside a herdr session', {exit: 2})
     }
 
-    const split = splitLabeled({cwd, direction: 'right', label, parentPaneId})
+    const split = splitPane({cwd, direction: 'right', label, parentPaneId})
     runInPane(split.pane_id, harness)
     sendText(split.pane_id, prompt)
 

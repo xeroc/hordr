@@ -123,7 +123,7 @@ describe('herdr plugin manifest, event hooks, and helpers (hordr-1701, hordr-170
 
   describe('beanIdFromBranch helper', () => {
     it('extracts the bean id from a prefixed branch', () => {
-      expect(beanIdFromBranch('bean/hordr-1234')).to.equal('hordr-1234')
+      expect(beanIdFromBranch('bean/hordr-1234', 'bean/')).to.equal('hordr-1234')
     })
 
     it('honours a custom prefix', () => {
@@ -131,13 +131,13 @@ describe('herdr plugin manifest, event hooks, and helpers (hordr-1701, hordr-170
     })
 
     it('returns null for non-hordr branches', () => {
-      expect(beanIdFromBranch('feature/foo')).to.be.null
-      expect(beanIdFromBranch('develop')).to.be.null
-      expect(beanIdFromBranch('main')).to.be.null
+      expect(beanIdFromBranch('feature/foo', 'bean/')).to.be.null
+      expect(beanIdFromBranch('develop', 'bean/')).to.be.null
+      expect(beanIdFromBranch('main', 'bean/')).to.be.null
     })
 
     it('returns null when prefix matches but id is empty', () => {
-      expect(beanIdFromBranch('bean/')).to.be.null
+      expect(beanIdFromBranch('bean/', 'bean/')).to.be.null
     })
   })
 })

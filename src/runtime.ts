@@ -32,8 +32,7 @@ export function createEngineDeps(): EngineDeps {
     },
 
     paneExists(paneId: string): boolean {
-      const ws = paneId.split(':')[0]
-      return findPane(ws, paneId) !== null
+      return findPane(paneId) !== null
     },
 
     removeWorktree(workspaceId: string): void {

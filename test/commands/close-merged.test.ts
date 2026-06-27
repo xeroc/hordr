@@ -5,9 +5,10 @@ import {mkdtempSync, rmSync} from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
+import type {EngineDeps} from '../../src/engine/types.js'
+
 import {_resetShell, _setBeansPresentForTesting, _setShellForTesting} from '../../src/beans/client.js'
 import {_resetGh, _setGhForTesting, _setGhPresentForTesting} from '../../src/engine/close-merged.js'
-import {STUB_DEPS} from '../../src/engine/types.js'
 import {_setDepsForTesting} from '../../src/runtime.js'
 import {getRun, putRun} from '../../src/state/index.js'
 import {makeRun} from '../engine/helpers.js'
@@ -48,7 +49,7 @@ describe('command: close-merged', () => {
     })
     _setGhPresentForTesting(true)
     _setDepsForTesting({
-      ...STUB_DEPS,
+      ...({} as EngineDeps),
       removeWorktree(workspaceId: string) {
         removedWorktrees.push(workspaceId)
       },

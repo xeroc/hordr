@@ -1,7 +1,5 @@
 export {
-  _resetListPanes,
   _resetWhich,
-  _setListPanesForTesting,
   _setWhichForTesting,
   buildOpeningPrompt,
   HarnessError,

@@ -1,8 +1,6 @@
 /* eslint-disable camelcase -- SAMPLE_BEAN mirrors the on-disk beans JSON contract (status, pane_id, workspace_id) */
 import {assert, expect} from 'chai'
 
-import type {PaneInfo} from '../../src/herdr/pane.js'
-
 import {
   _resetShell as _resetBeansShell,
   _setBeansPresentForTesting,
@@ -11,9 +9,7 @@ import {
   type ShellOptions,
 } from '../../src/beans/client.js'
 import {
-  _resetListPanes,
   _resetWhich,
-  _setListPanesForTesting,
   _setWhichForTesting,
   buildOpeningPrompt,
   HarnessError,
@@ -128,14 +124,12 @@ describe('harness/launcher', () => {
     _setBeansShell(mockBeans)
     _setBeansPresentForTesting(true)
     // Default listPanes returns the workspace root pane.
-    _setListPanesForTesting((): PaneInfo[] => [{pane_id: 'wX:p1', workspace_id: 'wX'}])
   })
 
   afterEach(() => {
     _resetPaneShell()
     _resetWaitShell()
     _resetWhich()
-    _resetListPanes()
     _resetBeansShell()
     _setBeansPresentForTesting(true)
   })
@@ -232,7 +226,14 @@ describe('harness/launcher', () => {
     it('throws HarnessError when the workspace has no panes to split from', () => {
       _setWhichForTesting(() => true)
       beansResponder = () => JSON.stringify(SAMPLE_BEAN)
-      _setListPanesForTesting(() => [])
+      // Override pane shell to return empty pane list for this test.
+      _setPaneShell((args: string[]) => {
+        if (args[0] === 'pane' && args[1] === 'list') {
+          return JSON.stringify({result: {panes: []}})
+        }
+
+        return ''
+      })
 
       expect(() =>
         launchAgent({
