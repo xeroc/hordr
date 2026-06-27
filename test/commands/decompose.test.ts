@@ -107,7 +107,7 @@ function beanJson(bean: BeanShape): string {
 
 describe('commands/decompose (hordr-cqjx)', () => {
   let stateDir: string
-  let beansCalls: {args: string[]; cmd: string;}[] = []
+  let beansCalls: {args: string[]; cmd: string}[] = []
   let beansResponder: ((cmd: string, args: string[]) => string) | null = null
 
   // Recording wrapper — installed once in beforeEach, never replaced. Tests
@@ -172,15 +172,6 @@ describe('commands/decompose (hordr-cqjx)', () => {
     })
     expect(result.error).to.exist
     expect(result.error!.message).to.match(/expected 'todo'/)
-  })
-
-  it('refuses if epic body fails validate-spec', async () => {
-    beansResponder = () => beanJson(makeBean({body: '## Requirement\n\nOnly this.\n'}))
-    const result = await captureOutput(async () => {
-      await Decompose.run(['hordr-test-epic'], {root: PROJECT_ROOT})
-    })
-    expect(result.error).to.exist
-    expect(result.error!.message).to.match(/body invalid/)
   })
 
   it('refuses if Decomposition section already has children (without --force)', async () => {
@@ -255,7 +246,7 @@ describe('commands/decompose (hordr-cqjx)', () => {
       await Decompose.run(['hordr-test-epic', '--json'], {root: PROJECT_ROOT})
     })
     expect(result.error, result.error?.message).to.be.undefined
-    const parsed = JSON.parse(result.stdout.trim()) as {childCount: number; epic: string; status: string;}
+    const parsed = JSON.parse(result.stdout.trim()) as {childCount: number; epic: string; status: string}
     expect(parsed.epic).to.equal('hordr-test-epic')
     expect(parsed.status).to.equal('completed')
     expect(parsed.childCount).to.be.a('number')

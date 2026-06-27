@@ -92,7 +92,6 @@ const BEAN_JSON_TODO = JSON.stringify({
   updated_at: '2026-01-01T00:00:00Z',
 })
 
-
 describe('commands/run', () => {
   let stateDir: string
   let configDir: string
@@ -229,18 +228,5 @@ describe('commands/run', () => {
 
     expect(res.error, res.error?.message).to.be.undefined
     expect(res.stdout).to.match(/started hordr-child1/)
-  })
-
-  it('refuses if body fails validate-spec', async () => {
-    const badBean = JSON.stringify({
-      ...JSON.parse(BEAN_JSON_TODO),
-      body: '## Requirement\n\nOnly this.\n', // missing 3 sections
-    })
-    _setShellForTesting(() => badBean)
-
-    const res = await invoke(['hordr-1602'])
-
-    expect(res.error).to.exist
-    expect(res.error!.message).to.match(/body invalid/)
   })
 })

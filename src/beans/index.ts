@@ -8,4 +8,3 @@ export {
   setStatus,
   setWorkflow,
 } from './client.js'
-export {type BeanType, type SpecValidation, validateSpec} from './validate-spec.js'

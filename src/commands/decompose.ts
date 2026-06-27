@@ -2,7 +2,6 @@ import {Args, Command, Flags} from '@oclif/core'
 import process from 'node:process'
 
 import {getBean, getBody, setStatus} from '../beans/client.js'
-import {validateSpec} from '../beans/validate-spec.js'
 import {loadConfig} from '../config/loader.js'
 import {buildOpeningPrompt, resolveHarness} from '../harness/launcher.js'
 import {findAnyPane, paneLabel, runInPane, sendText, splitPane} from '../herdr/pane.js'
@@ -47,20 +46,8 @@ export default class Decompose extends Command {
       this.error(`${epicId} status is '${epic.status}', expected 'todo'`, {exit: 2})
     }
 
-    // 2. Validate the epic body against the 6-section contract.
+    // 2. Idempotency: check Decomposition section. If non-empty, refuse (unless --force).
     const body = getBody(epicId)
-    const validation = validateSpec(body, 'epic')
-    if (!validation.valid) {
-      const detail = [
-        validation.missing.length > 0 ? `missing: ${validation.missing.join(', ')}` : '',
-        validation.empty.length > 0 ? `empty: ${validation.empty.join(', ')}` : '',
-      ]
-        .filter(Boolean)
-        .join('; ')
-      this.error(`epic ${epicId} body invalid — ${detail}`, {exit: 1})
-    }
-
-    // 3. Idempotency: check Decomposition section. If non-empty, refuse (unless --force).
     const decompHeader = '## Decomposition'
     const decompIdx = body.indexOf(decompHeader)
     if (decompIdx !== -1) {

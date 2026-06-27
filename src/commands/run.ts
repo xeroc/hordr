@@ -1,8 +1,7 @@
 /* eslint-disable camelcase -- RunState fields use snake_case per on-disk JSON contract */
 import {Args, Command, Flags} from '@oclif/core'
 
-import {getBean, getBody, setWorkflow} from '../beans/client.js'
-import {validateSpec} from '../beans/validate-spec.js'
+import {setWorkflow} from '../beans/client.js'
 import {loadConfig} from '../config/loader.js'
 import {defaultSpawnSupervisor, enqueue} from '../engine/queue.js'
 import {getDeps} from '../runtime.js'
@@ -27,19 +26,6 @@ export default class Run extends Command {
   async run(): Promise<void> {
     const {args, flags} = await this.parse(Run)
     const beanId = args.bean
-    const bean = getBean(beanId)
-
-    // Gate: body must be valid before starting.
-    const validation = validateSpec(getBody(beanId), bean.type as 'epic' | 'task')
-    if (!validation.valid) {
-      const detail = [
-        validation.missing.length > 0 ? `missing: ${validation.missing.join(', ')}` : '',
-        validation.empty.length > 0 ? `empty: ${validation.empty.join(', ')}` : '',
-      ]
-        .filter(Boolean)
-        .join('; ')
-      this.error(`bean ${beanId} body invalid — ${detail}`, {exit: 1})
-    }
 
     // Create Run at queued if none exists.
     let run = getRun(beanId)
