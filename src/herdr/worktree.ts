@@ -137,46 +137,6 @@ export function createWorktree(opts: WorktreeCreateOpts): WorktreeInfo {
   return info
 }
 
-// --- open ---
-export interface WorktreeOpenOpts {
-  // herdr requires --path OR --branch for open.
-  branch?: string
-  cwd?: string
-  focus?: boolean
-  label?: string
-  path?: string
-  workspaceId?: string
-}
-
-export interface WorktreeOpenInfo {
-  workspace_id: string
-}
-
-export function openWorktree(opts: WorktreeOpenOpts): WorktreeOpenInfo {
-  if (!opts.path && !opts.branch) throw new HerdrError('path or branch is required')
-  if (!opts.cwd && !opts.workspaceId) throw new HerdrError('cwd or workspaceId is required')
-  if (opts.cwd && opts.workspaceId) throw new HerdrError('cwd and workspaceId are mutually exclusive')
-
-  assertHerdrOnPath()
-
-  const args = ['worktree', 'open', '--json']
-  if (opts.cwd) args.push('--cwd', opts.cwd)
-  if (opts.workspaceId) args.push('--workspace', opts.workspaceId)
-  if (opts.path) args.push('--path', opts.path)
-  if (opts.branch) args.push('--branch', opts.branch)
-  if (opts.label) args.push('--label', opts.label)
-  if (opts.focus === true) args.push('--focus')
-  if (opts.focus === false) args.push('--no-focus')
-
-  const r = runHerdr(args, opts.cwd)
-  const workspaceId = (r.workspace_id as string | undefined) ?? (obj(r.workspace).workspace_id as string | undefined)
-  if (!workspaceId) {
-    throw new HerdrError(`herdr ${args.join(' ')}: result missing workspace_id`)
-  }
-
-  return {workspace_id: workspaceId}
-}
-
 // --- remove ---
 export interface WorktreeRemoveOpts {
   force?: boolean

@@ -1,7 +1,5 @@
 import {Args, Command, Flags} from '@oclif/core'
 /* eslint-disable camelcase -- RunState worktree + started_unix/updated_unix fields mirror the on-disk JSON contract */
-import {spawn} from 'node:child_process'
-import process from 'node:process'
 
 import type {RunState} from '../state/schema.js'
 
@@ -14,15 +12,7 @@ import {getRun, putRun} from '../state/run-store.js'
 
 // ponytail: HERDR_BIN_PATH lets tests point the detached supervisor spawn at a
 // no-op binary (/bin/true). Prod leaves it unset → real `hordr supervise`.
-function spawnSupervisor(beanId: string): void {
-  const bin = process.env.HERDR_BIN_PATH
-  if (bin) {
-    spawn(bin, ['supervise', beanId], {detached: true, stdio: 'ignore'}).unref()
-    return
-  }
-
-  defaultSpawnSupervisor(beanId)
-}
+// Matches the pattern in commands/drain.ts.
 
 /**
  * Returns the parent bean if this bean has one and the parent is a completed
@@ -115,7 +105,7 @@ export default class Run extends Command {
     }
 
     const deps = getDeps()
-    const outcome = enqueue(beanId, deps, spawnSupervisor)
+    const outcome = enqueue(beanId, deps, defaultSpawnSupervisor)
 
     if (flags.json) {
       this.log(JSON.stringify({bean: beanId, decomposedChild: Boolean(epicParent), outcome}))

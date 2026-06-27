@@ -1,4 +1,3 @@
-export {HerdrNotifyError, notify, type NotifyOpts} from './notify.js'
 export {
   closePane,
   findAnyPane,
@@ -16,23 +15,13 @@ export {
   splitLabeled,
   splitPane,
 } from './pane.js'
-export {
-  HerdrError as HerdrWaitError,
-  HerdrWaitTimeout,
-  waitAgentStatus,
-  type WaitAgentStatusOpts,
-  waitOutput,
-  type WaitOutputOpts,
-} from './wait.js'
+export {HerdrError as HerdrWaitError, HerdrWaitTimeout, waitAgentStatus, type WaitAgentStatusOpts} from './wait.js'
 export {
   branchFor,
   createWorktree,
   HerdrError,
-  openWorktree,
   removeWorktree,
   type WorktreeCreateOpts,
   type WorktreeInfo,
-  type WorktreeOpenInfo,
-  type WorktreeOpenOpts,
   type WorktreeRemoveOpts,
 } from './worktree.js'

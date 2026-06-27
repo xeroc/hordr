@@ -18,10 +18,7 @@ import {
   buildOpeningPrompt,
   HarnessError,
   launchAgent,
-  readAgentOutput,
   resolveHarness,
-  splitSiblingPane,
-  waitForAgentDone,
 } from '../../src/harness/launcher.js'
 import {_resetShell as _resetPaneShell, _setShellForTesting as _setPaneShell} from '../../src/herdr/pane.js'
 import {_resetShell as _resetWaitShell, _setShellForTesting as _setWaitShell} from '../../src/herdr/wait.js'
@@ -245,69 +242,6 @@ describe('harness/launcher', () => {
           workspaceId: 'wX',
         }),
       ).to.throw(HarnessError, /workspace wX has no panes/)
-    })
-  })
-
-  // --- hordr-1502 ---
-
-  describe('waitForAgentDone', () => {
-    it('returns when the harness reaches done (mock succeeds)', () => {
-      waitResponder = () => ''
-      expect(() => waitForAgentDone('wX:p2', 1000)).to.not.throw()
-      const wait = waitCalls[0]
-      expect(wait.args).to.include('wait')
-      expect(wait.args).to.include('agent-status')
-      expect(wait.args).to.include('wX:p2')
-      expect(wait.args).to.include('--status')
-      expect(wait.args).to.include('done')
-    })
-
-    it('throws HarnessError naming the pane on timeout', () => {
-      waitResponder = () => {
-        throw new Error('timed out')
-      }
-
-      expect(() => waitForAgentDone('wX:p2', 50)).to.throw(HarnessError, /agent wX:p2 did not reach done within 50ms/)
-    })
-  })
-
-  describe('readAgentOutput', () => {
-    it('returns recent pane output and passes through --source recent and --lines', () => {
-      paneResponder = (c) => {
-        if (c.args[0] === 'pane' && c.args[1] === 'read') return 'tests passed\ntest-green\n'
-        return ''
-      }
-
-      const out = readAgentOutput('wX:p2', 42)
-      expect(out).to.equal('tests passed\ntest-green\n')
-      const call = paneCalls.find((c) => c.args[1] === 'read')
-      assert.ok(call)
-      expect(call!.args).to.include('wX:p2')
-      expect(call!.args).to.include('--source')
-      expect(call!.args).to.include('recent')
-      expect(call!.args).to.include('--lines')
-      expect(call!.args).to.include('42')
-    })
-  })
-
-  describe('splitSiblingPane', () => {
-    it('splits + labels a sibling pane from the parent', () => {
-      const result = splitSiblingPane({
-        cwd: '/repo/wt/bean-hordr-1501',
-        newLabel: 'hordr:hordr-1501:tester',
-        parentLabel: 'wX:p2',
-      })
-      expect(result).to.deep.equal({paneLabel: 'wX:pNEW'})
-
-      const split = paneCalls.find((c) => c.args[1] === 'split')
-      assert.ok(split)
-      expect(split!.args).to.include('--pane')
-      expect(split!.args).to.include('wX:p2')
-      expect(split!.args).to.include('--cwd')
-
-      const rename = paneCalls.find((c) => c.args[1] === 'rename')
-      assert.ok(rename)
-      expect(rename!.args).to.include('hordr:hordr-1501:tester')
     })
   })
 })

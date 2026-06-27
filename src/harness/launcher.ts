@@ -21,17 +21,8 @@ import {execFileSync} from 'node:child_process'
 import {getBean} from '../beans/client.js'
 import {loadConfig} from '../config/loader.js'
 import {type HordrConfig} from '../config/schema.js'
-import {
-  paneLabel as makePaneLabel,
-  type PaneInfo,
-  readPane,
-  runInPane,
-  sendText,
-  splitLabeled,
-  splitPane,
-} from '../herdr/pane.js'
+import {paneLabel as makePaneLabel, type PaneInfo, runInPane, sendText, splitLabeled} from '../herdr/pane.js'
 import {listPanes} from '../herdr/pane.js'
-import {waitAgentStatus} from '../herdr/wait.js'
 
 export class HarnessError extends Error {
   constructor(message: string) {
@@ -164,41 +155,5 @@ export function launchAgent(opts: {beanId: string; cwd: string; role: string; wo
   // Send the prompt as raw text (no Enter — harness reads stdin).
   sendText(pane.pane_id, prompt)
 
-  return {paneLabel: pane.pane_id}
-}
-
-// --- hordr-1502: agent-pane lifecycle ---
-
-/**
- * Block until the harness in `paneId` reaches `done`. Delegates to
- * `herdr wait agent-status` via src/herdr/wait.ts. Throws HarnessError on
- * timeout (the underlying HerdrWaitTimeout is rewrapped for engine compat).
- */
-export function waitForAgentDone(paneId: string, timeoutMs: number): void {
-  try {
-    waitAgentStatus({paneId, status: 'done', timeoutMs})
-  } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error)
-    throw new HarnessError(`agent ${paneId} did not reach done within ${timeoutMs}ms: ${msg}`)
-  }
-}
-
-/** Recent output of a pane. Delegates to `herdr pane read` via src/herdr/pane.ts. */
-export function readAgentOutput(paneId: string, lines = 200): string {
-  return readPane({lines, paneId})
-}
-
-/**
- * Split a sibling pane (e.g. the tester) from an existing pane. Used by the
- * engine's `test` step to spawn the tester next to the implementer.
- */
-export function splitSiblingPane(opts: {cwd: string; newLabel: string; parentLabel: string}): {paneLabel: string} {
-  // parentLabel is actually a pane_id at runtime (see file header).
-  const pane = splitPane({
-    cwd: opts.cwd,
-    direction: 'right',
-    label: opts.newLabel,
-    parentPaneId: opts.parentLabel,
-  })
   return {paneLabel: pane.pane_id}
 }

@@ -46,7 +46,6 @@
     "agents"
   ],
   "license": "MIT",
-  "main": "dist/index.js",
   "type": "module",
   "oclif": {
     "bin": "hordr",
@@ -68,6 +67,5 @@
     "prepack": "oclif manifest && oclif readme",
     "test": "mocha --forbid-only \"test/**/*.test.ts\"",
     "version": "oclif readme && git add README.md"
-  },
-  "types": "dist/index.d.ts"
+  }
 }

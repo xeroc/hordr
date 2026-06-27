@@ -6,10 +6,7 @@ export {
   buildOpeningPrompt,
   HarnessError,
   launchAgent,
-  readAgentOutput,
   resolveHarness,
-  splitSiblingPane,
-  waitForAgentDone,
   type WhichFn,
 } from './launcher.js'
 export {detectTestSignal} from './test-signal.js'

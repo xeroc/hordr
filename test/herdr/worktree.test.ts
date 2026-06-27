@@ -8,7 +8,6 @@ import {
   branchFor,
   createWorktree,
   HerdrError,
-  openWorktree,
   removeWorktree,
   type ShellFn,
 } from '../../src/herdr/worktree.js'
@@ -114,22 +113,6 @@ describe('herdr/worktree', () => {
   it('throws HerdrError when herdr returns an error envelope', () => {
     responder = () => JSON.stringify({error: {code: 'bad_ref', message: 'no such ref'}, id: 'cli:worktree:create'})
     expect(() => createWorktree({branch: 'b', cwd: '/r'})).to.throw(HerdrError, /bad_ref: no such ref/)
-  })
-
-  it('openWorktree returns {workspace_id} (AC #2)', () => {
-    responder = () => JSON.stringify({id: 'cli:worktree:open', result: {type: 'worktree_opened', workspace_id: 'wO'}})
-    const info = openWorktree({branch: 'wttest', cwd: '/r'})
-    expect(info).to.deep.equal({workspace_id: 'wO'})
-  })
-
-  it('openWorktree falls back to result.workspace.workspace_id', () => {
-    responder = () => JSON.stringify({id: 'cli:worktree:open', result: {workspace: {workspace_id: 'wF'}}})
-    expect(openWorktree({cwd: '/r', path: '/wt'}).workspace_id).to.equal('wF')
-  })
-
-  it('openWorktree requires path or branch', () => {
-    responder = () => '{}'
-    expect(() => openWorktree({cwd: '/r'})).to.throw(HerdrError, /path or branch is required/)
   })
 
   it('removeWorktree succeeds on happy path (AC #3)', () => {
