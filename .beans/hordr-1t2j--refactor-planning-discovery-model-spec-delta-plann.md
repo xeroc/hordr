@@ -1,11 +1,11 @@
 ---
 # hordr-1t2j
 title: 'Refactor: planning & discovery model (SPEC-delta-planning)'
-status: todo
+status: completed
 type: epic
 priority: high
 created_at: 2026-06-26T20:48:54Z
-updated_at: 2026-06-26T20:59:44Z
+updated_at: 2026-06-27T11:39:23Z
 ---
 
 ## Requirement
@@ -33,10 +33,10 @@ See SPEC-delta-planning.md for the full design. Key changes:
 <!-- filled by hordr decompose; empty until decomposition runs -->
 
 - [x] hordr-itiu — Cleanup: commit signing retry + queue spawn resilience
-- [ ] hordr-jd9m — Type-aware validate-spec (epic 6 sections, task/bug 4 sections)
-- [ ] hordr-cqjx — hordr decompose <epic> command
-- [ ] hordr-gn70 — hordr run <child> skips planning for tasks with completed epic parent
-- [ ] hordr-si47 — Update SPEC.md (merge delta) + archive SPEC-delta-planning.md
+- [x] hordr-jd9m — Type-aware validate-spec (epic 6 sections, task/bug 4 sections)
+- [x] hordr-cqjx — hordr decompose <epic> command
+- [x] hordr-gn70 — hordr run <child> skips planning for tasks with completed epic parent
+- [x] hordr-si47 — Update SPEC.md (merge delta) + archive SPEC-delta-planning.md
 
 ## Acceptance Criteria
 
@@ -50,3 +50,15 @@ See SPEC-delta-planning.md for the full design. Key changes:
 ## Test Plan
 
 Unit tests per new command + modified validate-spec. Integration test: create epic, decompose, run child, verify Run state. Update existing validate-spec tests to cover both type paths.
+
+## Summary of Changes
+
+Refactor epic complete. All 5 child tasks delivered:
+- hordr-itiu (cleanup): commit signing retry + queue spawn resilience
+- hordr-jd9m (validate-spec): type-aware 6-section epic / 4-section task dispatch
+- hordr-cqjx (decompose): stateless planner-driven epic decomposition
+- hordr-gn70 (run): decomposed children skip planning, enter at queued
+- hordr-si47 (spec): SPEC.md updated to Draft v2, delta absorbed
+
+3 ADRs written (0008 epic-is-spec, 0009 decompose-stateless, 0010 children-skip-planning).
+298 tests passing. Build + lint clean. SPEC.md v2 reflects the new planning & discovery model.

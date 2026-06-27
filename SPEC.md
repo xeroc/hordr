@@ -1,13 +1,46 @@
 # Hordr — Specification
 
-> **Status:** Draft v1 — 2026-06-26
+> **Status:** Draft v2 — 2026-06-27
 > Hordr is a herdr plugin (standalone OCLIF binary, registered via `herdr-plugin.toml`) that orchestrates a horde of coding agents through Beans, git worktrees, and herdr panes.
 
 ---
 
 ## 1. Overview
 
-Hordr turns each approved bean into an agent-executed PR. The human stays on the `develop` branch, captures requirements as beans, approves specs, and reviews PRs. Hordr handles the rest: worktree creation, agent pane spawning, test execution, commit formatting, and PR opening.
+Hordr turns each approved bean into an agent-executed PR. Discovery (spec + ADR authoring) lives **outside** hordr — a skill working on `develop` produces an epic bean (whose body IS the spec) and ADR files. Hordr's role is decomposition (`hordr decompose`) and implementation (`hordr run`). The human stays on `develop`, captures requirements as epic beans, runs decomposition, and reviews PRs. Hordr handles the rest: worktree creation, agent pane spawning, test execution, commit formatting, and PR opening.
+
+### End-to-end flow
+
+```
+DISCOVERY (outside hordr — skill on develop)
+  human + LLM discuss problem, explore edges
+  → write ADRs to docs/adr/NNNN-*.md (on develop)
+  → create epic bean (body = spec + decision refs)
+  git commit on develop: + docs/adr/, + .beans/epic
+        │
+        ▼
+DECOMPOSE (hordr — on develop, no worktree)
+  hordr decompose <epic>
+  → planner pane reads epic body + ADRs
+  → creates N child task beans (--parent <epic>)
+  → fills epic's ## Decomposition section
+  → epic → completed
+        │
+        ▼
+IMPLEMENTATION (hordr — per child, worktree)
+  hordr run <child>   (or hordr drain)
+  → worktree: bean/<child-id>
+  → implement → test → review → commit → pr
+  → child → in-progress
+        │
+        ▼
+FINALIZE (human + hordr)
+  human reviews PRs, merges on GitHub
+  hordr close-merged
+  → child → completed, worktree removed
+```
+
+Key: discovery and decomposition happen on `develop`. Only implementation spins off worktrees.
 
 ### System boundaries
 
@@ -46,7 +79,14 @@ Bean status stays coarse (Beans-native). Fine-grained workflow position lives in
 
 ### Body contract
 
-Before a bean can leave `draft` (i.e. before `hordr approve` succeeds), the body must contain all four sections with non-empty content:
+The body contract is **type-aware** (ADR-0008):
+
+| Bean type     | Required sections                                                                        |
+| ------------- | ---------------------------------------------------------------------------------------- |
+| `task`, `bug` | Requirement, Spec, Acceptance Criteria, Test Plan (4 sections)                           |
+| `epic`        | Requirement, Spec, Decisions, Decomposition, Acceptance Criteria, Test Plan (6 sections) |
+
+**Task/bug body (4 sections):**
 
 ```markdown
 ## Requirement
@@ -67,7 +107,52 @@ Before a bean can leave `draft` (i.e. before `hordr approve` succeeds), the body
 <how to verify, including test types and coverage notes>
 ```
 
-`hordr validate-spec <bean>` checks this programmatically (regex/section parse).
+**Epic body (6 sections):**
+
+```markdown
+## Requirement
+
+<problem statement — why this epic exists>
+
+## Spec
+
+<full technical spec — scope, user journeys, key flows, constraints.
+This IS the spec document. There is no separate specs/ file.>
+
+## Decisions
+
+- [ADR-0007](docs/adr/0007-postgresql.md) — PostgreSQL for durable queue (accepted)
+- [ADR-0008](docs/adr/0008-concurrency-model.md) — Token-bucket rate limiter (accepted)
+
+## Decomposition
+
+<!-- filled by hordr decompose; empty until decomposition runs -->
+
+- [ ] bean-id — Child title
+- [ ] bean-id — Child title
+
+## Acceptance Criteria
+
+- [ ] <epic-level criterion — integration / end-to-end>
+
+## Test Plan
+
+<integration / E2E verification strategy for the epic as a whole>
+```
+
+For epics, `## Decisions` and `## Decomposition` may have empty content (Decisions empty = no ADRs; Decomposition empty = not yet decomposed) but the section headers MUST exist. `## Acceptance Criteria` still requires at least one `- [ ]` checkbox for both types.
+
+`hordr validate-spec <bean>` dispatches on bean type and checks the appropriate contract.
+
+### Lifecycle table additions (ADR-0008, ADR-0010)
+
+| Bean status | Type | Body                               | Run state            | What it means                                                            |
+| ----------- | ---- | ---------------------------------- | -------------------- | ------------------------------------------------------------------------ |
+| `todo`      | epic | spec complete, Decomposition empty | _(none)_             | Created by discovery skill. Ready for `hordr decompose`.                 |
+| `completed` | epic | spec + Decomposition filled        | _(none)_             | Decomposed into children. Epic's job is done.                            |
+| `todo`      | task | full 4-section                     | _(none)_ or `queued` | Child of an epic (or standalone). Ready for `hordr run`. Skips planning. |
+
+**Decomposed children skip the planning phase entirely** (ADR-0010). No `draft-spec` step, no `awaiting-approval` Run state. `hordr run <child>` creates the Run directly at `queued`. Standalone tasks (not from decomposition) still go through `hordr plan` → `draft-spec` → `awaiting-approval` → `queued` as today.
 
 ### Workflow assignment
 
@@ -79,35 +164,47 @@ Each bean has a `workflow:` frontmatter field, set during `hordr plan` (defaults
 
 A Run is identified by its bean id (natural key). State persists to `$HERDR_PLUGIN_STATE_DIR/<bean-id>.json`.
 
+**Runs apply to task/bug beans only** (ADR-0009). Epic beans never have a Run — `hordr decompose` is a stateless command.
+
+### Entry paths
+
+There are two ways to enter the Run state machine:
+
+1. **Standalone task** (via `hordr plan`): `(none) → planning → awaiting-approval → queued`
+2. **Decomposed child** (via `hordr run <child>`): `(none) → queued` (ADR-0010 — body already complete from decomposition)
+
 ```
-                        hordr plan
-  (none) ──────────────────────────────────► planning
-                                                 │
-                                                 │ planner fills body
-                                                 ▼
-                                        awaiting-approval
-                                                 │
-                                          hordr approve
-                                                 │
-                                    ┌────────────┴────────────┐
-                                    │ concurrency full?       │
-                                    ▼                         ▼
-                                 queued ◄──────────── running (slot freed)
-                                    │                         │
-                             hordr drain / run           advance loop:
-                                    │                    implement → test
-                                    ▼                    → review? → commit
-                                 running                  → pr → HITL(ext)
-                                                         │           │
-                                                  any step │           │ close-merged
-                                                  can block│           ▼
-                                                         ▼         closed
-                                                      blocked
-                                                         │
-                                              hordr take / hordr reset
-                                                         │
-                                                         ▼
-                                          running (resume) / (none)
+                      hordr plan                  hordr decompose
+                       (task)                       (epic)
+  (none) ──────────────────────► planning          │
+                                      │              │ creates children
+                                      │              │ (todo, full body)
+                                      ▼              │
+                            awaiting-approval        │
+                                      │              ▼
+                               hordr approve    ┌──────────┐
+                                      │         │  child   │ ← todo, body complete
+                           ┌────────────┘         │ (no Run) │
+                           ▼                      └────┬─────┘
+                        queued ◄───────────────────────┘
+                           │                        hordr run <child>
+                    hordr drain / run               (creates Run at queued)
+                           │
+                           ▼
+                        running
+                           │
+                     implement → test → review
+                           → commit → pr
+                           │           │
+                    any step │           │ close-merged
+                    can block│           ▼
+                           ▼         closed
+                        blocked
+                           │
+                hordr take / hordr reset
+                           │
+                           ▼
+            running (resume) / (none)
 ```
 
 | Run state           | Bean status      | Supervisor pane | Description                             |
@@ -141,19 +238,46 @@ A Run is identified by its bean id (natural key). State persists to `$HERDR_PLUG
 
 ## 5. CLI commands
 
-| Command                      | Description                                                                           |
-| ---------------------------- | ------------------------------------------------------------------------------------- |
-| `hordr plan <bean>`          | Create a Run, spawn planner pane, draft spec. Bean → `draft`.                         |
-| `hordr validate-spec <bean>` | Check 4 body sections. Exit 0 if valid, 1 if not.                                     |
-| `hordr approve <bean>`       | HITL gate: validate-spec, then bean `draft` → `todo`. Run → `queued`.                 |
-| `hordr run <bean>`           | Enqueue bean; drain queue if slot available. Spawns supervisor pane.                  |
-| `hordr advance <bean>`       | Execute the next step. Idempotent — safe to call repeatedly.                          |
-| `hordr supervise <bean>`     | Blocking loop: `while not terminal: advance; wait`. Runs in supervisor pane.          |
-| `hordr take <bean>`          | Focus the blocked pane for interactive recovery. Run stays `blocked` until `advance`. |
-| `hordr status`               | List all Runs with state, step, pane refs. Show queue depth.                          |
-| `hordr drain`                | Start queued Runs until concurrency limit.                                            |
-| `hordr reset <bean>`         | Delete Run state + worktree + branch. Bean reverts to `todo`.                         |
-| `hordr close-merged`         | Scan Runs in `pr-open`; for each merged PR: bean → `completed`, worktree remove.      |
+| Command                      | Description                                                                                           |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `hordr decompose <epic>`     | Stateless (ADR-0009): spawn planner on develop, create child task beans, epic → `completed`.          |
+| `hordr plan <bean>`          | Create a Run, spawn planner pane, draft spec. Bean → `draft`. (Standalone task path.)                 |
+| `hordr validate-spec <bean>` | **Type-aware:** epics check 6 sections; tasks/bugs check 4. Exit 0 if valid, 1 if not.                |
+| `hordr approve <bean>`       | HITL gate: validate-spec, then bean `draft` → `todo`. Run → `queued`.                                 |
+| `hordr run <bean>`           | Enqueue bean. Decomposed children (ADR-0010) create Run directly at `queued`. Spawns supervisor pane. |
+| `hordr advance <bean>`       | Execute the next step. Idempotent — safe to call repeatedly.                                          |
+| `hordr supervise <bean>`     | Blocking loop: `while not terminal: advance; wait`. Runs in supervisor pane.                          |
+| `hordr take <bean>`          | Focus the blocked pane for interactive recovery. Run stays `blocked` until `advance`.                 |
+| `hordr status`               | List all Runs with state, step, pane refs. Show queue depth.                                          |
+| `hordr drain`                | Start queued Runs until concurrency limit.                                                            |
+| `hordr reset <bean>`         | Delete Run state + worktree + branch. Bean reverts to `todo`.                                         |
+| `hordr close-merged`         | Scan Runs in `pr-open`; for each merged PR: bean → `completed`, worktree remove.                      |
+
+### `hordr decompose` — contract (ADR-0009)
+
+**Preconditions:**
+
+- Bean type is `epic`, status is `todo`.
+- Body passes `validate-spec` for epic contract (all 6 sections present).
+- Decomposition section is empty (no children yet), unless `--force`.
+
+**Execution:**
+
+1. Spawn planner pane on `develop` (no worktree). Label: `hordr:<epic-id>:planner`.
+2. Planner reads epic body + every ADR in `## Decisions`.
+3. Planner creates child beans via `beans create "<title>" -t task --parent <epic-id>`.
+4. Planner fills epic's `## Decomposition` section.
+5. Epic → `completed`.
+
+**Postconditions:**
+
+- N child beans exist with status `todo`, parent `<epic-id>`, complete 4-section bodies.
+- Epic status `completed`, Decomposition section lists all children.
+
+**Idempotency:**
+
+- If epic already has children → warn, exit (unless `--force`).
+- Planner checks existing children before creating new ones.
 
 ### Idempotency
 
@@ -189,7 +313,7 @@ hordr:
           agent: implementer # references agents.<role>
           optional: false # LLM/handler may skip if true
           pane: root|sibling # where the harness runs
-          wait: "regex" # output match that completes the step
+          wait: 'regex' # output match that completes the step
   routing:
     default_workflow: implement
     plan_workflow: plan

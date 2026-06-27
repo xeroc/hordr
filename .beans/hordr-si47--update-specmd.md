@@ -1,11 +1,11 @@
 ---
 # hordr-si47
 title: Update SPEC.md
-status: todo
+status: completed
 type: task
 priority: high
 created_at: 2026-06-26T20:59:34Z
-updated_at: 2026-06-26T20:59:34Z
+updated_at: 2026-06-27T11:39:23Z
 parent: hordr-1t2j
 ---
 
@@ -41,3 +41,13 @@ Archive SPEC-delta-planning.md by either deleting it (its content is now in SPEC
 ## Test Plan
 
 Manual: read the new SPEC.md end-to-end, verify each delta section is represented. Diff check against delta file.
+
+## Summary of Changes
+
+- SPEC.md updated to Draft v2:
+  - §1 Overview: discovery → decompose → implement pipeline description with ASCII flow diagram.
+  - §2 Bean lifecycle: type-aware body contract (epic 6 sections, task/bug 4 sections); lifecycle table additions for epic + decomposed children.
+  - §3 Run state machine: clarified Runs apply to task/bug only; added decompose entry path; updated state diagram showing both plan and decompose paths.
+  - §5 CLI commands: added hordr decompose row + full contract section; updated validate-spec description as type-aware.
+- SPEC-delta-planning.md deleted (content absorbed into SPEC.md).
+- 298 tests passing, build + lint clean.
