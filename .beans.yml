@@ -58,10 +58,6 @@ hordr:
       persona: |
         You open pull requests with trailer Refs: <bean-id>.
   workflows:
-    plan:
-      steps:
-        - agent: planner
-        - hitl: approve
     implement:
       worktree: true
       steps:

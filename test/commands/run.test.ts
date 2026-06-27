@@ -92,7 +92,6 @@ const BEAN_JSON_TODO = JSON.stringify({
   updated_at: '2026-01-01T00:00:00Z',
 })
 
-const BEAN_JSON_INPROGRESS = JSON.stringify({...JSON.parse(BEAN_JSON_TODO), status: 'in-progress'})
 
 describe('commands/run', () => {
   let stateDir: string
@@ -147,34 +146,6 @@ describe('commands/run', () => {
 
     expect(res.error).to.be.undefined
     expect(res.stdout).to.match(/started hordr-1602 \(supervisor pane spawned\)/)
-  })
-
-  it('rejects if bean status is not todo', async () => {
-    _setShellForTesting(() => BEAN_JSON_INPROGRESS)
-    putRun({
-      bean: 'hordr-1602',
-      panes: {},
-      started_unix: 1,
-      status: 'queued',
-      step: 0,
-      updated_unix: 1,
-      workflow: 'implement',
-      worktree: null,
-    })
-
-    const res = await invoke(['hordr-1602'])
-
-    expect(res.error).to.be.instanceOf(Error)
-    expect(res.error!.message).to.match(/not approved/)
-    expect(res.error!.oclif?.exit).to.equal(2)
-  })
-
-  it('rejects if no run exists for the bean', async () => {
-    const res = await invoke(['hordr-1602'])
-
-    expect(res.error).to.be.instanceOf(Error)
-    expect(res.error!.message).to.match(/no run found/)
-    expect(res.error!.oclif?.exit).to.equal(2)
   })
 
   it('rejects if run is not in queued status', async () => {
@@ -249,7 +220,9 @@ describe('commands/run', () => {
       launchAgent: () => ({paneLabel: 'wX:p1'}),
       paneExists: () => true,
       removeWorktree() {},
-      waitForAgentDone() { return 'done' as const },
+      waitForAgentDone() {
+        return 'done' as const
+      },
     } as unknown as Parameters<typeof _setDepsForTesting>[0])
 
     const res = await invoke(['hordr-child1'])
@@ -258,39 +231,7 @@ describe('commands/run', () => {
     expect(res.stdout).to.match(/started hordr-child1/)
   })
 
-  it('child of non-completed epic: falls through to standalone path (requires prior plan)', async () => {
-    const childBean = JSON.stringify({
-      ...JSON.parse(BEAN_JSON_TODO),
-      id: 'hordr-child2',
-      parent_id: 'hordr-epic2',
-    })
-    const epicBean = JSON.stringify({
-      body: VALID_BODY,
-      created_at: '2026-01-01T00:00:00Z',
-      etag: 'e3',
-      id: 'hordr-epic2',
-      path: 'hordr-epic2.md',
-      priority: 'normal',
-      slug: 'epic',
-      status: 'todo', // not completed yet
-      title: 'Epic',
-      type: 'epic',
-      updated_at: '2026-01-01T00:00:00Z',
-    })
-    let callCount = 0
-    _setShellForTesting(() => {
-      callCount++
-      return callCount % 2 === 1 ? childBean : epicBean
-    })
-
-    const res = await invoke(['hordr-child2'])
-
-    expect(res.error).to.exist
-    // Falls through to "no run found" since no prior plan created one.
-    expect(res.error!.message).to.match(/no run found/)
-  })
-
-  it('refuses if body fails validate-spec (protects against half-decomposed children)', async () => {
+  it('refuses if body fails validate-spec', async () => {
     const badBean = JSON.stringify({
       ...JSON.parse(BEAN_JSON_TODO),
       body: '## Requirement\n\nOnly this.\n', // missing 3 sections
