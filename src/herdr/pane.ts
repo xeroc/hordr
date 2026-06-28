@@ -3,9 +3,11 @@
  *
  * Uses tabs (not splits) for agent panes — cleaner when many agents run in
  * parallel. Each agent gets its own tab with a hordr:<bean>:<role> label.
+ *
+ * NOTE: herdr pane always returns a json object, so we don't need --json argument!
  */
 /* eslint-disable camelcase -- field names mirror herdr's JSON contract */
-import {execFileSync} from 'node:child_process'
+import { execFileSync } from 'node:child_process'
 
 const HERDR_BIN = process.env.HERDR_BIN_PATH ?? 'herdr'
 
@@ -17,7 +19,7 @@ export class HerdrError extends Error {
 }
 
 // --- test seam ---
-export type ShellFn = (args: string[], opts?: {cwd?: string}) => string
+export type ShellFn = (args: string[], opts?: { cwd?: string }) => string
 
 const defaultShell: ShellFn = (args, opts) =>
   execFileSync(HERDR_BIN, args, {
@@ -40,7 +42,7 @@ function herdr(args: string[]): string {
   try {
     return _shell(args)
   } catch (error) {
-    const e = error as {message?: string; stderr?: string}
+    const e = error as { message?: string; stderr?: string }
     throw new HerdrError(
       `herdr command failed: herdr ${args.join(' ')}\n${(e.stderr ?? e.message ?? '').slice(0, 200)}`,
     )
@@ -77,13 +79,13 @@ export interface CreateTabOpts {
  * This is the preferred way to spawn agent panes — each agent gets its own tab.
  */
 export function createTab(opts: CreateTabOpts): PaneInfo {
-  const args = ['tab', 'create', '--workspace', opts.workspaceId, '--cwd', opts.cwd, '--json']
+  const args = ['tab', 'create', '--workspace', opts.workspaceId, '--cwd', opts.cwd]
   if (opts.label) args.push('--label', opts.label)
 
   const raw = herdr(args)
   const data = parseJSON<{
-    error?: {code?: string; message?: string}
-    result?: {root_pane?: PaneInfo; tab?: {tab_id?: string}}
+    error?: { code?: string; message?: string }
+    result?: { root_pane?: PaneInfo; tab?: { tab_id?: string } }
   }>(raw, 'tab create')
 
   if (data.error) throw new HerdrError(`herdr tab create failed: ${JSON.stringify(data.error)}`)
@@ -102,9 +104,9 @@ export function paneLabel(beanId: string, role: string): string {
 // --- find ---
 
 export function findPane(paneId: string): null | PaneInfo {
-  const raw = herdr(['pane', 'get', paneId, '--json'])
+  const raw = herdr(['pane', 'get', paneId])
   const data = parseJSON<
-    Partial<PaneInfo> & {error?: {code?: string; message?: string}; result?: Partial<PaneInfo> & {pane?: PaneInfo}}
+    Partial<PaneInfo> & { error?: { code?: string; message?: string }; result?: Partial<PaneInfo> & { pane?: PaneInfo } }
   >(raw, 'pane get')
 
   if (data.error) {
@@ -112,25 +114,25 @@ export function findPane(paneId: string): null | PaneInfo {
     throw new HerdrError(`herdr pane get failed: ${JSON.stringify(data.error)}`)
   }
 
-  const result = (data.result ?? data) as Partial<PaneInfo> & {pane?: PaneInfo}
+  const result = (data.result ?? data) as Partial<PaneInfo> & { pane?: PaneInfo }
   const pane = result.pane ?? result
   if (!pane.pane_id) return null
-  return {cwd: pane.cwd, pane_id: pane.pane_id, tab_id: pane.tab_id, workspace_id: pane.workspace_id}
+  return { cwd: pane.cwd, pane_id: pane.pane_id, tab_id: pane.tab_id, workspace_id: pane.workspace_id }
 }
 
 // --- list ---
 
 export function listPanes(workspaceId: string): PaneInfo[] {
-  const raw = herdr(['pane', 'list', '--workspace', workspaceId, '--json'])
-  const data = parseJSON<{error?: {code?: string}; result?: {panes?: PaneInfo[]}}>(raw, 'pane list')
+  const raw = herdr(['pane', 'list', '--workspace', workspaceId])
+  const data = parseJSON<{ error?: { code?: string }; result?: { panes?: PaneInfo[] } }>(raw, 'pane list')
   if (data.error) throw new HerdrError(`herdr pane list failed: ${JSON.stringify(data.error)}`)
   return data.result?.panes ?? []
 }
 
 /** Find the workspace_id of any pane in the session. Used as fallback when HERDR_PANE_ID is unset. */
 export function findAnyPane(): string | undefined {
-  const raw = herdr(['pane', 'list', '--json'])
-  const data = parseJSON<{result?: {panes?: PaneInfo[]}}>(raw, 'pane list')
+  const raw = herdr(['pane', 'list'])
+  const data = parseJSON<{ result?: { panes?: PaneInfo[] } }>(raw, 'pane list')
   return data.result?.panes?.[0]?.pane_id
 }
 

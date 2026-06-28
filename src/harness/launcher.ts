@@ -5,12 +5,12 @@
  * `opencode run "<prompt>"` (or equivalent for other harnesses) — no
  * send-text/send-keys dance, no sleep.
  */
-import {execFileSync} from 'node:child_process'
+import { execFileSync } from 'node:child_process'
 
-import {getBean} from '../beans/client.js'
-import {loadConfig} from '../config/loader.js'
-import {type HordrConfig} from '../config/schema.js'
-import {createTab, paneLabel as makePaneLabel, runInPane} from '../herdr/pane.js'
+import { getBean } from '../beans/client.js'
+import { loadConfig } from '../config/loader.js'
+import { type HordrConfig } from '../config/schema.js'
+import { createTab, paneLabel as makePaneLabel, runInPane } from '../herdr/pane.js'
 
 export class HarnessError extends Error {
   constructor(message: string) {
@@ -24,7 +24,7 @@ export type WhichFn = (binary: string) => boolean
 
 const defaultWhich: WhichFn = (binary) => {
   try {
-    execFileSync('sh', ['-c', `command -v ${binary}`], {encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe']})
+    execFileSync('sh', ['-c', `command -v ${binary}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
     return true
   } catch {
     return false
@@ -77,7 +77,7 @@ ${bean.body}`
  * Launch an agent in a new tab. Single pane run call with the prompt
  * passed directly to the harness (e.g. `opencode run '<prompt>'`).
  */
-export function launchAgent(opts: {beanId: string; cwd: string; role: string; workspaceId: string}): {
+export function launchAgent(opts: { beanId: string; cwd: string; role: string; workspaceId: string }): {
   paneLabel: string
 } {
   const config = loadConfig()
@@ -85,9 +85,9 @@ export function launchAgent(opts: {beanId: string; cwd: string; role: string; wo
   const prompt = buildPrompt(opts.role, config, opts.beanId)
   const label = makePaneLabel(opts.beanId, opts.role)
 
-  const pane = createTab({cwd: opts.cwd, label, workspaceId: opts.workspaceId})
+  const pane = createTab({ cwd: opts.cwd, label, workspaceId: opts.workspaceId })
 
-  runInPane(pane.pane_id, `${harness} run ${shellQuote(prompt)}`)
+  runInPane(pane.pane_id, `${harness} run -i ${shellQuote(prompt)}`)
 
-  return {paneLabel: pane.pane_id}
+  return { paneLabel: pane.pane_id }
 }
