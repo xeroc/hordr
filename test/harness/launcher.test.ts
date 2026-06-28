@@ -11,7 +11,7 @@ import {
 import {
   _resetWhich,
   _setWhichForTesting,
-  buildOpeningPrompt,
+  buildPrompt,
   HarnessError,
   launchAgent,
   resolveHarness,
@@ -70,7 +70,7 @@ const mockWait = (args: string[]): string => {
   return ''
 }
 
-// beans CLI mock (getBean inside buildOpeningPrompt/launchAgent)
+// beans CLI mock (getBean inside buildPrompt/launchAgent)
 interface BeansCall {
   args: string[]
   cmd: string
@@ -153,35 +153,20 @@ describe('harness/launcher', () => {
     })
   })
 
-  describe('buildOpeningPrompt', () => {
-    it('contains the persona verbatim, the bean id, and the acceptance criteria', () => {
+  describe('buildPrompt', () => {
+    it('contains persona + bean id + raw body', () => {
       beansResponder = () => JSON.stringify(SAMPLE_BEAN)
-      const prompt = buildOpeningPrompt('implementer', makeConfig(), 'hordr-1501')
+      const prompt = buildPrompt('implementer', makeConfig(), 'hordr-1501')
       expect(prompt).to.contain(PERSONA)
       expect(prompt).to.contain('Bean: hordr-1501')
-      expect(prompt).to.contain('Title: Harness resolution + persona injection')
       expect(prompt).to.contain('Build the thing.')
-      expect(prompt).to.contain('## Acceptance Criteria')
-      expect(prompt).to.contain('- [ ] It works')
-    })
-
-    it('includes "(missing)" when the acceptance-criteria section is absent', () => {
-      beansResponder = () =>
-        JSON.stringify({
-          ...SAMPLE_BEAN,
-          body: '## Requirement\n\nOnly this.\n',
-        })
-      const prompt = buildOpeningPrompt('implementer', makeConfig(), 'hordr-1501')
-      expect(prompt).to.contain('Only this.')
-      expect(prompt).to.contain('(missing)')
     })
   })
 
   describe('launchAgent', () => {
-    it('creates a tab, starts harness, sends prompt via send-text + send-keys Enter; returns pane_id', () => {
+    it('creates a tab and runs harness with the prompt in one shot', () => {
       _setWhichForTesting(() => true)
       beansResponder = () => JSON.stringify(SAMPLE_BEAN)
-      // Override pane responder: tab create returns root pane.
       paneResponder = (c) => {
         if (c.args[0] === 'tab' && c.args[1] === 'create')
           return JSON.stringify({result: {root_pane: {pane_id: 'wX:pNEW', workspace_id: 'wX'}}})
@@ -205,22 +190,14 @@ describe('harness/launcher', () => {
       expect(tabCreate!.args).to.include('--cwd', '/repo/wt/bean-hordr-1501')
       expect(tabCreate!.args).to.include('--label', 'hordr:hordr-1501:implementer')
 
-      // 2. pane run sends the harness binary
+      // 2. single pane run call with "opencode run '<prompt>'"
       const run = paneCalls.find((c) => c.args[0] === 'pane' && c.args[1] === 'run')
       assert.ok(run, 'pane run was called')
       expect(run!.args).to.include('wX:pNEW')
-      expect(run!.args).to.include('opencode')
-
-      // 3. pane send-text sends the prompt (raw text, no Enter)
-      const sendText = paneCalls.find((c) => c.args[0] === 'pane' && c.args[1] === 'send-text')
-      assert.ok(sendText, 'pane send-text was called')
-      const promptArg = sendText!.args.at(-1)
-      expect(promptArg).to.contain('Bean: hordr-1501')
-
-      // 4. pane send-keys Enter submits the prompt
-      const sendKeys = paneCalls.find((c) => c.args[0] === 'pane' && c.args[1] === 'send-keys')
-      assert.ok(sendKeys, 'pane send-keys was called')
-      expect(sendKeys!.args).to.include('Enter')
+      // The command should be "opencode run '...'" with the prompt
+      const cmd = run!.args.at(-1)!
+      expect(cmd).to.contain('opencode run')
+      expect(cmd).to.contain('Bean: hordr-1501')
     })
 
     it('returns the pane_id from the tab', () => {

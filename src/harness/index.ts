@@ -1,9 +1,10 @@
 export {
   _resetWhich,
   _setWhichForTesting,
-  buildOpeningPrompt,
+  buildPrompt,
   HarnessError,
   launchAgent,
   resolveHarness,
+  shellQuote,
   type WhichFn,
 } from './launcher.js'

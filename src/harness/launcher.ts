@@ -1,20 +1,16 @@
 /**
- * Harness resolution, persona injection, and agent-pane lifecycle.
+ * Harness resolution and agent launching.
  *
- * Uses TABS (not splits) for agent panes — each agent gets its own tab.
- * This is cleaner when many agents run in parallel.
- *
- * Prompt delivery: start the harness via `pane run` (shell command + Enter),
- * wait briefly for TUI initialization, then type the prompt via `pane
- * send-text` (raw text, no shell interpretation) and press Enter via `pane
- * send-keys Enter`.
+ * Uses tabs for agent panes. Prompt is passed directly to the harness via
+ * `opencode run "<prompt>"` (or equivalent for other harnesses) — no
+ * send-text/send-keys dance, no sleep.
  */
 import {execFileSync} from 'node:child_process'
 
 import {getBean} from '../beans/client.js'
 import {loadConfig} from '../config/loader.js'
 import {type HordrConfig} from '../config/schema.js'
-import {createTab, paneLabel as makePaneLabel, runInPane, sendEnter, sendText} from '../herdr/pane.js'
+import {createTab, paneLabel as makePaneLabel, runInPane} from '../herdr/pane.js'
 
 export class HarnessError extends Error {
   constructor(message: string) {
@@ -23,8 +19,7 @@ export class HarnessError extends Error {
   }
 }
 
-// --- test seams ---
-
+// --- test seam ---
 export type WhichFn = (binary: string) => boolean
 
 const defaultWhich: WhichFn = (binary) => {
@@ -46,86 +41,53 @@ export function _resetWhich(): void {
   _which = defaultWhich
 }
 
-// --- section extraction ---
+// --- helpers ---
 
-function extractSection(body: string, header: string): string {
-  const lines = body.split('\n')
-  const idx = lines.findIndex((line) => line.trim() === header)
-  if (idx === -1) return '(missing)'
-  let end = idx + 1
-  while (end < lines.length && !lines[end].startsWith('## ')) end++
-  return lines
-    .slice(idx + 1, end)
-    .join('\n')
-    .trim()
+/** Shell-safe single-quote a string (handles embedded single quotes + newlines). */
+export function shellQuote(s: string): string {
+  return `'${s.replaceAll('\'', String.raw`'\''`)}'`
 }
-
-// --- resolution + persona injection ---
 
 export function resolveHarness(role: string, config: HordrConfig): string {
   const agent = config.agents[role]
   if (!agent) throw new HarnessError(`no agent configured for role '${role}'`)
-  const {harness} = agent
-  if (!_which(harness)) throw new HarnessError(`harness '${harness}' not on PATH`)
-  return harness
+  if (!_which(agent.harness)) throw new HarnessError(`harness '${agent.harness}' not on PATH`)
+  return agent.harness
 }
 
-export function buildOpeningPrompt(role: string, config: HordrConfig, beanId: string): string {
+/**
+ * Build the prompt: persona text + bean body (raw, no section extraction).
+ * The agent is smart enough to read and interpret the bean content.
+ */
+export function buildPrompt(role: string, config: HordrConfig, beanId: string): string {
   const persona = config.agents[role]?.persona
   if (!persona) throw new HarnessError(`no agent configured for role '${role}'`)
   const bean = getBean(beanId)
-  const requirement = extractSection(bean.body, '## Requirement')
-  const acceptance = extractSection(bean.body, '## Acceptance Criteria')
   return `${persona}
+
 ---
 
 Bean: ${beanId}
 Title: ${bean.title}
 
-## Requirement
-${requirement}
-
-## Acceptance Criteria
-${acceptance}
-`
+${bean.body}`
 }
 
 /**
- * Full launch sequence:
- * 1. Create a new tab in the target workspace (NOT a pane split).
- * 2. Start the harness binary via `pane run` (shell command + Enter).
- * 3. Wait 1s for the harness TUI to initialize.
- * 4. Type the prompt via `pane send-text` (raw text, no shell interpretation).
- * 5. Press Enter via `pane send-keys Enter` to submit the prompt.
- *
- * Returns `{paneLabel: paneId}` — the value is a herdr pane_id.
+ * Launch an agent in a new tab. Single pane run call with the prompt
+ * passed directly to the harness (e.g. `opencode run '<prompt>'`).
  */
 export function launchAgent(opts: {beanId: string; cwd: string; role: string; workspaceId: string}): {
   paneLabel: string
 } {
   const config = loadConfig()
   const harness = resolveHarness(opts.role, config)
-  const prompt = buildOpeningPrompt(opts.role, config, opts.beanId)
+  const prompt = buildPrompt(opts.role, config, opts.beanId)
   const label = makePaneLabel(opts.beanId, opts.role)
 
-  // Create a new tab in the target workspace.
   const pane = createTab({cwd: opts.cwd, label, workspaceId: opts.workspaceId})
 
-  // Start the harness binary (this is a shell command, so pane run is correct).
-  runInPane(pane.pane_id, harness)
-
-  // Wait for the harness TUI to initialize before sending the prompt.
-  // ponytail: 1s sleep — TUI startup is typically <500ms.
-  try {
-    execFileSync('sleep', ['1'], {stdio: 'ignore'})
-  } catch {
-    // ignore — sleep is best-effort
-  }
-
-  // Type the prompt as raw text (not a shell command — pane send-text, not run).
-  // Then press Enter to submit it.
-  sendText(pane.pane_id, prompt)
-  sendEnter(pane.pane_id)
+  runInPane(pane.pane_id, `${harness} run ${shellQuote(prompt)}`)
 
   return {paneLabel: pane.pane_id}
 }

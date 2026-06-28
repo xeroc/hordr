@@ -3,8 +3,8 @@ import process from 'node:process'
 
 import {getBean, getBody, setStatus} from '../beans/client.js'
 import {loadConfig} from '../config/loader.js'
-import {buildOpeningPrompt, resolveHarness} from '../harness/launcher.js'
-import {createTab, findAnyPane, paneLabel, runInPane, sendEnter, sendText} from '../herdr/pane.js'
+import {buildPrompt, resolveHarness, shellQuote} from '../harness/launcher.js'
+import {createTab, findAnyPane, paneLabel, runInPane} from '../herdr/pane.js'
 import {waitAgentStatus} from '../herdr/wait.js'
 
 /**
@@ -65,7 +65,7 @@ export default class Decompose extends Command {
     const config = loadConfig()
     const role = 'planner'
     const harness = resolveHarness(role, config)
-    const prompt = buildOpeningPrompt(role, config, epicId)
+    const prompt = buildPrompt(role, config, epicId)
     const label = paneLabel(epicId, role)
     const cwd = process.cwd()
 
@@ -75,7 +75,6 @@ export default class Decompose extends Command {
     if (currentPane && currentPane.includes(':')) {
       workspaceId = currentPane.split(':')[0]!
     } else {
-      // Fallback: use the workspace of the first pane we find.
       const anyPane = findAnyPane()
       if (!anyPane) {
         this.error('no herdr panes found — run `hordr decompose` inside a herdr session', {exit: 2})
@@ -84,13 +83,9 @@ export default class Decompose extends Command {
       workspaceId = anyPane.split(':')[0]!
     }
 
-    // Create a new tab in the current workspace (not a pane split).
-    const {setTimeout: sleep} = await import('node:timers/promises')
+    // Create a new tab and start the harness with the prompt in one shot.
     const tab = createTab({cwd, label, workspaceId})
-    runInPane(tab.pane_id, harness)
-    await sleep(1000)
-    sendText(tab.pane_id, prompt)
-    sendEnter(tab.pane_id)
+    runInPane(tab.pane_id, `${harness} run ${shellQuote(prompt)}`)
 
     // 5. Wait for the planner to signal done.
     try {
