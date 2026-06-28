@@ -1,14 +1,15 @@
 export {
+  createTab,
+  type CreateTabOpts,
   findAnyPane,
   findPane,
   HerdrError as HerdrPaneError,
   listPanes,
   type PaneInfo,
   paneLabel,
-  type PaneSplitOpts,
   runInPane,
+  sendEnter,
   sendText,
-  splitPane,
 } from './pane.js'
 export {HerdrError as HerdrWaitError, HerdrWaitTimeout, waitAgentStatus, type WaitAgentStatusOpts} from './wait.js'
 export {

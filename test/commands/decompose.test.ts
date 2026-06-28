@@ -133,10 +133,10 @@ describe('commands/decompose (hordr-cqjx)', () => {
         })
       }
 
-      if (args[0] === 'pane' && args[1] === 'split') {
+      if (args[0] === 'tab' && args[1] === 'create') {
         return JSON.stringify({
-          id: 'cli:pane:split',
-          result: {pane: {pane_id: 'wX:pNEW'}, type: 'pane_split'},
+          id: 'cli:tab:create',
+          result: {root_pane: {pane_id: 'wX:pNEW'}},
         })
       }
 
@@ -206,28 +206,20 @@ describe('commands/decompose (hordr-cqjx)', () => {
     expect(setStatusCall, 'setStatus(completed) was called').to.exist
   })
 
-  it('uses the planner persona (splitLabeled called with hordr:<epic>:planner label)', async () => {
+  it('uses the planner persona (tab created with hordr:<epic>:planner label)', async () => {
     beansResponder = () => beanJson(makeBean())
 
-    // Track the label passed to `pane rename`.
     let receivedLabel = ''
     _setPaneShell((args: string[]) => {
       if (args[0] === 'pane' && args[1] === 'list') {
-        return JSON.stringify({
-          id: 'cli:pane:list',
-          result: {panes: [{pane_id: 'wX:p1', workspace_id: 'wX'}], type: 'pane_list'},
-        })
+        return JSON.stringify({result: {panes: [{pane_id: 'wX:p1'}]}})
       }
 
-      if (args[0] === 'pane' && args[1] === 'rename' && args.length >= 4) {
-        receivedLabel = args[3] ?? ''
-      }
-
-      if (args[0] === 'pane' && args[1] === 'split') {
-        return JSON.stringify({
-          id: 'cli:pane:split',
-          result: {pane: {pane_id: 'wX:pNEW'}, type: 'pane_split'},
-        })
+      if (args[0] === 'tab' && args[1] === 'create') {
+        // Capture the --label value.
+        const labelIdx = args.indexOf('--label')
+        if (labelIdx !== -1) receivedLabel = args[labelIdx + 1] ?? ''
+        return JSON.stringify({result: {root_pane: {pane_id: 'wX:pNEW'}}})
       }
 
       return ''

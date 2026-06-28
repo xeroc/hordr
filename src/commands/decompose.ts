@@ -4,7 +4,7 @@ import process from 'node:process'
 import {getBean, getBody, setStatus} from '../beans/client.js'
 import {loadConfig} from '../config/loader.js'
 import {buildOpeningPrompt, resolveHarness} from '../harness/launcher.js'
-import {findAnyPane, paneLabel, runInPane, splitPane} from '../herdr/pane.js'
+import {createTab, findAnyPane, paneLabel, runInPane, sendEnter, sendText} from '../herdr/pane.js'
 import {waitAgentStatus} from '../herdr/wait.js'
 
 /**
@@ -68,20 +68,33 @@ export default class Decompose extends Command {
     const prompt = buildOpeningPrompt(role, config, epicId)
     const label = paneLabel(epicId, role)
     const cwd = process.cwd()
-    // Find a parent pane to split from. Decompose runs interactively on
-    // develop; grab any pane in the running herdr session.
-    const parentPaneId = findAnyPane()
-    if (!parentPaneId) {
-      this.error('no herdr panes found — run `hordr decompose` inside a herdr session', {exit: 2})
+
+    // Determine the current workspace from HERDR_PANE_ID env (set by herdr).
+    const currentPane = process.env.HERDR_PANE_ID
+    let workspaceId: string
+    if (currentPane && currentPane.includes(':')) {
+      workspaceId = currentPane.split(':')[0]!
+    } else {
+      // Fallback: use the workspace of the first pane we find.
+      const anyPane = findAnyPane()
+      if (!anyPane) {
+        this.error('no herdr panes found — run `hordr decompose` inside a herdr session', {exit: 2})
+      }
+
+      workspaceId = anyPane.split(':')[0]!
     }
 
-    const split = splitPane({cwd, direction: 'right', label, parentPaneId})
-    runInPane(split.pane_id, harness)
-    runInPane(split.pane_id, prompt)
+    // Create a new tab in the current workspace (not a pane split).
+    const {setTimeout: sleep} = await import('node:timers/promises')
+    const tab = createTab({cwd, label, workspaceId})
+    runInPane(tab.pane_id, harness)
+    await sleep(1000)
+    sendText(tab.pane_id, prompt)
+    sendEnter(tab.pane_id)
 
     // 5. Wait for the planner to signal done.
     try {
-      waitAgentStatus({paneId: split.pane_id, status: 'done', timeoutMs: flags.timeoutMs})
+      waitAgentStatus({paneId: tab.pane_id, status: 'done', timeoutMs: flags.timeoutMs})
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error)
       this.error(`planner did not finish within ${flags.timeoutMs}ms: ${msg}`, {exit: 1})
@@ -100,10 +113,10 @@ export default class Decompose extends Command {
     setStatus(epicId, 'completed')
 
     if (flags.json) {
-      this.log(JSON.stringify({childCount, epic: epicId, plannerPane: split.pane_id, status: 'completed'}))
+      this.log(JSON.stringify({childCount, epic: epicId, plannerPane: tab.pane_id, status: 'completed'}))
     } else {
       this.log(`decomposed ${epicId}: ${childCount} child task(s) created; epic → completed`)
-      this.log(`planner pane: ${split.pane_id} (label: ${label})`)
+      this.log(`planner pane: ${tab.pane_id} (label: ${label})`)
     }
   }
 }

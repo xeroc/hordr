@@ -178,9 +178,15 @@ describe('harness/launcher', () => {
   })
 
   describe('launchAgent', () => {
-    it('splits + labels a pane in the worktree cwd and sends harness + prompt; returns the pane_id', () => {
+    it('creates a tab, starts harness, sends prompt via send-text + send-keys Enter; returns pane_id', () => {
       _setWhichForTesting(() => true)
       beansResponder = () => JSON.stringify(SAMPLE_BEAN)
+      // Override pane responder: tab create returns root pane.
+      paneResponder = (c) => {
+        if (c.args[0] === 'tab' && c.args[1] === 'create')
+          return JSON.stringify({result: {root_pane: {pane_id: 'wX:pNEW', workspace_id: 'wX'}}})
+        return ''
+      }
 
       const result = launchAgent({
         beanId: 'hordr-1501',
@@ -189,58 +195,51 @@ describe('harness/launcher', () => {
         workspaceId: 'wX',
       })
 
-      // Returns the pane_id (field name 'paneLabel' is a misnomer; see launcher.ts header).
+      // Returns the pane_id from the new tab.
       expect(result).to.deep.equal({paneLabel: 'wX:pNEW'})
 
-      // 1. pane list was NOT called (we mocked _listPanes directly).
-      // 2. pane split called with --pane <parent> --direction right --cwd <cwd>
-      const split = paneCalls.find((c) => c.args[0] === 'pane' && c.args[1] === 'split')
-      assert.ok(split, 'pane split was called')
-      expect(split!.args).to.include('--pane')
-      expect(split!.args).to.include('wX:p1')
-      expect(split!.args).to.include('--direction')
-      expect(split!.args).to.include('right')
-      expect(split!.args).to.include('--cwd')
-      expect(split!.args).to.include('/repo/wt/bean-hordr-1501')
+      // 1. tab create called with workspace + cwd + label
+      const tabCreate = paneCalls.find((c) => c.args[0] === 'tab' && c.args[1] === 'create')
+      assert.ok(tabCreate, 'tab create was called')
+      expect(tabCreate!.args).to.include('--workspace', 'wX')
+      expect(tabCreate!.args).to.include('--cwd', '/repo/wt/bean-hordr-1501')
+      expect(tabCreate!.args).to.include('--label', 'hordr:hordr-1501:implementer')
 
-      // 3. pane rename called with the hordr:<beanId>:<role> label
-      const rename = paneCalls.find((c) => c.args[0] === 'pane' && c.args[1] === 'rename')
-      assert.ok(rename, 'pane rename was called')
-      expect(rename!.args).to.include('wX:pNEW')
-      expect(rename!.args).to.include('hordr:hordr-1501:implementer')
+      // 2. pane run sends the harness binary
+      const run = paneCalls.find((c) => c.args[0] === 'pane' && c.args[1] === 'run')
+      assert.ok(run, 'pane run was called')
+      expect(run!.args).to.include('wX:pNEW')
+      expect(run!.args).to.include('opencode')
 
-      // 4. pane run sends the harness binary (first run call)
-      const runs = paneCalls.filter((c) => c.args[0] === 'pane' && c.args[1] === 'run')
-      assert.lengthOf(runs, 2, 'two pane run calls: harness + prompt')
-      expect(runs[0].args).to.include('wX:pNEW')
-      expect(runs[0].args).to.include('opencode')
-
-      // 5. second pane run sends the prompt (with Enter)
-      expect(runs[1].args).to.include('wX:pNEW')
-      const promptArg = runs[1].args.at(-1)
+      // 3. pane send-text sends the prompt (raw text, no Enter)
+      const sendText = paneCalls.find((c) => c.args[0] === 'pane' && c.args[1] === 'send-text')
+      assert.ok(sendText, 'pane send-text was called')
+      const promptArg = sendText!.args.at(-1)
       expect(promptArg).to.contain('Bean: hordr-1501')
+
+      // 4. pane send-keys Enter submits the prompt
+      const sendKeys = paneCalls.find((c) => c.args[0] === 'pane' && c.args[1] === 'send-keys')
+      assert.ok(sendKeys, 'pane send-keys was called')
+      expect(sendKeys!.args).to.include('Enter')
     })
 
-    it('throws HarnessError when the workspace has no panes to split from', () => {
+    it('returns the pane_id from the tab', () => {
       _setWhichForTesting(() => true)
       beansResponder = () => JSON.stringify(SAMPLE_BEAN)
-      // Override pane shell to return empty pane list for this test.
-      _setPaneShell((args: string[]) => {
-        if (args[0] === 'pane' && args[1] === 'list') {
-          return JSON.stringify({result: {panes: []}})
-        }
-
+      paneResponder = (c) => {
+        if (c.args[0] === 'tab' && c.args[1] === 'create')
+          return JSON.stringify({result: {root_pane: {pane_id: 'wX:pNEW'}}})
         return ''
+      }
+
+      const result = launchAgent({
+        beanId: 'hordr-1501',
+        cwd: '/repo',
+        role: 'implementer',
+        workspaceId: 'wX',
       })
 
-      expect(() =>
-        launchAgent({
-          beanId: 'hordr-1501',
-          cwd: '/repo/wt/bean-hordr-1501',
-          role: 'implementer',
-          workspaceId: 'wX',
-        }),
-      ).to.throw(HarnessError, /workspace wX has no panes/)
+      expect(result).to.deep.equal({paneLabel: 'wX:pNEW'})
     })
   })
 })

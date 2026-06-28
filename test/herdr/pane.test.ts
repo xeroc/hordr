@@ -1,17 +1,18 @@
 /* eslint-disable camelcase -- pane_id/workspace_id mirror herdr JSON contract */
-import {assert, expect} from 'chai'
+import {expect} from 'chai'
 
 import {
   _resetShell,
   _setShellForTesting,
+  createTab,
   findAnyPane,
   findPane,
   HerdrError,
   paneLabel,
   runInPane,
+  sendEnter,
   sendText,
   type ShellFn,
-  splitPane,
 } from '../../src/herdr/pane.js'
 
 let calls: string[][] = []
@@ -35,22 +36,21 @@ describe('herdr/pane', () => {
     expect(paneLabel('hordr-1234', 'implementer')).to.equal('hordr:hordr-1234:implementer')
   })
 
-  it('splitPane returns pane info', () => {
-    responder = () => JSON.stringify({result: {pane: {pane_id: 'wX:p3', workspace_id: 'wX'}}})
-    const info = splitPane({cwd: '/repo', direction: 'right', parentPaneId: 'wX:p1'})
-    expect(info.pane_id).to.equal('wX:p3')
-  })
-
-  it('splitPane with label calls rename after split', () => {
-    let renamed = false
+  it('createTab returns root pane info', () => {
     responder = (args) => {
-      if (args[1] === 'split') return JSON.stringify({result: {pane: {pane_id: 'wX:pNEW'}}})
-      if (args[1] === 'rename') renamed = true
+      if (args[0] === 'tab' && args[1] === 'create')
+        return JSON.stringify({result: {root_pane: {pane_id: 'wX:p3', workspace_id: 'wX'}}})
       return ''
     }
 
-    splitPane({direction: 'right', label: 'hordr:bean:impl', parentPaneId: 'wX:p1'})
-    assert.isTrue(renamed, 'pane rename was called')
+    const info = createTab({cwd: '/repo', workspaceId: 'wX'})
+    expect(info.pane_id).to.equal('wX:p3')
+  })
+
+  it('createTab with label passes --label', () => {
+    responder = () => JSON.stringify({result: {root_pane: {pane_id: 'wX:p3'}}})
+    createTab({cwd: '/repo', label: 'hordr:bean:impl', workspaceId: 'wX'})
+    expect(calls[0]).to.include('--label', 'hordr:bean:impl')
   })
 
   it('findPane alive returns pane info', () => {
@@ -68,18 +68,23 @@ describe('herdr/pane', () => {
     expect(findAnyPane()).to.equal('wJ:p1')
   })
 
-  it('runInPane builds pane run args', () => {
+  it('runInPane sends pane run args', () => {
     runInPane('wJ:p2', 'echo hi')
     expect(calls[0]).to.deep.equal(['pane', 'run', 'wJ:p2', 'echo hi'])
   })
 
-  it('sendText builds pane send-text args', () => {
+  it('sendText sends pane send-text args', () => {
     sendText('wJ:p2', 'some text')
     expect(calls[0]).to.deep.equal(['pane', 'send-text', 'wJ:p2', 'some text'])
   })
 
+  it('sendEnter sends pane send-keys Enter', () => {
+    sendEnter('wJ:p2')
+    expect(calls[0]).to.deep.equal(['pane', 'send-keys', 'wJ:p2', 'Enter'])
+  })
+
   it('throws HerdrError on JSON error envelope', () => {
     responder = () => JSON.stringify({error: {code: 'bad', message: 'boom'}})
-    expect(() => splitPane({direction: 'right', parentPaneId: 'x'})).to.throw(HerdrError)
+    expect(() => createTab({cwd: '/', workspaceId: 'x'})).to.throw(HerdrError)
   })
 })
