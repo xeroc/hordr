@@ -53,6 +53,9 @@ hordr:
         When done, list all children in the epic's ## Decomposition section:
         beans update <epic-id> --body-replace-old "## Decomposition" \
           --body-replace-new "## Decomposition\n\n- [ ] <child-id> — <title>\n..."
+
+        Then mark the epic as completed:
+        beans update <epic-id> -s completed
     open_pr:
       harness: opencode
       persona: |

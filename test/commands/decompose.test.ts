@@ -174,36 +174,30 @@ describe('commands/decompose (hordr-cqjx)', () => {
     expect(result.error!.message).to.match(/expected 'todo'/)
   })
 
-  it('refuses if Decomposition section already has children (without --force)', async () => {
+  it('refuses if already decomposed (without --force)', async () => {
     beansResponder = () => beanJson(makeBean({body: EPIC_ALREADY_DECOMPOSED}))
     const result = await captureOutput(async () => {
       await Decompose.run(['hordr-test-epic'], {root: PROJECT_ROOT})
     })
     expect(result.error).to.exist
-    expect(result.error!.message).to.match(/Decomposition section already has children/)
+    expect(result.error!.message).to.match(/already decomposed/)
   })
 
-  it('happy path: spawns planner, waits for done, marks epic completed', async () => {
+  it('happy path: spawns planner tab and exits', async () => {
     beansResponder = () => beanJson(makeBean())
     const result = await captureOutput(async () => {
       await Decompose.run(['hordr-test-epic'], {root: PROJECT_ROOT})
     })
     expect(result.error, result.error?.message).to.be.undefined
-
-    const setStatusCall = beansCalls.find((c) => c.args.includes('--status') && c.args.includes('completed'))
-    expect(setStatusCall, 'setStatus(completed) was called').to.exist
-    expect(result.stdout).to.match(/decomposed hordr-test-epic/)
+    expect(result.stdout).to.match(/decompose hordr-test-epic/)
   })
 
-  it('--force overrides the already-decomposed check', async () => {
+  it('--force overrides already-decomposed', async () => {
     beansResponder = () => beanJson(makeBean({body: EPIC_ALREADY_DECOMPOSED}))
     const result = await captureOutput(async () => {
       await Decompose.run(['hordr-test-epic', '--force'], {root: PROJECT_ROOT})
     })
     expect(result.error, result.error?.message).to.be.undefined
-
-    const setStatusCall = beansCalls.find((c) => c.args.includes('--status') && c.args.includes('completed'))
-    expect(setStatusCall, 'setStatus(completed) was called').to.exist
   })
 
   it('uses the planner persona (tab created with hordr:<epic>:planner label)', async () => {
@@ -238,9 +232,8 @@ describe('commands/decompose (hordr-cqjx)', () => {
       await Decompose.run(['hordr-test-epic', '--json'], {root: PROJECT_ROOT})
     })
     expect(result.error, result.error?.message).to.be.undefined
-    const parsed = JSON.parse(result.stdout.trim()) as {childCount: number; epic: string; status: string}
+    const parsed = JSON.parse(result.stdout.trim()) as {epic: string; plannerPane: string}
     expect(parsed.epic).to.equal('hordr-test-epic')
-    expect(parsed.status).to.equal('completed')
-    expect(parsed.childCount).to.be.a('number')
+    expect(parsed.plannerPane).to.be.a('string')
   })
 })

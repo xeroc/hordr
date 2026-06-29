@@ -7,7 +7,6 @@
  */
 import { execFileSync } from 'node:child_process'
 
-import { getBean } from '../beans/client.js'
 import { loadConfig } from '../config/loader.js'
 import { type HordrConfig } from '../config/schema.js'
 import { createTab, paneLabel as makePaneLabel, runInPane } from '../herdr/pane.js'
@@ -62,15 +61,12 @@ export function resolveHarness(role: string, config: HordrConfig): string {
 export function buildPrompt(role: string, config: HordrConfig, beanId: string): string {
   const persona = config.agents[role]?.persona
   if (!persona) throw new HarnessError(`no agent configured for role '${role}'`)
-  const bean = getBean(beanId)
   return `${persona}
 
 ---
 
-Bean: ${beanId}
-Title: ${bean.title}
-
-${bean.body}`
+Proceed with bean: ${beanId}
+`
 }
 
 /**

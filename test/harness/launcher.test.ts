@@ -154,12 +154,11 @@ describe('harness/launcher', () => {
   })
 
   describe('buildPrompt', () => {
-    it('contains persona + bean id + raw body', () => {
+    it('contains persona + bean reference', () => {
       beansResponder = () => JSON.stringify(SAMPLE_BEAN)
       const prompt = buildPrompt('implementer', makeConfig(), 'hordr-1501')
       expect(prompt).to.contain(PERSONA)
-      expect(prompt).to.contain('Bean: hordr-1501')
-      expect(prompt).to.contain('Build the thing.')
+      expect(prompt).to.contain('hordr-1501')
     })
   })
 
@@ -197,7 +196,7 @@ describe('harness/launcher', () => {
       // The command should be "opencode run '...'" with the prompt
       const cmd = run!.args.at(-1)!
       expect(cmd).to.contain('opencode run')
-      expect(cmd).to.contain('Bean: hordr-1501')
+      expect(cmd).to.contain('hordr-1501')
     })
 
     it('returns the pane_id from the tab', () => {
