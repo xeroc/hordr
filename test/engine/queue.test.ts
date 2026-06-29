@@ -11,6 +11,10 @@ import {makeDeps, makeRun} from '../engine/helpers.js'
 const YAML = `
 hordr:
   concurrency: 2
+  workflows:
+    implement:
+      steps:
+        - agent: implementer
 `
 
 describe('queue', () => {
@@ -49,7 +53,7 @@ describe('queue', () => {
     putRun(makeRun({bean: 'b1', status: 'queued'}))
     const spawned: string[] = []
 
-    const result = enqueue('b1', makeDeps(), (id) => spawned.push(id))
+    const result = enqueue('b1', makeDeps())
 
     expect(result).to.equal('running')
     expect(getRun('b1')?.status).to.equal('running')
@@ -62,7 +66,7 @@ describe('queue', () => {
     putRun(makeRun({bean: 'b3', status: 'queued'}))
     const spawned: string[] = []
 
-    const result = enqueue('b3', makeDeps(), (id) => spawned.push(id))
+    const result = enqueue('b3', makeDeps())
 
     expect(result).to.equal('queued')
     expect(getRun('b3')?.status).to.equal('queued')
@@ -79,7 +83,7 @@ describe('queue', () => {
     putRun(makeRun({bean: 'b3', started_unix: 3000, status: 'queued'}))
     const spawned: string[] = []
 
-    const started = drain(makeDeps(), (id) => spawned.push(id))
+    const started = drain(makeDeps())
 
     expect(started).to.have.lengthOf(2)
     expect(getRun('b1')?.status).to.equal('running')
@@ -88,7 +92,7 @@ describe('queue', () => {
   })
 
   it('drain returns [] when queue empty', () => {
-    const started = drain(makeDeps(), () => {})
+    const started = drain(makeDeps())
     assert.deepEqual(started, [])
   })
 
@@ -97,7 +101,7 @@ describe('queue', () => {
     putRun(makeRun({bean: 'early', started_unix: 1000, status: 'queued'}))
     putRun(makeRun({bean: 'mid', started_unix: 2000, status: 'queued'}))
 
-    const started = drain(makeDeps(), () => {})
+    const started = drain(makeDeps())
 
     expect(started[0]).to.equal('early')
     expect(started[1]).to.equal('mid')

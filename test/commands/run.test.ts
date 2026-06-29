@@ -59,6 +59,10 @@ async function invoke(args: string[]): Promise<RunResult> {
 const YAML = `
 hordr:
   concurrency: 2
+  workflows:
+    implement:
+      steps:
+        - agent: implementer
 `
 
 const VALID_BODY = `## Requirement
@@ -219,9 +223,6 @@ describe('commands/run', () => {
       launchAgent: () => ({paneLabel: 'wX:p1'}),
       paneExists: () => true,
       removeWorktree() {},
-      waitForAgentDone() {
-        return 'done' as const
-      },
     } as unknown as Parameters<typeof _setDepsForTesting>[0])
 
     const res = await invoke(['hordr-child1'])

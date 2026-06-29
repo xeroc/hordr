@@ -1,7 +1,6 @@
 export {advance, type AdvanceResult} from './advance.js'
 export {closeMerged, CloseMergedError, type CloseMergedResult} from './close-merged.js'
-export {activeCount, capacity, defaultSpawnSupervisor, drain, enqueue} from './queue.js'
+export {activeCount, capacity, drain, enqueue} from './queue.js'
 export {ALLOWED_TRANSITIONS, transition, TransitionError} from './run.js'
 export {dispatchStep, type StepConfig, StepError, type StepHandler} from './steps/index.js'
-export {supervise} from './supervise.js'
 export type {EngineDeps, StepResult, WorktreeInfo} from './types.js'

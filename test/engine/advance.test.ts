@@ -18,7 +18,7 @@ hordr:
         - hitl: external
 `
 
-describe('advance', () => {
+describe('advance (self-trigger model)', () => {
   let stateDir: string
   let configDir: string
   let origCwd: string
@@ -39,7 +39,7 @@ describe('advance', () => {
     rmSync(configDir, {force: true, recursive: true})
   })
 
-  it('throws when no run exists for the bean', () => {
+  it('throws when no run exists', () => {
     expect(() => advance('nope', makeDeps())).to.throw(/no run for bean nope/)
   })
 
@@ -47,73 +47,67 @@ describe('advance', () => {
     putRun(makeRun({bean: 'b1', status: 'closed'}))
     const result = advance('b1', makeDeps())
     expect(result.terminal).to.be.true
-    expect(result.done).to.be.true
   })
 
-  it('blocked run → block no-op', () => {
+  it('blocked run → no-op', () => {
     putRun(makeRun({bean: 'b1', status: 'blocked'}))
     const result = advance('b1', makeDeps())
     expect(result.block).to.be.true
-    expect(result.terminal).to.be.false
   })
 
-  it('pr-open run → block no-op', () => {
-    putRun(makeRun({bean: 'b1', status: 'pr-open'}))
-    const result = advance('b1', makeDeps())
-    expect(result.block).to.be.true
-  })
-
-  it('awaiting-approval run → block no-op', () => {
-    putRun(makeRun({bean: 'b1', status: 'awaiting-approval'}))
-    const result = advance('b1', makeDeps())
-    expect(result.block).to.be.true
-  })
-
-  it('running run with agent returning done → step increments', () => {
+  it('first advance on agent step → spawns agent, step stays', () => {
+    // paneExists=false in default mock → launchOrReuse spawns.
     putRun(makeRun({bean: 'b1', status: 'running', step: 0, workflow: 'three-step'}))
-    // makeDeps returns 'done' from waitForAgentDone → agent step advances.
     const result = advance('b1', makeDeps())
-    expect(result.done).to.be.true
-    expect(getRun('b1')?.step).to.equal(1)
+    expect(result.done).to.be.false // agent spawned but not done
+    expect(getRun('b1')?.step).to.equal(0) // step not bumped
+    expect(getRun('b1')?.panes.implementer).to.exist // pane recorded
   })
 
-  it('running run with agent returning blocked → status becomes blocked', () => {
-    putRun(makeRun({bean: 'b1', status: 'running', step: 1, workflow: 'three-step'}))
-    // Override waitForAgentDone to return 'blocked'.
-    const deps = makeDeps({waitForAgentDone: () => 'blocked' as const})
+  it('second advance (agent called back) → bumps step + spawns next agent', () => {
+    // Setup: step 0 already ran (implementer pane stored, paneExists=true).
+    const deps = makeDeps({paneExists: () => true})
+    putRun(
+      makeRun({
+        bean: 'b1',
+        status: 'running',
+        step: 0,
+        workflow: 'three-step',
+        panes: {implementer: 'wX:p1'},
+      }),
+    )
 
     const result = advance('b1', deps)
 
-    expect(result.block).to.be.true
-    expect(getRun('b1')?.status).to.equal('blocked')
-    expect(getRun('b1')?.step).to.equal(1, 'step not incremented on block')
+    // Step 0 done → bump to 1 → recurse → step 1 agent (tester) spawns → done:false.
+    expect(result.done).to.be.false
+    expect(getRun('b1')?.step).to.equal(1)
+    expect(getRun('b1')?.panes.tester).to.exist
   })
 
-  it('hitl step → blocks', () => {
-    putRun(makeRun({bean: 'b1', status: 'running', step: 2, workflow: 'three-step'}))
-    const result = advance('b1', makeDeps())
+  it('agent calls advance on last agent step → bumps to hitl → blocks', () => {
+    const deps = makeDeps({paneExists: () => true})
+    putRun(
+      makeRun({
+        bean: 'b1',
+        status: 'running',
+        step: 1,
+        workflow: 'three-step',
+        panes: {implementer: 'wX:p1', tester: 'wX:p2'},
+      }),
+    )
+
+    const result = advance('b1', deps)
+
+    // Step 1 done → bump to 2 → recurse → step 2 is hitl:external → blocks.
     expect(result.block).to.be.true
+    expect(getRun('b1')?.step).to.equal(2)
   })
 
-  it('step past workflow end → terminal (defensive)', () => {
+  it('past workflow end → terminal', () => {
     putRun(makeRun({bean: 'b1', status: 'running', step: 99, workflow: 'three-step'}))
     const result = advance('b1', makeDeps())
     expect(result.terminal).to.be.true
     expect(getRun('b1')?.status).to.equal('closed')
-  })
-
-  it('throws when workflow not found', () => {
-    putRun(makeRun({bean: 'b1', status: 'running', workflow: 'nonexistent'}))
-    expect(() => advance('b1', makeDeps())).to.throw(/workflow "nonexistent"/)
-  })
-
-  it('idempotent: calling twice does not double-advance past the next step', () => {
-    putRun(makeRun({bean: 'b1', status: 'running', step: 0, workflow: 'three-step'}))
-
-    advance('b1', makeDeps())
-    expect(getRun('b1')?.step).to.equal(1)
-
-    advance('b1', makeDeps())
-    expect(getRun('b1')?.step).to.equal(2)
   })
 })

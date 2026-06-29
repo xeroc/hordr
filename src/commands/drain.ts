@@ -1,6 +1,6 @@
 import {Command, Flags} from '@oclif/core'
 
-import {defaultSpawnSupervisor, drain} from '../engine/queue.js'
+import {drain} from '../engine/queue.js'
 import {getDeps} from '../runtime.js'
 
 export default class Drain extends Command {
@@ -12,7 +12,7 @@ export default class Drain extends Command {
 
   async run(): Promise<void> {
     const {flags} = await this.parse(Drain)
-    const started = drain(getDeps(), defaultSpawnSupervisor)
+    const started = drain(getDeps())
 
     if (flags.json) {
       this.log(JSON.stringify({count: started.length, started}))

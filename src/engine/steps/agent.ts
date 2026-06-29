@@ -2,19 +2,28 @@ import type {StepHandler} from './index.js'
 
 import {launchOrReuse} from './shared.js'
 
-// ADR-0011: generic agent step. Spawn the role-configured agent, wait for
-// done-or-blocked (ADR-0013), advance or block accordingly.
+/**
+ * Self-trigger model (ADR-0014):
+ * - First call (no pane exists for role): spawn the agent → {done: false}
+ * - Second call (pane exists = agent called advance): {done: true} → bump step
+ *
+ * The agent's persona says "when done, run: hordr advance <bean-id>".
+ * That call IS the completion signal — no waitForAgentDone, no polling.
+ */
 export const agent: StepHandler = (run, step, deps) => {
   const role = step.agent
   if (!role) throw new Error('agent step: .agent field is required')
 
   const {label, panes} = launchOrReuse(run, role, deps)
 
-  const status = deps.waitForAgentDone(label, 0)
-
-  if (status === 'done') {
-    return {done: true, runPatch: {panes}}
+  // If we just spawned (pane wasn't stored before), the agent is now running.
+  // Return done:false — advance will NOT bump the step. The agent will call
+  // advance again when it's finished.
+  if (!run.panes[role]) {
+    return {done: false, runPatch: {panes}}
   }
 
-  return {block: true, done: false, runPatch: {panes, status: 'blocked'}}
+  // Pane was already stored — this is the "agent called advance" callback.
+  // The agent is done. Bump the step.
+  return {done: true, runPatch: {panes}}
 }

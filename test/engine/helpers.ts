@@ -24,7 +24,6 @@ export function makeDeps(overrides: Partial<EngineDeps> = {}): EngineDeps {
     launchAgent: (opts) => ({paneLabel: `hordr:${opts.beanId}:${opts.role}`}),
     paneExists: () => false,
     removeWorktree() {},
-    waitForAgentDone() { return 'done' as const },
     ...overrides,
   }
 }

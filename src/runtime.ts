@@ -1,16 +1,14 @@
 /**
  * Production EngineDeps composition.
- * Commands call getDeps(); tests override via _setDepsForTesting.
  */
 import process from 'node:process'
 
 import type {EngineDeps, WorktreeInfo} from './engine/types.js'
 
 import {loadConfig} from './config/loader.js'
-import {launchAgent as harnessLaunchAgent} from './harness/launcher.js'
-import {findPane} from './herdr/pane.js'
-import {waitAgentStatus} from './herdr/wait.js'
 import {branchFor, createWorktree, removeWorktree} from './herdr/worktree.js'
+import {findPane} from './herdr/pane.js'
+import {launchAgent as harnessLaunchAgent} from './harness/launcher.js'
 
 export function createEngineDeps(): EngineDeps {
   return {
@@ -25,47 +23,18 @@ export function createEngineDeps(): EngineDeps {
       return {branch: wt.branch, workspaceId: wt.workspace_id}
     },
 
-    launchAgent(opts: {beanId: string; cwd: string; role: string; workspaceId: string}): {
-      paneLabel: string
-    } {
-      return harnessLaunchAgent(opts)
+    removeWorktree(workspaceId: string): void {
+      removeWorktree({workspaceId})
     },
 
     paneExists(paneId: string): boolean {
       return findPane(paneId) !== null
     },
 
-    removeWorktree(workspaceId: string): void {
-      removeWorktree({workspaceId})
-    },
-
-    waitForAgentDone(paneId: string, timeoutMs: number): 'blocked' | 'done' {
-      // ADR-0013: wait for done or blocked. Herdr's wait agent-status takes
-      // one status, so we poll with short intervals until we see done/blocked
-      // or the overall deadline expires.
-      const deadline = Date.now() + timeoutMs
-      const pollMs = Math.min(timeoutMs, 2000)
-
-      while (Date.now() < deadline) {
-        const remaining = deadline - Date.now()
-        const slice = Math.min(pollMs, remaining > 0 ? remaining : 1)
-        try {
-          waitAgentStatus({paneId, status: 'done', timeoutMs: slice})
-          return 'done'
-        } catch {
-          // Not done yet — try blocked.
-        }
-
-        try {
-          waitAgentStatus({paneId, status: 'blocked', timeoutMs: slice})
-          return 'blocked'
-        } catch {
-          // Not blocked either — keep polling.
-        }
-      }
-
-      // Timeout: treat as blocked (fail-safe).
-      return 'blocked'
+    launchAgent(opts: {beanId: string; cwd: string; role: string; workspaceId: string}): {
+      paneLabel: string
+    } {
+      return harnessLaunchAgent(opts)
     },
   }
 }

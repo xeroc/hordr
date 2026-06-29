@@ -34,7 +34,10 @@ describe('command: drain', () => {
 
   function withConfig(concurrency: number): void {
     cfgDir = mkdtempSync(path.join(process.cwd(), 'drain-cfg-'))
-    writeFileSync(path.join(cfgDir, '.beans.yml'), `hordr:\n  concurrency: ${concurrency}\n`)
+    writeFileSync(
+      path.join(cfgDir, '.beans.yml'),
+      `hordr:\n  concurrency: ${concurrency}\n  workflows:\n    implement:\n      steps:\n        - agent: implementer\n`,
+    )
     process.chdir(cfgDir)
   }
 

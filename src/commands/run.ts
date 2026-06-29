@@ -1,23 +1,25 @@
-/* eslint-disable camelcase -- RunState fields use snake_case per on-disk JSON contract */
 import {Args, Command, Flags} from '@oclif/core'
 
-import {setWorkflow} from '../beans/client.js'
+import {getBean, setWorkflow} from '../beans/client.js'
 import {loadConfig} from '../config/loader.js'
-import {defaultSpawnSupervisor, enqueue} from '../engine/queue.js'
+import {enqueue} from '../engine/queue.js'
 import {getDeps} from '../runtime.js'
 import {getRun, putRun} from '../state/run-store.js'
+import {execFileSync} from 'node:child_process'
 
 /**
- * Universal entry point. Creates a Run at `queued` if none exists, validates
- * the body, then enqueues (starts immediately if a concurrency slot is free,
- * otherwise queues for later `hordr drain`).
+ * Universal entry point. Creates a Run, creates a worktree, spawns the first
+ * agent. The agent self-triggers subsequent steps via `hordr advance <bean>`.
  *
- * Replaces the old `plan` + `approve` + `run` sequence. Discovery is external;
- * bodies come pre-filled.
+ * Routing: if the bean has children (via beans list --parent), use the
+ * coordinator workflow. Otherwise use the default (implement) workflow.
+ * Both get worktrees.
+ *
+ * No supervisor pane. No detached process. The agent IS the driver.
  */
 export default class Run extends Command {
   static args = {bean: Args.string({description: 'Bean id to run', required: true})}
-  static description = 'Start a bean through its workflow. Creates Run + worktree if needed.'
+  static description = 'Start a bean through its workflow. Creates Run + worktree, spawns first agent.'
   static examples = ['<%= config.bin %> <%= command.id %> hordr-1234']
   static flags = {
     json: Flags.boolean({default: false, description: 'Emit machine-parseable JSON'}),
@@ -31,19 +33,23 @@ export default class Run extends Command {
     let run = getRun(beanId)
     if (!run) {
       const config = loadConfig()
-      const workflow = config.routing?.default_workflow ?? 'implement'
+      const bean = getBean(beanId)
+
+      // Route: children → coordinator, no children → default workflow.
+      const hasChildren = this._hasChildren(beanId)
+      const workflow = hasChildren ? 'coordinator' : config.routing?.default_workflow ?? 'implement'
       setWorkflow(beanId, workflow)
 
       const now = Math.floor(Date.now() / 1000)
       run = {
         bean: beanId,
+        workflow,
+        step: 0,
+        status: 'queued',
+        worktree: null,
         panes: {},
         started_unix: now,
-        status: 'queued',
-        step: 0,
         updated_unix: now,
-        workflow,
-        worktree: null,
       }
       putRun(run)
     }
@@ -52,15 +58,37 @@ export default class Run extends Command {
       this.error(`run for ${beanId} is in status '${run.status}', expected 'queued'`, {exit: 2})
     }
 
-    const deps = getDeps()
-    const outcome = enqueue(beanId, deps, defaultSpawnSupervisor)
+    // Create worktree if the workflow requests one.
+    const config = loadConfig()
+    const wf = config.workflows[run.workflow]
+    if (wf?.worktree && !run.worktree) {
+      const deps = getDeps()
+      const wt = deps.createWorktree(beanId)
+      putRun({...run, worktree: {branch: wt.branch, workspace_id: wt.workspaceId}})
+    }
 
+    // Enqueue: transitions to running + spawns first agent via advance.
+    const outcome = enqueue(beanId, getDeps())
     if (flags.json) {
       this.log(JSON.stringify({bean: beanId, outcome}))
     } else if (outcome === 'running') {
-      this.log(`started ${beanId} (supervisor pane spawned)`)
+      this.log(`started ${beanId}`)
     } else {
       this.log(`queued ${beanId} (concurrency limit; run \`hordr drain\` when ready)`)
+    }
+  }
+
+  /** Check if a bean has children via beans list --parent. */
+  private _hasChildren(beanId: string): boolean {
+    try {
+      const out = execFileSync('beans', ['list', '--parent', beanId, '--json'], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      })
+      const data = JSON.parse(out) as unknown[]
+      return data.length > 0
+    } catch {
+      return false
     }
   }
 }

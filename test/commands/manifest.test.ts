@@ -31,9 +31,9 @@ describe('herdr plugin manifest, event hooks, and helpers (hordr-1701, hordr-170
       expect(content).to.contain('description =')
     })
 
-    it('declares exactly 7 actions', () => {
+    it('declares exactly 6 actions', () => {
       const content = readFileSync(MANIFEST_PATH, 'utf8')
-      expect(parseTomlCount(content, 'actions')).to.equal(7)
+      expect(parseTomlCount(content, 'actions')).to.equal(6)
     })
 
     it('declares exactly 2 event hooks', () => {
@@ -45,7 +45,7 @@ describe('herdr plugin manifest, event hooks, and helpers (hordr-1701, hordr-170
       const content = readFileSync(MANIFEST_PATH, 'utf8')
       // Every command line should start with "hordr".
       const commandLines = content.match(/command = \[.*?\]/g) ?? []
-      expect(commandLines.length).to.equal(9) // 10 actions + 2 events
+      expect(commandLines.length).to.equal(8) // 10 actions + 2 events
       for (const line of commandLines) {
         expect(line).to.match(/command = \["hordr",/)
       }
@@ -61,7 +61,7 @@ describe('herdr plugin manifest, event hooks, and helpers (hordr-1701, hordr-170
 
     it('lists all user-facing commands as action ids', () => {
       const content = readFileSync(MANIFEST_PATH, 'utf8')
-      const requiredActions = ['run', 'decompose', 'status', 'drain', 'close-merged', 'reset', 'take']
+      const requiredActions = ['run', 'status', 'drain', 'close-merged', 'reset', 'take']
       for (const id of requiredActions) {
         expect(content).to.contain(`id = "${id}"`)
       }
@@ -113,7 +113,7 @@ describe('herdr plugin manifest, event hooks, and helpers (hordr-1701, hordr-170
         const data = JSON.parse(out) as {
           result: {actions: Array<{action_id: string; command: string[]}>}
         }
-        expect(data.result.actions).to.have.length(7)
+        expect(data.result.actions).to.have.length(6)
         for (const action of data.result.actions) {
           expect(action.command[0]).to.equal('hordr')
         }

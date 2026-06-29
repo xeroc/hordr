@@ -12,12 +12,6 @@ contexts = ["workspace"]
 command = ["hordr", "run"]
 
 [[actions]]
-id = "decompose"
-title = "Decompose an epic into child task beans"
-contexts = ["workspace"]
-command = ["hordr", "decompose"]
-
-[[actions]]
 id = "status"
 title = "Show horde status"
 contexts = ["workspace"]
