@@ -21,8 +21,8 @@ A single phase within a workflow. Has a kind of `agent` or `hitl` (ADR-0011). Ag
 _Avoid_: Stage, phase.
 
 **Agent (role)**:
-A named entry in `hordr.agents` defining a harness and a persona. The role name (implementer, tester, reviewer, planner, open*pr) is the agent's job within a workflow. Distinct from the harness that executes it.
-\_Avoid*: Bot, worker, minion.
+A named entry in `hordr.agents` defining a harness and a persona. The role name (implementer, tester, reviewer, coordinator) is the agent's job within a workflow. Distinct from the harness that executes it.
+\_Avoid\*: Bot, worker, minion.
 
 **Harness**:
 The binary that executes an agent role (opencode, hermes, claude, codex, pi, etc.). A value object — hordr launches it in a herdr pane and injects the persona as the opening prompt.

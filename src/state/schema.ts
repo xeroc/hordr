@@ -5,7 +5,7 @@ export const RunStateSchema = z.object({
   bean: z.string(),
   panes: z.record(z.string()),
   started_unix: z.number(),
-  status: z.enum(['awaiting-approval', 'blocked', 'closed', 'planning', 'pr-open', 'queued', 'running']),
+  status: z.enum(['awaiting-approval', 'blocked', 'closed', 'pr-open', 'queued', 'running']),
   step: z.number(),
   updated_unix: z.number(),
   workflow: z.string(),
@@ -13,9 +13,6 @@ export const RunStateSchema = z.object({
     .object({
       branch: z.string(),
       path: z.string().optional(),
-      // Set to true by on-worktree-removed event hook when herdr removes the
-      // worktree out-of-band. Branch is preserved so close-merged can still
-      // find the PR by branch name; handlers skip herdr calls when removed.
       removed: z.boolean().optional(),
       workspace_id: z.string(),
     })

@@ -62,7 +62,6 @@ Before installing hordr, you need:
 - **git** — for worktree management.
 
 > [!IMPORTANT]
-> Hordr is designed to run **inside a herdr session**. Commands like `hordr decompose` and `hordr run` spawn panes via herdr's socket API. Run them from a herdr-managed terminal.
 
 ---
 
@@ -149,7 +148,6 @@ hordr/
 ├── src/
 │   ├── commands/           # OCLIF command classes (thin: arg→engine→output)
 │   │   ├── run.ts          # Universal entry: creates Run + enqueues
-│   │   ├── decompose.ts    # Stateless: epic → child task beans
 │   │   ├── advance.ts      # Execute one step (idempotent)
 │   │   ├── supervise.ts    # Blocking loop (runs in supervisor pane)
 │   │   ├── status.ts       # Table of all runs + queue depth
@@ -292,10 +290,9 @@ hordr:
       persona: |
         You are the reviewer. Review the diff for correctness and style.
 
-    planner: # used by hordr decompose
+    
       harness: opencode
       persona: |
-        You decompose an epic into independently implementable task beans.
         Read the epic bean body: beans show <epic-id>
         Read every ADR in ## Decisions: docs/adr/NNNN-*.md
         Create task beans: beans create "<title>" -t task --parent <epic-id>
@@ -346,7 +343,6 @@ hordr:
 | Command                  | Description                                                                                          |
 | ------------------------ | ---------------------------------------------------------------------------------------------------- |
 | `hordr run <bean>`       | Start a bean through its workflow. Creates Run + worktree (if configured), validates body, enqueues. |
-| `hordr decompose <epic>` | Decompose an epic into child task beans. Stateless — spawns planner on develop, no worktree.         |
 | `hordr status`           | Show all runs with state, step, pane refs, and queue depth. `--json` for machine output.             |
 | `hordr drain`            | Start queued runs until the concurrency limit is reached.                                            |
 | `hordr close-merged`     | Scan `pr-open` runs; for each merged PR: finalize bean, remove worktree.                             |
@@ -366,10 +362,7 @@ hordr:
 
 | Flag              | Commands                                                    | Description                                               |
 | ----------------- | ----------------------------------------------------------- | --------------------------------------------------------- |
-| `--json`          | run, decompose, status, drain, close-merged, reset, advance | Emit machine-parseable JSON output                        |
-| `--force`         | decompose, reset                                            | Override safety checks (re-decompose / skip confirmation) |
 | `--all`           | advance                                                     | Advance every non-terminal run                            |
-| `--timeoutMs <n>` | decompose                                                   | Max wait for planner agent (default: 600000 = 10 min)     |
 | `--pollMs <n>`    | supervise                                                   | Poll interval between advances (default: 1000)            |
 
 ---
@@ -458,8 +451,6 @@ agents:
 ```
 DISCOVERY (outside hordr)          DECOMPOSE (hordr)              IMPLEMENT (hordr)
 
- human + LLM discuss               hordr decompose <epic>          hordr run <child>
- → write ADRs to docs/adr/         → planner reads epic + ADRs     → worktree: bean/<child>
  → create epic bean                → creates child task beans      → agent: implementer
  → commit on develop               → fills Decomposition section   → agent: tester
                                    → epic → completed              → agent: reviewer
@@ -606,7 +597,6 @@ Actions appear in herdr's UI and delegate to `hordr` subcommands:
 | Action ID      | Command              | Description                        |
 | -------------- | -------------------- | ---------------------------------- |
 | `run`          | `hordr run`          | Run a bean through its workflow    |
-| `decompose`    | `hordr decompose`    | Decompose an epic into child tasks |
 | `status`       | `hordr status`       | Show horde status                  |
 | `drain`        | `hordr drain`        | Start queued beans                 |
 | `close-merged` | `hordr close-merged` | Close merged PRs                   |
@@ -722,8 +712,6 @@ Inside herdr, this env var is set automatically.
 | [0006](docs/adr/0006-pane-identity-via-labels.md)          | Pane identity is by label                            | Accepted |
 | [0007](docs/adr/0007-no-auto-merge.md)                     | No auto-merge: PR creation is terminal               | Accepted |
 | [0008](docs/adr/0008-epic-bean-is-spec.md)                 | Epic bean body IS the spec                           | Accepted |
-| [0009](docs/adr/0009-decompose-is-stateless.md)            | `hordr decompose` is stateless (not a Run)           | Accepted |
-| [0010](docs/adr/0010-children-skip-planning.md)            | Decomposed children skip planning, enter at `queued` | Accepted |
 | [0011](docs/adr/0011-generic-agent-orchestration.md)       | Hordr is a generic agent orchestrator                | Accepted |
 | [0012](docs/adr/0012-worktree-is-workflow-config.md)       | Worktree lifecycle is workflow-level config          | Accepted |
 | [0013](docs/adr/0013-agent-status-is-signal.md)            | Agent self-reported status replaces output parsing   | Accepted |

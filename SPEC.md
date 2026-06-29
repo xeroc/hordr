@@ -23,7 +23,6 @@ DISCOVERY (outside hordr — skill on develop)
         ▼
 DECOMPOSE (hordr — on develop, no worktree)
   hordr decompose <epic>
-  → planner pane reads epic body + ADRs
   → creates N child task beans (--parent <epic>)
   → fills epic's ## Decomposition section
   → epic → completed
@@ -212,7 +211,6 @@ There are two ways to enter the Run state machine:
 | Run state           | Bean status      | Supervisor pane | Description                             |
 | ------------------- | ---------------- | --------------- | --------------------------------------- |
 | _(none)_            | todo             | —               | No Run exists.                          |
-| `planning`          | draft            | planner pane    | Planner harness is drafting the spec.   |
 | `awaiting-approval` | draft            | _(idle)_        | Spec complete. HITL approve gate.       |
 | `queued`            | todo (full body) | —               | Approved, waiting for concurrency slot. |
 | `running`           | in-progress      | supervisor pane | Workflow executing.                     |
@@ -264,8 +262,6 @@ workflows:
 
 | Command                      | Description                                                                                           |
 | ---------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `hordr decompose <epic>`     | Stateless (ADR-0009): spawn planner on develop, create child task beans, epic → `completed`.          |
-| `hordr plan <bean>`          | Create a Run, spawn planner pane, draft spec. Bean → `draft`. (Standalone task path.)                 |
 | `hordr validate-spec <bean>` | **Type-aware:** epics check 6 sections; tasks/bugs check 4. Exit 0 if valid, 1 if not.                |
 | `hordr approve <bean>`       | HITL gate: validate-spec, then bean `draft` → `todo`. Run → `queued`.                                 |
 | `hordr run <bean>`           | Enqueue bean. Decomposed children (ADR-0010) create Run directly at `queued`. Spawns supervisor pane. |
@@ -287,7 +283,6 @@ workflows:
 
 **Execution:**
 
-1. Spawn planner pane on `develop` (no worktree). Label: `hordr:<epic-id>:planner`.
 2. Planner reads epic body + every ADR in `## Decisions`.
 3. Planner creates child beans via `beans create "<title>" -t task --parent <epic-id>`.
 4. Planner fills epic's `## Decomposition` section.

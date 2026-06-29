@@ -19,7 +19,6 @@ export const AgentDefSchema = z.object({
 
 export const RoutingDefSchema = z.object({
   default_workflow: z.string().min(1),
-  plan_workflow: z.string().min(1),
 })
 
 export const HordrConfigSchema = z.object({
