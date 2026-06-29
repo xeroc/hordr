@@ -9,7 +9,9 @@ export const StepDefSchema = z.union([AgentStepSchema, HitlStepSchema])
 export const WorkflowDefSchema = z.object({
   steps: z.array(StepDefSchema),
   // ADR-0012: worktree is workflow-level config.
-  worktree: z.boolean().default(false),
+  // Default true: every coding workflow needs isolation. Non-coding
+  // workflows (research, planning) opt OUT with `worktree: false`.
+  worktree: z.boolean().default(true),
 })
 
 export const AgentDefSchema = z.object({

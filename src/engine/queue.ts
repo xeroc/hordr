@@ -2,8 +2,8 @@ import type {EngineDeps} from './types.js'
 
 import {loadConfig} from '../config/loader.js'
 import {listRuns, putRun} from '../state/run-store.js'
-import {transition} from './run.js'
 import {advance} from './advance.js'
+import {transition} from './run.js'
 
 /** Count of runs occupying concurrency slots (running or blocked). */
 export function activeCount(): number {

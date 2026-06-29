@@ -118,7 +118,38 @@ export function createWorktree(opts: WorktreeCreateOpts): WorktreeInfo {
   if (opts.focus === true) args.push('--focus')
   if (opts.focus === false) args.push('--no-focus')
 
-  const r = runHerdr(args, opts.cwd)
+  return parseWorktreeResult(runHerdr(args, opts.cwd), opts.branch, args)
+}
+
+// --- open (idempotent): used to recover when create reports the branch already exists ---
+export interface WorktreeOpenOpts {
+  branch?: string
+  // herdr requires --workspace OR --cwd; exactly one must be set.
+  cwd?: string
+  label?: string
+  path?: string
+  workspaceId?: string
+}
+
+export function openWorktree(opts: WorktreeOpenOpts): WorktreeInfo {
+  if (!opts.branch && !opts.path) throw new HerdrError('branch or path is required')
+  if (!opts.cwd && !opts.workspaceId) throw new HerdrError('cwd or workspaceId is required')
+  if (opts.cwd && opts.workspaceId) throw new HerdrError('cwd and workspaceId are mutually exclusive')
+
+  assertHerdrOnPath()
+
+  const args = ['worktree', 'open', '--json']
+  if (opts.cwd) args.push('--cwd', opts.cwd)
+  if (opts.workspaceId) args.push('--workspace', opts.workspaceId)
+  if (opts.branch) args.push('--branch', opts.branch)
+  if (opts.path) args.push('--path', opts.path)
+  if (opts.label) args.push('--label', opts.label)
+
+  return parseWorktreeResult(runHerdr(args, opts.cwd), opts.branch ?? '(path)', args)
+}
+
+/** Shared response parser for create/open: both return the same worktree result envelope. */
+function parseWorktreeResult(r: Record<string, unknown>, fallbackBranch: string, args: string[]): WorktreeInfo {
   const workspace = obj(r.workspace)
   const worktree = obj(r.worktree)
   const rootPane = obj(r.root_pane)
@@ -129,7 +160,7 @@ export function createWorktree(opts: WorktreeCreateOpts): WorktreeInfo {
   }
 
   const info: WorktreeInfo = {
-    branch: (worktree.branch as string | undefined) ?? opts.branch,
+    branch: (worktree.branch as string | undefined) ?? fallbackBranch,
     workspace_id: workspaceId,
   }
   if (worktree.path) info.path = worktree.path as string

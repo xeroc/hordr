@@ -6,13 +6,22 @@ import type {RunState} from '../state/schema.js'
 
 export interface WorktreeInfo {
   branch: string
+  /** Filesystem path to the worktree checkout. Present when herdr supplies it. */
+  path?: string
   workspaceId: string
 }
 
 export interface EngineDeps {
-  launchAgent(opts: {beanId: string; cwd: string; role: string; workspaceId: string}): {paneLabel: string}
+  createWorktree(beanId: string, opts?: {base?: string}): WorktreeInfo
+  launchAgent(opts: {
+    beanId: string
+    cwd: string
+    /** When set, send the prompt to this pane instead of creating a new tab. */
+    existingPaneId?: string
+    role: string
+    workspaceId: string
+  }): {paneLabel: string}
   paneExists(paneLabel: string): boolean
-  createWorktree(beanId: string): WorktreeInfo
   removeWorktree(workspaceId: string): void
 }
 

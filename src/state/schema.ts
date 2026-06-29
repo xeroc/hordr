@@ -3,6 +3,10 @@ import {z} from 'zod'
 
 export const RunStateSchema = z.object({
   bean: z.string(),
+  // Single-pane-per-run model: one pane reused across agent roles.
+  // Step transitions respawn the same pane with a new prompt.
+  // See hordr-khga.
+  pane_step: z.number().int().nonnegative().optional(),
   panes: z.record(z.string()),
   started_unix: z.number(),
   status: z.enum(['awaiting-approval', 'blocked', 'closed', 'pr-open', 'queued', 'running']),

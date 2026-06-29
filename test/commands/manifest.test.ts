@@ -1,3 +1,4 @@
+/* eslint-disable max-nested-callbacks -- mocha describe/it nesting is idiomatic */
 import {expect} from 'chai'
 import {execFileSync} from 'node:child_process'
 import {readFileSync} from 'node:fs'

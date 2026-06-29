@@ -81,7 +81,6 @@ describe('queue', () => {
     putRun(makeRun({bean: 'b1', started_unix: 1000, status: 'queued'}))
     putRun(makeRun({bean: 'b2', started_unix: 2000, status: 'queued'}))
     putRun(makeRun({bean: 'b3', started_unix: 3000, status: 'queued'}))
-    const spawned: string[] = []
 
     const started = drain(makeDeps())
 

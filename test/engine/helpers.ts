@@ -12,7 +12,11 @@ export function makeRun(overrides: Partial<RunState> = {}): RunState {
     step: 0,
     updated_unix: now,
     workflow: 'implement',
-    worktree: null,
+    worktree: {
+      branch: 'bean/hordr-test',
+      path: '/tmp/wt-hordr-test',
+      workspace_id: 'wX',
+    },
     ...overrides,
   }
 }

@@ -1,3 +1,4 @@
+/* eslint-disable camelcase -- RunState/panes mirror the on-disk snake_case JSON contract */
 import {expect} from 'chai'
 import {mkdtempSync, rmSync, writeFileSync} from 'node:fs'
 import os from 'node:os'
@@ -61,19 +62,21 @@ describe('advance (self-trigger model)', () => {
     const result = advance('b1', makeDeps())
     expect(result.done).to.be.false // agent spawned but not done
     expect(getRun('b1')?.step).to.equal(0) // step not bumped
-    expect(getRun('b1')?.panes.implementer).to.exist // pane recorded
+    expect(getRun('b1')?.panes.primary).to.exist // pane recorded under primary
+    expect(getRun('b1')?.pane_step).to.equal(0) // marked as running step 0
   })
 
   it('second advance (agent called back) → bumps step + spawns next agent', () => {
-    // Setup: step 0 already ran (implementer pane stored, paneExists=true).
+    // Setup: step 0 already ran (primary pane stored, pane_step=0, paneExists=true).
     const deps = makeDeps({paneExists: () => true})
     putRun(
       makeRun({
         bean: 'b1',
+        pane_step: 0,
+        panes: {primary: 'wX:p1'},
         status: 'running',
         step: 0,
         workflow: 'three-step',
-        panes: {implementer: 'wX:p1'},
       }),
     )
 
@@ -82,7 +85,8 @@ describe('advance (self-trigger model)', () => {
     // Step 0 done → bump to 1 → recurse → step 1 agent (tester) spawns → done:false.
     expect(result.done).to.be.false
     expect(getRun('b1')?.step).to.equal(1)
-    expect(getRun('b1')?.panes.tester).to.exist
+    expect(getRun('b1')?.panes.primary).to.equal('hordr:b1:tester') // same pane, new role
+    expect(getRun('b1')?.pane_step).to.equal(1) // now running step 1
   })
 
   it('agent calls advance on last agent step → bumps to hitl → blocks', () => {
@@ -90,10 +94,11 @@ describe('advance (self-trigger model)', () => {
     putRun(
       makeRun({
         bean: 'b1',
+        pane_step: 1,
+        panes: {primary: 'wX:p1'},
         status: 'running',
         step: 1,
         workflow: 'three-step',
-        panes: {implementer: 'wX:p1', tester: 'wX:p2'},
       }),
     )
 

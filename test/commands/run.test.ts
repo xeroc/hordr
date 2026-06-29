@@ -9,7 +9,7 @@ import path from 'node:path'
 import {_resetShell, _setBeansPresentForTesting, _setShellForTesting} from '../../src/beans/client.js'
 import Run from '../../src/commands/run.js'
 import {_setDepsForTesting} from '../../src/runtime.js'
-import {putRun} from '../../src/state/index.js'
+import {getRun, putRun} from '../../src/state/index.js'
 
 // ponytail: inline stub config — satisfies oclif Command.parse()/error() without
 // the full Config.load() dance (which would target dist/ and create a different
@@ -61,6 +61,10 @@ hordr:
   concurrency: 2
   workflows:
     implement:
+      steps:
+        - agent: implementer
+    implement_wt:
+      worktree: true
       steps:
         - agent: implementer
 `
@@ -229,5 +233,71 @@ describe('commands/run', () => {
 
     expect(res.error, res.error?.message).to.be.undefined
     expect(res.stdout).to.match(/started hordr-child1/)
+  })
+
+  it('passes --base through to deps.createWorktree', async () => {
+    putRun({
+      bean: 'hordr-1602',
+      panes: {},
+      started_unix: 1,
+      status: 'queued',
+      step: 0,
+      updated_unix: 1,
+      workflow: 'implement_wt',
+      worktree: null,
+    })
+
+    const captured: Array<{base?: string; bean: string}> = []
+    _setDepsForTesting({
+      createWorktree(bean: string, opts?: {base?: string}) {
+        captured.push({base: opts?.base, bean})
+        return {branch: `bean/${bean}`, workspaceId: 'wX'}
+      },
+      launchAgent: () => ({paneLabel: 'wX:p1'}),
+      paneExists: () => true,
+      removeWorktree() {},
+    } as unknown as Parameters<typeof _setDepsForTesting>[0])
+
+    const res = await invoke(['hordr-1602', '--base', 'main'])
+
+    expect(res.error, res.error?.message).to.be.undefined
+    expect(captured).to.have.length(1)
+    expect(captured[0].base).to.equal('main')
+  })
+
+  it('persists worktree.path into run state so the agent launches inside the worktree', async () => {
+    putRun({
+      bean: 'hordr-1602',
+      panes: {},
+      started_unix: 1,
+      status: 'queued',
+      step: 0,
+      updated_unix: 1,
+      workflow: 'implement_wt',
+      worktree: null,
+    })
+
+    const WORKTREE_PATH = '/home/xeroc/.herdr/worktrees/repo/bean-hordr-1602'
+    _setDepsForTesting({
+      createWorktree: (bean: string) => ({
+        branch: `bean/${bean}`,
+        path: WORKTREE_PATH,
+        workspaceId: 'wX',
+      }),
+      launchAgent(opts: {cwd: string}) {
+        // The agent must be launched with cwd = worktree path, not the workspace id.
+        expect(opts.cwd, 'agent cwd must be worktree path').to.equal(WORKTREE_PATH)
+        return {paneLabel: 'wX:p1'}
+      },
+      paneExists: () => true,
+      removeWorktree() {},
+    } as unknown as Parameters<typeof _setDepsForTesting>[0])
+
+    const res = await invoke(['hordr-1602'])
+
+    expect(res.error, res.error?.message).to.be.undefined
+
+    const stored = getRun('hordr-1602')
+    expect(stored?.worktree?.path).to.equal(WORKTREE_PATH)
   })
 })

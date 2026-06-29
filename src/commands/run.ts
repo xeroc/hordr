@@ -1,11 +1,12 @@
+/* eslint-disable camelcase -- RunState fields mirror the on-disk snake_case JSON contract */
 import {Args, Command, Flags} from '@oclif/core'
+import {execFileSync} from 'node:child_process'
 
 import {getBean, setWorkflow} from '../beans/client.js'
 import {loadConfig} from '../config/loader.js'
 import {enqueue} from '../engine/queue.js'
 import {getDeps} from '../runtime.js'
 import {getRun, putRun} from '../state/run-store.js'
-import {execFileSync} from 'node:child_process'
 
 /**
  * Universal entry point. Creates a Run, creates a worktree, spawns the first
@@ -22,6 +23,7 @@ export default class Run extends Command {
   static description = 'Start a bean through its workflow. Creates Run + worktree, spawns first agent.'
   static examples = ['<%= config.bin %> <%= command.id %> hordr-1234']
   static flags = {
+    base: Flags.string({description: 'Base ref/branch for the worktree (defaults to config.primary_branch)'}),
     json: Flags.boolean({default: false, description: 'Emit machine-parseable JSON'}),
   }
 
@@ -33,7 +35,8 @@ export default class Run extends Command {
     let run = getRun(beanId)
     if (!run) {
       const config = loadConfig()
-      const bean = getBean(beanId)
+      // Validate the bean exists + is well-formed before creating the Run.
+      getBean(beanId)
 
       // Route: children → coordinator, no children → default workflow.
       const hasChildren = this._hasChildren(beanId)
@@ -43,13 +46,13 @@ export default class Run extends Command {
       const now = Math.floor(Date.now() / 1000)
       run = {
         bean: beanId,
-        workflow,
-        step: 0,
-        status: 'queued',
-        worktree: null,
         panes: {},
         started_unix: now,
+        status: 'queued',
+        step: 0,
         updated_unix: now,
+        workflow,
+        worktree: null,
       }
       putRun(run)
     }
@@ -63,8 +66,11 @@ export default class Run extends Command {
     const wf = config.workflows[run.workflow]
     if (wf?.worktree && !run.worktree) {
       const deps = getDeps()
-      const wt = deps.createWorktree(beanId)
-      putRun({...run, worktree: {branch: wt.branch, workspace_id: wt.workspaceId}})
+      const wt = deps.createWorktree(beanId, flags.base ? {base: flags.base} : undefined)
+      putRun({
+        ...run,
+        worktree: {branch: wt.branch, path: wt.path, workspace_id: wt.workspaceId},
+      })
     }
 
     // Enqueue: transitions to running + spawns first agent via advance.
