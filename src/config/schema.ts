@@ -26,8 +26,15 @@ export const RoutingDefSchema = z.object({
   default_workflow: z.string().min(1),
 })
 
+export const CompanyRefSchema = z.object({
+  // Path to the Agent Companies package root (where COMPANY.md, agents/, skills/ live).
+  // When set, hordr loads agent definitions from the company package.
+  path: z.string().min(1),
+})
+
 export const HordrConfigSchema = z.object({
   agents: z.record(z.string(), AgentDefSchema).default({}),
+  company: CompanyRefSchema.optional(),
   concurrency: z.number().int().positive().default(3),
   primary_branch: z.string().min(1).default('develop'),
   routing: RoutingDefSchema.optional(),

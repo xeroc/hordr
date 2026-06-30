@@ -138,28 +138,49 @@ export function resolveCompanyContext(companyPath: string, projectSlug: string):
   }
 }
 
-// ponytail: module-level memo + lazy chdir. Single entry point is loadConfig,
-// which calls getCompanyContext() on every invocation. The chdir is a side
-// effect of the first call only — subsequent calls return the cached context.
+// Two-phase resolution:
+//   Phase 1 (env vars): HORDR_COMPANY + HORDR_PROJECT → resolve + chdir.
+//     Called before .beans.yml parse so the chdir takes effect first.
+//   Phase 2 (config): .beans.yml `company.path` → no chdir (already in project).
+//     Called after parse with the companyPath from config.
+// _envChecked ensures phase 1 runs at most once; _context caches the result.
 let _context: CompanyContext | null | undefined
+let _envChecked = false
 
-export function getCompanyContext(): CompanyContext | null {
-  if (_context !== undefined) return _context
+export function getCompanyContext(companyPath?: string): CompanyContext | null {
+  if (_context !== undefined) return _context ?? null
 
-  const companyPath = process.env.HORDR_COMPANY
-  const projectSlug = process.env.HORDR_PROJECT
-  if (!companyPath || !projectSlug) {
-    _context = null
-    return null
+  // Phase 1: env vars (vault entry — chdir to project path)
+  if (!_envChecked) {
+    _envChecked = true
+    const envCompany = process.env.HORDR_COMPANY
+    const envProject = process.env.HORDR_PROJECT
+    if (envCompany && envProject) {
+      _context = resolveCompanyContext(envCompany, envProject)
+      process.chdir(_context.projectPath)
+      return _context
+    }
   }
 
-  _context = resolveCompanyContext(companyPath, projectSlug)
-  process.chdir(_context.projectPath)
-  return _context
+  // Phase 2: config-based path (project entry — already in project dir)
+  if (companyPath) {
+    _context = {
+      companyPath: path.resolve(companyPath),
+      projectPath: process.cwd(),
+      projectSlug: '',
+    }
+
+    return _context
+  }
+
+  // Cache null only when caller has provided a companyPath (both phases exhausted)
+  if (companyPath !== undefined) _context = null
+  return null
 }
 
 export function _resetCompanyContext(): void {
   _context = undefined
+  _envChecked = false
 }
 
 // --- persona overrides ---

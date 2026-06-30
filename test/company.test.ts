@@ -211,6 +211,22 @@ Body without path.
       const ctx2 = getCompanyContext()
       expect(ctx2).to.equal(ctx1)
     })
+
+    it('getCompanyContext resolves from config companyPath (no env vars, no chdir)', () => {
+      const ctx = getCompanyContext(companyDir)
+      expect(ctx).to.not.be.null
+      expect(ctx!.companyPath).to.equal(companyDir)
+      expect(ctx!.projectPath).to.equal(process.cwd())
+      expect(ctx!.projectSlug).to.equal('')
+    })
+
+    it('env vars take priority over config companyPath', () => {
+      process.env.HORDR_COMPANY = companyDir
+      process.env.HORDR_PROJECT = 'hordr'
+      const ctx = getCompanyContext('/some/other/path')
+      expect(ctx!.projectPath).to.equal(projectDir)
+      expect(ctx!.projectSlug).to.equal('hordr')
+    })
   })
 
   describe('persona-override', () => {
