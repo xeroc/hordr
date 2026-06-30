@@ -23,6 +23,7 @@ import {
 const AGENTS_MD = `---
 name: Implementer
 slug: implementer
+harness: opencode
 skills:
   - commit-conventional
   - test-patterns
@@ -82,10 +83,11 @@ describe('company', () => {
       expect(body).to.equal(NO_FRONTMATTER)
     })
 
-    it('parseAgentManifest extracts skills, name, and persona body', () => {
+    it('parseAgentManifest extracts skills, name, harness, and persona body', () => {
       const m = parseAgentManifest(AGENTS_MD)
       expect(m.name).to.equal('Implementer')
       expect(m.slug).to.equal('implementer')
+      expect(m.harness).to.equal('opencode')
       expect(m.skills).to.deep.equal(['commit-conventional', 'test-patterns'])
       expect(m.body).to.match(/You implement/)
       expect(m.body).to.not.match(/^---/)
@@ -227,7 +229,7 @@ Body without path.
       writeFileSync(path.join(companyDir, 'agents', 'implementer', 'AGENTS.md'), AGENTS_MD)
       writeFileSync(
         path.join(companyDir, 'agents', 'tester', 'AGENTS.md'),
-        '---\nname: Tester\n---\nYou test things.\n',
+        '---\nname: Tester\nharness: opencode\n---\nYou test things.\n',
       )
       writeFileSync(path.join(companyDir, 'skills', 'commit-conventional', 'SKILL.md'), SKILL_MD)
       writeFileSync(
@@ -283,7 +285,7 @@ Body without path.
     it('throws when referenced skill not found', () => {
       writeFileSync(
         path.join(companyDir, 'agents', 'implementer', 'AGENTS.md'),
-        '---\nname: Impl\nskills:\n  - nonexistent-skill\n---\nBody.\n',
+        '---\nname: Impl\nharness: opencode\nskills:\n  - nonexistent-skill\n---\nBody.\n',
       )
       const ctx = {companyPath: companyDir, projectPath: projectDir, projectSlug: 'hordr'}
       expect(() => applyAgentOverrides(baseConfig, ctx)).to.throw(CompanyError, /Skill not found/)
@@ -294,6 +296,36 @@ Body without path.
       const original = {...baseConfig, agents: {...baseConfig.agents}}
       applyAgentOverrides(baseConfig, ctx)
       expect(baseConfig.agents.implementer!.persona).to.equal(original.agents.implementer!.persona)
+    })
+
+    it('harness comes from AGENTS.md frontmatter', () => {
+      const ctx = {companyPath: companyDir, projectPath: projectDir, projectSlug: 'hordr'}
+      const result = applyAgentOverrides(baseConfig, ctx)
+      expect(result.agents.implementer!.harness).to.equal('opencode')
+    })
+
+    it('adds new roles from company package not in .beans.yml', () => {
+      mkdirSync(path.join(companyDir, 'agents', 'researcher'), {recursive: true})
+      writeFileSync(
+        path.join(companyDir, 'agents', 'researcher', 'AGENTS.md'),
+        '---\nname: Researcher\nharness: claude\n---\nYou research things.\n',
+      )
+      const ctx = {companyPath: companyDir, projectPath: projectDir, projectSlug: 'hordr'}
+      const result = applyAgentOverrides(baseConfig, ctx)
+      expect(result.agents.researcher).to.exist
+      expect(result.agents.researcher!.harness).to.equal('claude')
+      expect(result.agents.researcher!.persona).to.equal('You research things.')
+    })
+
+    it('skips AGENTS.md without harness field (non-executable role)', () => {
+      mkdirSync(path.join(companyDir, 'agents', 'ceo'), {recursive: true})
+      writeFileSync(
+        path.join(companyDir, 'agents', 'ceo', 'AGENTS.md'),
+        '---\nname: CEO\nreportsTo: null\n---\nYou are the CEO.\n',
+      )
+      const ctx = {companyPath: companyDir, projectPath: projectDir, projectSlug: 'hordr'}
+      const result = applyAgentOverrides(baseConfig, ctx)
+      expect(result.agents).to.not.have.property('ceo')
     })
   })
 })

@@ -53,5 +53,17 @@ export function loadConfig(pathArg?: string): HordrConfig {
   }
 
   // Agent Companies: override agent personas from AGENTS.md bodies + inline skills.
-  return companyCtx ? applyAgentOverrides(parsed.data, companyCtx) : parsed.data
+  const result = companyCtx ? applyAgentOverrides(parsed.data, companyCtx) : parsed.data
+
+  // Runtime validation: every agent needs a persona by now (from .beans.yml or AGENTS.md).
+  for (const [role, agent] of Object.entries(result.agents)) {
+    if (!agent.persona) {
+      throw new ConfigError(
+        `Agent '${role}' has no persona. Set one in .beans.yml or provide agents/${role}/AGENTS.md in the company package.`,
+        configPath,
+      )
+    }
+  }
+
+  return result
 }

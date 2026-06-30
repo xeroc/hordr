@@ -16,7 +16,10 @@ export const WorkflowDefSchema = z.object({
 
 export const AgentDefSchema = z.object({
   harness: z.string().min(1),
-  persona: z.string().min(1),
+  // ponytail: persona optional in schema — validated at runtime in loadConfig.
+  // When a company context is active, persona comes from AGENTS.md body.
+  // When no company, persona must be in .beans.yml (runtime check enforces this).
+  persona: z.string().optional(),
 })
 
 export const RoutingDefSchema = z.object({

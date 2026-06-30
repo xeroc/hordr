@@ -9,7 +9,7 @@
  *
  * Spec: https://agentcompanies.io/specification.md
  */
-import {existsSync, readFileSync} from 'node:fs'
+import {existsSync, readdirSync, readFileSync} from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import {parse} from 'yaml'
@@ -30,7 +30,7 @@ export class CompanyError extends Error {
 /** Match opening `---\n`, capture frontmatter, close on `\n---`, rest is body. */
 const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/
 
-export function parseFrontmatter(content: string): {body: string; frontmatter: Record<string, unknown>;} {
+export function parseFrontmatter(content: string): {body: string; frontmatter: Record<string, unknown>} {
   const match = content.match(FRONTMATTER_RE)
   if (!match) return {body: content, frontmatter: {}}
   const frontmatter = (parse(match[1]) ?? {}) as Record<string, unknown>
@@ -41,6 +41,7 @@ export function parseFrontmatter(content: string): {body: string; frontmatter: R
 
 export interface AgentManifest {
   body: string
+  harness?: string
   name?: string
   reportsTo?: null | string
   skills?: string[]
@@ -72,6 +73,7 @@ export function parseAgentManifest(raw: string): AgentManifest {
   const {body, frontmatter} = parseFrontmatter(raw)
   return {
     body,
+    harness: frontmatter.harness as string | undefined,
     name: frontmatter.name as string | undefined,
     reportsTo: frontmatter.reportsTo as null | string | undefined,
     skills: frontmatter.skills as string[] | undefined,
@@ -173,32 +175,47 @@ function loadSkillBody(companyPath: string, slug: string): SkillManifest {
 }
 
 /**
- * Override agent personas from AGENTS.md bodies with inlined skills.
- * Roles without an AGENTS.md in the company package keep their .beans.yml persona.
+ * Populate agent definitions from the company package.
+ *
+ * Scans agents/<role>/AGENTS.md for every role with a `harness:` field in
+ * frontmatter (hordr-executable agents). Harness comes from frontmatter,
+ * persona from the markdown body + inlined SKILL.md content.
+ *
+ * Roles in .beans.yml without a matching AGENTS.md are kept as fallback.
+ * Roles in the company package not in .beans.yml are added.
+ * AGENTS.md without `harness:` are skipped (non-executable roles like CEO).
  */
 export function applyAgentOverrides(config: HordrConfig, ctx: CompanyContext): HordrConfig {
   const agents = {...config.agents}
+  const agentsDir = path.join(ctx.companyPath, 'agents')
 
-  for (const role of Object.keys(agents)) {
-    const agentFile = path.join(ctx.companyPath, 'agents', role, 'AGENTS.md')
-    if (!existsSync(agentFile)) continue
+  if (existsSync(agentsDir)) {
+    for (const entry of readdirSync(agentsDir, {withFileTypes: true})) {
+      if (!entry.isDirectory()) continue
+      const role = entry.name
+      const agentFile = path.join(agentsDir, role, 'AGENTS.md')
+      if (!existsSync(agentFile)) continue
 
-    const manifest = parseAgentManifest(readFileSync(agentFile, 'utf8'))
-    let persona = manifest.body.trimEnd()
+      const manifest = parseAgentManifest(readFileSync(agentFile, 'utf8'))
+      // Skip non-executable roles (no harness = not a hordr agent)
+      if (!manifest.harness) continue
 
-    if (manifest.skills && manifest.skills.length > 0) {
-      const skillsBlock = manifest.skills
-        .map((slug) => {
-          const skill = loadSkillBody(ctx.companyPath, slug)
-          const title = skill.name ?? slug
-          return `## Skill: ${title}\n\n${skill.body.trim()}`
-        })
-        .join('\n\n')
+      let persona = manifest.body.trimEnd()
 
-      persona += `\n\n--- Attached Skills ---\n\n${skillsBlock}\n`
+      if (manifest.skills && manifest.skills.length > 0) {
+        const skillsBlock = manifest.skills
+          .map((slug) => {
+            const skill = loadSkillBody(ctx.companyPath, slug)
+            const title = skill.name ?? slug
+            return `## Skill: ${title}\n\n${skill.body.trim()}`
+          })
+          .join('\n\n')
+
+        persona += `\n\n--- Attached Skills ---\n\n${skillsBlock}\n`
+      }
+
+      agents[role] = {harness: manifest.harness, persona}
     }
-
-    agents[role] = {...agents[role], persona}
   }
 
   return {...config, agents}

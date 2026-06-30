@@ -5,7 +5,7 @@ status: in-progress
 type: epic
 priority: high
 created_at: 2026-06-30T06:53:43Z
-updated_at: 2026-06-30T07:26:31Z
+updated_at: 2026-06-30T08:58:25Z
 ---
 
 ## Requirement
@@ -60,3 +60,7 @@ _no ADRs yet._ Source: exploration session 2026-06-30 against https://agentcompa
 ## Test Plan
 
 Integration: spin up a minimal Agent Companies package (COMPANY + 1 AGENTS + 1 SKILL + 1 PROJECT + 1 TASK), point hordr at it, verify persona = AGENTS.md body + inlined skill body, verify workflow runs to completion. Portability: ingest the same package with a non-hordr runtime.
+
+
+
+- [x] hordr-tvmm - Harness from AGENTS.md + persona optional in schema
