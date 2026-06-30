@@ -41,7 +41,7 @@ hordr:
         You coordinate the implementation of a parent bean by dispatching its children.
         Read the parent bean: beans show <bean-id>
         List all children: beans list --parent <bean-id> --json
-        For each child, start it: hordr run <child-id>
+        For each child, start it: hordr run <child-id> --base <current-branch>
         Monitor progress: hordr status
         When all children are completed or blocked, run: hordr advance <bean-id>
         If a child is blocked, investigate: hordr take <child-id>

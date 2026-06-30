@@ -30,7 +30,6 @@ hordr:
         - hitl: external
   routing:
     default_workflow: implement
-    plan_workflow: plan
 `
 
 const MISSING_BLOCK_YAML = `
@@ -91,7 +90,6 @@ describe('config/schema', () => {
     expect('agent' in s0 && s0.agent).to.equal('implementer')
     expect('hitl' in s2 && s2.hitl).to.equal('external')
     expect(cfg.routing?.default_workflow).to.equal('implement')
-    expect(cfg.routing?.plan_workflow).to.equal('plan')
   })
 
   it('exits non-zero with "No hordr config found" when block is missing', () => {

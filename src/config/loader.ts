@@ -2,6 +2,7 @@ import {existsSync, readFileSync} from 'node:fs'
 import path from 'node:path'
 import {parse} from 'yaml'
 
+import {applyAgentOverrides, getCompanyContext} from '../company.js'
 import {type HordrConfig, HordrConfigSchema} from './schema.js'
 
 export class ConfigError extends Error {
@@ -27,6 +28,11 @@ function findConfigPath(start: string): string | undefined {
 }
 
 export function loadConfig(pathArg?: string): HordrConfig {
+  // Agent Companies: when HORDR_COMPANY + HORDR_PROJECT are set, resolve the
+  // project working directory from PROJECT.md frontmatter and chdir there
+  // before searching for .beans.yml. Lazy + memoized — no-op without env vars.
+  const companyCtx = getCompanyContext()
+
   const configPath = pathArg ?? findConfigPath(process.cwd())
   if (!configPath) throw new ConfigError('No hordr config found')
 
@@ -46,5 +52,6 @@ export function loadConfig(pathArg?: string): HordrConfig {
     throw new ConfigError(`Invalid hordr config:\n  ${lines.join('\n  ')}`, configPath)
   }
 
-  return parsed.data
+  // Agent Companies: override agent personas from AGENTS.md bodies + inline skills.
+  return companyCtx ? applyAgentOverrides(parsed.data, companyCtx) : parsed.data
 }

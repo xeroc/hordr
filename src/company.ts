@@ -1,0 +1,205 @@
+/**
+ * Agent Companies package support.
+ *
+ * Loads Agent Companies markdown manifests (AGENTS/PROJECT/SKILL/COMPANY.md)
+ * and resolves a company context from HORDR_COMPANY + HORDR_PROJECT env vars.
+ * When active, agent personas are overridden from AGENTS.md bodies with
+ * inlined SKILL.md content, and the process chdir's to the project's
+ * working directory so beans/herdr/git operate in the right repo.
+ *
+ * Spec: https://agentcompanies.io/specification.md
+ */
+import {existsSync, readFileSync} from 'node:fs'
+import path from 'node:path'
+import process from 'node:process'
+import {parse} from 'yaml'
+
+import type {HordrConfig} from './config/schema.js'
+
+// --- errors ---
+
+export class CompanyError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'CompanyError'
+  }
+}
+
+// --- frontmatter parsing ---
+
+/** Match opening `---\n`, capture frontmatter, close on `\n---`, rest is body. */
+const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/
+
+export function parseFrontmatter(content: string): {body: string; frontmatter: Record<string, unknown>;} {
+  const match = content.match(FRONTMATTER_RE)
+  if (!match) return {body: content, frontmatter: {}}
+  const frontmatter = (parse(match[1]) ?? {}) as Record<string, unknown>
+  return {body: match[2], frontmatter}
+}
+
+// --- manifest types ---
+
+export interface AgentManifest {
+  body: string
+  name?: string
+  reportsTo?: null | string
+  skills?: string[]
+  slug?: string
+}
+
+export interface ProjectManifest {
+  body: string
+  name?: string
+  path: string
+  slug?: string
+}
+
+export interface SkillManifest {
+  body: string
+  name?: string
+  slug?: string
+}
+
+export interface CompanyManifest {
+  body: string
+  name?: string
+  slug?: string
+}
+
+// --- manifest parsers ---
+
+export function parseAgentManifest(raw: string): AgentManifest {
+  const {body, frontmatter} = parseFrontmatter(raw)
+  return {
+    body,
+    name: frontmatter.name as string | undefined,
+    reportsTo: frontmatter.reportsTo as null | string | undefined,
+    skills: frontmatter.skills as string[] | undefined,
+    slug: frontmatter.slug as string | undefined,
+  }
+}
+
+export function parseProjectManifest(raw: string): ProjectManifest {
+  const {body, frontmatter} = parseFrontmatter(raw)
+  const p = frontmatter.path as string | undefined
+  if (!p) throw new CompanyError(`PROJECT.md missing required 'path' field in frontmatter`)
+  return {
+    body,
+    name: frontmatter.name as string | undefined,
+    path: p,
+    slug: frontmatter.slug as string | undefined,
+  }
+}
+
+export function parseSkillManifest(raw: string): SkillManifest {
+  const {body, frontmatter} = parseFrontmatter(raw)
+  return {
+    body,
+    name: frontmatter.name as string | undefined,
+    slug: frontmatter.slug as string | undefined,
+  }
+}
+
+export function parseCompanyManifest(raw: string): CompanyManifest {
+  const {body, frontmatter} = parseFrontmatter(raw)
+  return {
+    body,
+    name: frontmatter.name as string | undefined,
+    slug: frontmatter.slug as string | undefined,
+  }
+}
+
+// --- company context ---
+
+export interface CompanyContext {
+  companyPath: string
+  projectPath: string
+  projectSlug: string
+}
+
+export function resolveCompanyContext(companyPath: string, projectSlug: string): CompanyContext {
+  const projectFile = path.join(companyPath, 'projects', projectSlug, 'PROJECT.md')
+  if (!existsSync(projectFile)) {
+    throw new CompanyError(`Project not found: ${projectFile}`)
+  }
+
+  const project = parseProjectManifest(readFileSync(projectFile, 'utf8'))
+  const resolved = path.resolve(project.path)
+  if (!existsSync(resolved)) {
+    throw new CompanyError(`Project path does not exist: ${resolved}`)
+  }
+
+  return {
+    companyPath: path.resolve(companyPath),
+    projectPath: resolved,
+    projectSlug,
+  }
+}
+
+// ponytail: module-level memo + lazy chdir. Single entry point is loadConfig,
+// which calls getCompanyContext() on every invocation. The chdir is a side
+// effect of the first call only — subsequent calls return the cached context.
+let _context: CompanyContext | null | undefined
+
+export function getCompanyContext(): CompanyContext | null {
+  if (_context !== undefined) return _context
+
+  const companyPath = process.env.HORDR_COMPANY
+  const projectSlug = process.env.HORDR_PROJECT
+  if (!companyPath || !projectSlug) {
+    _context = null
+    return null
+  }
+
+  _context = resolveCompanyContext(companyPath, projectSlug)
+  process.chdir(_context.projectPath)
+  return _context
+}
+
+export function _resetCompanyContext(): void {
+  _context = undefined
+}
+
+// --- persona overrides ---
+
+/** Read a skill body by slug from the company package. */
+function loadSkillBody(companyPath: string, slug: string): SkillManifest {
+  const skillFile = path.join(companyPath, 'skills', slug, 'SKILL.md')
+  if (!existsSync(skillFile)) {
+    throw new CompanyError(`Skill not found: ${skillFile}`)
+  }
+
+  return parseSkillManifest(readFileSync(skillFile, 'utf8'))
+}
+
+/**
+ * Override agent personas from AGENTS.md bodies with inlined skills.
+ * Roles without an AGENTS.md in the company package keep their .beans.yml persona.
+ */
+export function applyAgentOverrides(config: HordrConfig, ctx: CompanyContext): HordrConfig {
+  const agents = {...config.agents}
+
+  for (const role of Object.keys(agents)) {
+    const agentFile = path.join(ctx.companyPath, 'agents', role, 'AGENTS.md')
+    if (!existsSync(agentFile)) continue
+
+    const manifest = parseAgentManifest(readFileSync(agentFile, 'utf8'))
+    let persona = manifest.body.trimEnd()
+
+    if (manifest.skills && manifest.skills.length > 0) {
+      const skillsBlock = manifest.skills
+        .map((slug) => {
+          const skill = loadSkillBody(ctx.companyPath, slug)
+          const title = skill.name ?? slug
+          return `## Skill: ${title}\n\n${skill.body.trim()}`
+        })
+        .join('\n\n')
+
+      persona += `\n\n--- Attached Skills ---\n\n${skillsBlock}\n`
+    }
+
+    agents[role] = {...agents[role], persona}
+  }
+
+  return {...config, agents}
+}

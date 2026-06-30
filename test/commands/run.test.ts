@@ -235,6 +235,140 @@ describe('commands/run', () => {
     expect(res.stdout).to.match(/started hordr-child1/)
   })
 
+  // ---- Parent worktree inheritance ----
+
+  it('child of a parent with an active Run/worktree inherits that worktree (no createWorktree, no worktree: true needed)', async () => {
+    // Parent already has a Run with a worktree.
+    putRun({
+      bean: 'hordr-parent1',
+      panes: {},
+      started_unix: 1,
+      status: 'running',
+      step: 0,
+      updated_unix: 1,
+      workflow: 'coordinator',
+      worktree: {
+        branch: 'bean/hordr-parent1',
+        path: '/wt/parent',
+        workspace_id: 'ws-parent',
+      },
+    })
+
+    // Child bean references the parent; parent bean record is reachable too.
+    const childBean = JSON.stringify({
+      ...JSON.parse(BEAN_JSON_TODO),
+      id: 'hordr-child2',
+      parent: 'hordr-parent1',
+    })
+    const parentBean = JSON.stringify({
+      ...JSON.parse(BEAN_JSON_TODO),
+      id: 'hordr-parent1',
+    })
+    _setShellForTesting((_cmd, args) => {
+      // Route by bean id: parent lookups vs. child validation/body reads.
+      if (args[2] === 'hordr-parent1') return parentBean
+      return childBean
+    })
+    const captured: Array<{base?: string; bean: string}> = []
+    _setDepsForTesting({
+      createWorktree(bean: string, opts?: {base?: string}) {
+        captured.push({base: opts?.base, bean})
+        return {branch: `bean/${bean}`, workspaceId: 'should-not-be-used'}
+      },
+      launchAgent: () => ({paneLabel: 'ws-parent:p1'}),
+      paneExists: () => true,
+      removeWorktree() {},
+    } as unknown as Parameters<typeof _setDepsForTesting>[0])
+
+    const res = await invoke(['hordr-child2'])
+
+    expect(res.error, res.error?.message).to.be.undefined
+    // The child must NOT have triggered a new worktree creation.
+    expect(captured, 'createWorktree must not be called when parent worktree is inherited').to.have.lengthOf(0)
+
+    // The child Run must carry the parent's worktree verbatim.
+    const stored = getRun('hordr-child2')
+    expect(stored?.worktree).to.deep.equal({
+      branch: 'bean/hordr-parent1',
+      path: '/wt/parent',
+      workspace_id: 'ws-parent',
+    })
+  })
+
+  it('walks the parent chain: grandchild inherits grandparent worktree when intermediate parent has no Run', async () => {
+    // Grandparent has the worktree; parent has no Run at all.
+    putRun({
+      bean: 'hordr-gp1',
+      panes: {},
+      started_unix: 1,
+      status: 'running',
+      step: 0,
+      updated_unix: 1,
+      workflow: 'coordinator',
+      worktree: {branch: 'bean/hordr-gp1', path: '/wt/gp', workspace_id: 'ws-gp'},
+    })
+
+    const grandchildBean = JSON.stringify({...JSON.parse(BEAN_JSON_TODO), id: 'hordr-gc1', parent: 'hordr-parent2'})
+    const parentBean = JSON.stringify({...JSON.parse(BEAN_JSON_TODO), id: 'hordr-parent2', parent: 'hordr-gp1'})
+    const gpBean = JSON.stringify({...JSON.parse(BEAN_JSON_TODO), id: 'hordr-gp1'})
+    _setShellForTesting((_cmd, args) => {
+      // `beans show --json <id>` — id is args[2].
+      const id = args[2]
+      if (id === 'hordr-gp1') return gpBean
+      if (id === 'hordr-parent2') return parentBean
+      return grandchildBean
+    })
+    const captured: string[] = []
+    _setDepsForTesting({
+      createWorktree(bean: string) {
+        captured.push(bean)
+        return {branch: `bean/${bean}`, workspaceId: 'x'}
+      },
+      launchAgent: () => ({paneLabel: 'ws-gp:p1'}),
+      paneExists: () => true,
+      removeWorktree() {},
+    } as unknown as Parameters<typeof _setDepsForTesting>[0])
+
+    const res = await invoke(['hordr-gc1'])
+
+    expect(res.error, res.error?.message).to.be.undefined
+    expect(captured, 'createWorktree must not be called when an ancestor worktree exists').to.have.lengthOf(0)
+    const stored = getRun('hordr-gc1')
+    expect(stored?.worktree?.workspace_id).to.equal('ws-gp')
+  })
+
+  it('cycle guard: a cyclic parent chain terminates and returns null (no infinite loop)', async () => {
+    // A → B → A. Neither has a Run, so we'd loop forever without a guard.
+    // The cycle guard must terminate; the run then falls through to the
+    // wf.worktree path (default true) and creates its own worktree.
+    const beanA = JSON.stringify({...JSON.parse(BEAN_JSON_TODO), id: 'hordr-cycA', parent: 'hordr-cycB'})
+    const beanB = JSON.stringify({...JSON.parse(BEAN_JSON_TODO), id: 'hordr-cycB', parent: 'hordr-cycA'})
+    _setShellForTesting((_cmd, args) =>
+      // `beans show --json <id>` — id is args[2].
+      args[2] === 'hordr-cycB' ? beanB : beanA,
+    )
+    let createCalls = 0
+    _setDepsForTesting({
+      createWorktree() {
+        createCalls++
+        return {branch: 'bean/x', workspaceId: 'ws-fallback'}
+      },
+      launchAgent: () => ({paneLabel: 'p'}),
+      paneExists: () => true,
+      removeWorktree() {},
+    } as unknown as Parameters<typeof _setDepsForTesting>[0])
+
+    // Mocha's default 2s timeout catches an infinite loop. If we get here at
+    // all, the cycle guard worked.
+    const res = await invoke(['hordr-cycA'])
+
+    expect(res.error, res.error?.message).to.be.undefined
+    // No ancestor worktree found → fell through to wf.worktree default (true).
+    expect(createCalls).to.equal(1)
+    const stored = getRun('hordr-cycA')
+    expect(stored?.worktree?.workspace_id).to.equal('ws-fallback')
+  })
+
   it('passes --base through to deps.createWorktree', async () => {
     putRun({
       bean: 'hordr-1602',

@@ -29,7 +29,7 @@ const makeConfig = (agents: Record<string, unknown> = {}) =>
     },
     concurrency: 3,
     primary_branch: 'develop',
-    routing: {default_workflow: 'implement', plan_workflow: 'plan'},
+    routing: {default_workflow: 'implement'},
     workflows: {},
     worktree_branch_prefix: 'bean/',
   }) as Parameters<typeof resolveHarness>[1]
