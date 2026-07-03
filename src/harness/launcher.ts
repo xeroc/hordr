@@ -85,7 +85,11 @@ export function launchAgent(opts: {beanId: string; cwd: string; role: string; wo
   const label = makePaneLabel(opts.beanId, opts.role)
   const pane = createTab({cwd: opts.cwd, label, workspaceId: opts.workspaceId})
 
-  runInPane(pane.pane_id, `${harness} run -i ${shellQuote(prompt)}`)
+  // ponytail: --mini (not "run -i"). opencode's -i/--interactive flag is dead —
+  // the handler reads args.mini, not args.interactive. Without --mini, "opencode run"
+  // takes the non-interactive path and exits the moment the session goes idle.
+  // --mini boots the split-footer interactive mode that stays alive for human input.
+  runInPane(pane.pane_id, `${harness} --mini ${shellQuote(prompt)}`)
 
   return {paneLabel: pane.pane_id}
 }
