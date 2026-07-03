@@ -265,9 +265,7 @@ Body without path.
         reviewer: {harness: 'opencode', persona: 'ORIGINAL-REVIEWER-PERSONA'},
         tester: {harness: 'opencode', persona: 'ORIGINAL-TESTER-PERSONA'},
       },
-      concurrency: 3,
       primary_branch: 'develop',
-      workflows: {},
       worktree_branch_prefix: 'bean/',
     }
 

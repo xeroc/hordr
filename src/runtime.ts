@@ -1,20 +1,19 @@
 /**
- * Production EngineDeps composition.
+ * Production HordrDeps composition + test seam. With no engine, this is a
+ * thin facade over herdr (worktree) + harness (agent launch) used by
+ * `hordr run` and `hordr cleanup`.
  */
 import {execFileSync} from 'node:child_process'
 import process from 'node:process'
 
-import type {EngineDeps, WorktreeInfo} from './engine/types.js'
-
 import {loadConfig} from './config/loader.js'
 import {launchAgent as harnessLaunchAgent} from './harness/launcher.js'
-import {findPane} from './herdr/pane.js'
-import {branchFor, createWorktree, HerdrError, openWorktree, removeWorktree} from './herdr/worktree.js'
+import {HerdrError, type WorktreeInfo} from './herdr/worktree.js'
+import {branchFor, createWorktree, openWorktree, removeWorktree} from './herdr/worktree.js'
 
 // git's phrasing when `worktree create` is asked to make a branch that already exists.
 const ALREADY_EXISTS = /a branch named '([^']+)' already exists/i
-// herdr's phrasing when `worktree open` can't find a worktree for the branch
-// (i.e. the branch exists but no worktree is linked to it — orphan branch).
+// herdr's phrasing when `worktree open` can't find a worktree for the branch.
 const WORKTREE_NOT_FOUND = /worktree_not_found/i
 
 /** Lazy git runner. Mockable for tests. Default shells out synchronously. */
@@ -42,51 +41,50 @@ export function _resetGitRunner(): void {
   _gitRunner = defaultGitRunner
 }
 
-export function createEngineDeps(): EngineDeps {
+/** Map herdr's snake_case WorktreeInfo to hordr's camelCase deps contract. */
+function worktreeToInfo(wt: WorktreeInfo): {branch: string; path?: string; workspaceId: string} {
+  return {branch: wt.branch, path: wt.path, workspaceId: wt.workspace_id}
+}
+
+export interface HordrDeps {
+  createWorktree(beanId: string, opts?: {base?: string}): {branch: string; path?: string; workspaceId: string}
+  launchAgent(opts: {beanId: string; cwd: string; role: string; workspaceId: string}): {paneLabel: string}
+  removeWorktree(workspaceId: string): void
+}
+
+export function createDeps(): HordrDeps {
   return {
-    createWorktree(beanId: string, opts?: {base?: string}): WorktreeInfo {
+    createWorktree(beanId: string, opts?: {base?: string}): {branch: string; path?: string; workspaceId: string} {
       const config = loadConfig()
       const branch = branchFor(beanId, config.worktree_branch_prefix)
       const base = opts?.base ?? config.primary_branch
       const cwd = process.cwd()
 
       try {
-        const wt = createWorktree({base, branch, cwd})
-        return {branch: wt.branch, path: wt.path, workspaceId: wt.workspace_id}
+        return worktreeToInfo(createWorktree({base, branch, cwd}))
       } catch (error) {
         // Recovery only when herdr reports "a branch named '...' already exists".
         if (!(error instanceof HerdrError) || !ALREADY_EXISTS.test(error.message)) throw error
       }
 
       // Branch exists. Two shapes:
-      //  (a) worktree linked   → reuse via `worktree open`.
-      //  (b) orphan branch     → typical artefact of a prior failed create
-      //                          (git branch succeeded, worktree link never landed).
-      //                          Delete the branch and retry.
+      //  (a) worktree linked → reuse via `worktree open`.
+      //  (b) orphan branch → typical artefact of a prior failed create.
+      //      Delete the branch and retry.
       try {
-        const wt = openWorktree({branch, cwd})
-        return {branch: wt.branch, path: wt.path, workspaceId: wt.workspace_id}
+        return worktreeToInfo(openWorktree({branch, cwd}))
       } catch (openError) {
         if (!(openError instanceof HerdrError) || !WORKTREE_NOT_FOUND.test(openError.message)) throw openError
       }
 
       // ponytail: bean/* branches are hordr-owned; safe to delete when orphan.
-      // `git branch -d` (not -D) refuses unmerged branches — natural safety net
-      // against losing real work. If it refuses, the git error propagates and
-      // the user can investigate.
+      // `git branch -d` (not -D) refuses unmerged branches — natural safety net.
       _gitRunner(['branch', '-d', branch], {cwd})
-      const wt = createWorktree({base, branch, cwd})
-      return {branch: wt.branch, path: wt.path, workspaceId: wt.workspace_id}
+      return worktreeToInfo(createWorktree({base, branch, cwd}))
     },
 
-    launchAgent(opts: {beanId: string; cwd: string; existingPaneId?: string; role: string; workspaceId: string;}): {
-      paneLabel: string
-    } {
+    launchAgent(opts: {beanId: string; cwd: string; role: string; workspaceId: string}): {paneLabel: string} {
       return harnessLaunchAgent(opts)
-    },
-
-    paneExists(paneId: string): boolean {
-      return findPane(paneId) !== null
     },
 
     removeWorktree(workspaceId: string): void {
@@ -96,13 +94,12 @@ export function createEngineDeps(): EngineDeps {
 }
 
 // --- test seam ---
+let _override: HordrDeps | null = null
 
-let _override: EngineDeps | null = null
-
-export function _setDepsForTesting(deps: EngineDeps | null): void {
+export function _setDepsForTesting(deps: HordrDeps | null): void {
   _override = deps
 }
 
-export function getDeps(): EngineDeps {
-  return _override ?? createEngineDeps()
+export function getDeps(): HordrDeps {
+  return _override ?? createDeps()
 }

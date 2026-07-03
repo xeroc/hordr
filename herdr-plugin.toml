@@ -1,51 +1,24 @@
 id = "herdr.hordr"
 name = "Hordr"
-version = "0.2.0"
+version = "0.3.0"
 min_herdr_version = "0.7.0"
-description = "Generic agent orchestrator — sequence agents through workflows with HITL gates"
+description = "Give a coding agent an isolated worktree and a pane, with a bean as its brief"
 platforms = ["linux", "macos"]
 
 [[actions]]
 id = "run"
-title = "Run a bean through its workflow"
+title = "Run an agent on a bean"
 contexts = ["workspace"]
 command = ["hordr", "run"]
 
 [[actions]]
-id = "status"
-title = "Show horde status"
+id = "cleanup"
+title = "Remove a bean's worktree"
 contexts = ["workspace"]
-command = ["hordr", "status"]
+command = ["hordr", "cleanup"]
 
 [[actions]]
-id = "drain"
-title = "Drain the queue (start ready beans)"
+id = "daemon"
+title = "Start the hordr daemon (health stub)"
 contexts = ["workspace"]
-command = ["hordr", "drain"]
-
-[[actions]]
-id = "close-merged"
-title = "Close beans whose PRs have merged"
-contexts = ["workspace"]
-command = ["hordr", "close-merged"]
-
-[[actions]]
-id = "reset"
-title = "Reset a bean's run (delete worktree + state)"
-contexts = ["workspace"]
-command = ["hordr", "reset"]
-
-[[actions]]
-id = "take"
-title = "Take over a blocked bean interactively"
-contexts = ["workspace"]
-command = ["hordr", "take"]
-
-# Event hooks
-[[events]]
-on = "worktree.created"
-command = ["hordr", "on-worktree-created"]
-
-[[events]]
-on = "worktree.removed"
-command = ["hordr", "on-worktree-removed"]
+command = ["hordr", "daemon"]

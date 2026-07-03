@@ -1,44 +1,22 @@
-/* eslint-disable camelcase -- keys mirror SPEC §6 YAML config field names */
+/* eslint-disable camelcase -- keys mirror .beans.yml field names */
 import {z} from 'zod'
-
-// ADR-0011: steps are either {agent: <role>} or {hitl: <flavor>}.
-const AgentStepSchema = z.object({agent: z.string().min(1)})
-const HitlStepSchema = z.object({hitl: z.enum(['approve', 'external'])})
-export const StepDefSchema = z.union([AgentStepSchema, HitlStepSchema])
-
-export const WorkflowDefSchema = z.object({
-  steps: z.array(StepDefSchema),
-  // ADR-0012: worktree is workflow-level config.
-  // Default true: every coding workflow needs isolation. Non-coding
-  // workflows (research, planning) opt OUT with `worktree: false`.
-  worktree: z.boolean().default(true),
-})
 
 export const AgentDefSchema = z.object({
   harness: z.string().min(1),
-  // ponytail: persona optional in schema — validated at runtime in loadConfig.
-  // When a company context is active, persona comes from AGENTS.md body.
-  // When no company, persona must be in .beans.yml (runtime check enforces this).
+  // Optional in schema — validated at runtime in loadConfig. When a company
+  // context is active, persona comes from AGENTS.md body.
   persona: z.string().optional(),
-})
-
-export const RoutingDefSchema = z.object({
-  default_workflow: z.string().min(1),
 })
 
 export const CompanyRefSchema = z.object({
   // Path to the Agent Companies package root (where COMPANY.md, agents/, skills/ live).
-  // When set, hordr loads agent definitions from the company package.
   path: z.string().min(1),
 })
 
 export const HordrConfigSchema = z.object({
   agents: z.record(z.string(), AgentDefSchema).default({}),
-  company: CompanyRefSchema.optional(),
-  concurrency: z.number().int().positive().default(3),
+  company: CompanyRefSchema.nullable().optional(),
   primary_branch: z.string().min(1).default('develop'),
-  routing: RoutingDefSchema.optional(),
-  workflows: z.record(z.string(), WorkflowDefSchema).default({}),
   worktree_branch_prefix: z.string().min(1).default('bean/'),
 })
 

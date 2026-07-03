@@ -17,7 +17,6 @@ import {
   resolveHarness,
 } from '../../src/harness/launcher.js'
 import {_resetShell as _resetPaneShell, _setShellForTesting as _setPaneShell} from '../../src/herdr/pane.js'
-import {_resetShell as _resetWaitShell, _setShellForTesting as _setWaitShell} from '../../src/herdr/wait.js'
 
 // minimal HordrConfig shape (only fields touched by these units)
 const PERSONA = 'You are the implementer. Do the thing.\n'
@@ -39,34 +38,15 @@ interface HerdrCall {
   args: string[]
 }
 let paneCalls: HerdrCall[] = []
-let waitCalls: HerdrCall[] = []
 let paneResponder: ((c: HerdrCall) => string) | null = null
-let waitResponder: ((c: HerdrCall) => string) | null = null
 
 const mockPane = (args: string[]): string => {
   paneCalls.push({args})
   if (paneResponder) return paneResponder({args})
-  // default responders by subcommand
-  if (args[0] === 'pane' && args[1] === 'split') {
-    return JSON.stringify({
-      id: 'cli:pane:split',
-      result: {pane: {pane_id: 'wX:pNEW', workspace_id: 'wX'}, type: 'pane_split'},
-    })
+  if (args[0] === 'tab' && args[1] === 'create') {
+    return JSON.stringify({result: {root_pane: {pane_id: 'wX:pNEW', workspace_id: 'wX'}}})
   }
 
-  if (args[0] === 'pane' && args[1] === 'list') {
-    return JSON.stringify({
-      id: 'cli:pane:list',
-      result: {panes: [{pane_id: 'wX:p1', workspace_id: 'wX'}], type: 'pane_list'},
-    })
-  }
-
-  return ''
-}
-
-const mockWait = (args: string[]): string => {
-  waitCalls.push({args})
-  if (waitResponder) return waitResponder({args})
   return ''
 }
 
@@ -114,21 +94,16 @@ const SAMPLE_BEAN = {
 describe('harness/launcher', () => {
   beforeEach(() => {
     paneCalls = []
-    waitCalls = []
     paneResponder = null
-    waitResponder = null
     beansCalls = []
     beansResponder = null
     _setPaneShell(mockPane)
-    _setWaitShell(mockWait)
     _setBeansShell(mockBeans)
     _setBeansPresentForTesting(true)
-    // Default listPanes returns the workspace root pane.
   })
 
   afterEach(() => {
     _resetPaneShell()
-    _resetWaitShell()
     _resetWhich()
     _resetBeansShell()
     _setBeansPresentForTesting(true)
@@ -154,11 +129,15 @@ describe('harness/launcher', () => {
   })
 
   describe('buildPrompt', () => {
-    it('contains persona + bean reference', () => {
-      beansResponder = () => JSON.stringify(SAMPLE_BEAN)
-      const prompt = buildPrompt('implementer', makeConfig(), 'hordr-1501')
+    it('contains persona + bean id + bean body (no daemon wiring — hordr-zn3f)', () => {
+      const prompt = buildPrompt('implementer', makeConfig(), 'hordr-1501', FULL_BODY)
       expect(prompt).to.contain(PERSONA)
       expect(prompt).to.contain('hordr-1501')
+      expect(prompt).to.contain(FULL_BODY) // bean body inlined
+      // No daemon remnants
+      expect(prompt).to.not.contain('curl')
+      expect(prompt).to.not.contain('--unix-socket')
+      expect(prompt).to.not.contain('/complete')
     })
   })
 

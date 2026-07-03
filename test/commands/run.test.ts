@@ -1,4 +1,4 @@
-/* eslint-disable camelcase -- round-trips SPEC.md §3 snake_case JSON fields; RunState fields use snake_case per on-disk contract */
+/* eslint-disable camelcase -- SAMPLE_BEAN mirrors the on-disk beans JSON contract */
 import type {Config} from '@oclif/core'
 
 import {expect} from 'chai'
@@ -6,15 +6,10 @@ import {mkdtempSync, rmSync, writeFileSync} from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import {_resetShell, _setBeansPresentForTesting, _setShellForTesting} from '../../src/beans/client.js'
+import {_resetShell as _resetBeansShell, _setShellForTesting as _setBeansShell} from '../../src/beans/client.js'
 import Run from '../../src/commands/run.js'
-import {_setDepsForTesting} from '../../src/runtime.js'
-import {getRun, putRun} from '../../src/state/index.js'
+import {_setDepsForTesting, type HordrDeps} from '../../src/runtime.js'
 
-// ponytail: inline stub config — satisfies oclif Command.parse()/error() without
-// the full Config.load() dance (which would target dist/ and create a different
-// module instance from the TS source under test). runHook returns empty results
-// so the preparse hook (called by parse()) is a no-op.
 const stubConfig = {
   bin: 'hordr',
   name: 'hordr',
@@ -58,380 +53,121 @@ async function invoke(args: string[]): Promise<RunResult> {
 
 const YAML = `
 hordr:
-  concurrency: 2
-  workflows:
-    implement:
-      steps:
-        - agent: implementer
-    implement_wt:
-      worktree: true
-      steps:
-        - agent: implementer
+  primary_branch: develop
+  agents:
+    implementer:
+      harness: opencode
+      persona: "implement"
+    reviewer:
+      harness: opencode
+      persona: "review"
 `
 
-const VALID_BODY = `## Requirement
-
-Need a thing.
-
-## Spec
-
-Build it.
-
-## Acceptance Criteria
-
-- [ ] AC one
-
-## Test Plan
-
-Run tests.
-`
-
-const BEAN_JSON_TODO = JSON.stringify({
-  body: VALID_BODY,
+const SAMPLE_BEAN = {
+  body: '## Requirement\n\nDo the thing.\n',
   created_at: '2026-01-01T00:00:00Z',
   etag: 'e1',
-  id: 'hordr-1602',
-  path: 'hordr-1602.md',
+  id: 'hordr-1234',
+  path: 'hordr-1234.md',
   priority: 'normal',
   slug: 'x',
   status: 'todo',
   title: 'T',
   type: 'task',
   updated_at: '2026-01-01T00:00:00Z',
-})
+}
 
-describe('commands/run', () => {
-  let stateDir: string
+describe('commands/run (minimal, hordr-zn3f)', () => {
   let configDir: string
   let origCwd: string
-  let origHerdrBin: string | undefined
+  let depsCalls: Array<{beanId: string; cwd: string; role: string; workspaceId: string}>
+  let wtCalls: Array<{beanId: string; opts?: {base?: string}}>
+
+  const stubDeps: HordrDeps = {
+    createWorktree(beanId, opts) {
+      wtCalls.push({beanId, opts})
+      return {branch: `bean/${beanId}`, path: `/wt/${beanId}`, workspaceId: 'wX'}
+    },
+    launchAgent(opts) {
+      depsCalls.push(opts)
+      return {paneLabel: 'wX:pNEW'}
+    },
+    removeWorktree() {},
+  }
 
   beforeEach(() => {
-    stateDir = mkdtempSync(path.join(os.tmpdir(), 'hordr-run-st-'))
     configDir = mkdtempSync(path.join(os.tmpdir(), 'hordr-run-cfg-'))
     writeFileSync(path.join(configDir, '.beans.yml'), YAML)
-    process.env.HERDR_PLUGIN_STATE_DIR = stateDir
     origCwd = process.cwd()
     process.chdir(configDir)
-    // Redirect the detached supervisor spawn to /bin/true (no-op, exits 0).
-    origHerdrBin = process.env.HERDR_BIN_PATH
-    process.env.HERDR_BIN_PATH = '/bin/true'
-    _setBeansPresentForTesting(true)
-    _setShellForTesting((_cmd, args) => {
-      if (args[0] === 'show') return BEAN_JSON_TODO
-      if (args[0] === 'update') return BEAN_JSON_TODO
-      throw new Error(`unexpected beans call: ${args.join(' ')}`)
-    })
-    _setDepsForTesting(null)
+    depsCalls = []
+    wtCalls = []
+    _setDepsForTesting(stubDeps)
+    _setBeansShell(() => JSON.stringify(SAMPLE_BEAN))
   })
 
   afterEach(() => {
     process.chdir(origCwd)
-    delete process.env.HERDR_PLUGIN_STATE_DIR
-    if (origHerdrBin === undefined) delete process.env.HERDR_BIN_PATH
-    else process.env.HERDR_BIN_PATH = origHerdrBin
-    rmSync(stateDir, {force: true, recursive: true})
     rmSync(configDir, {force: true, recursive: true})
-    _resetShell()
-    _setBeansPresentForTesting(true)
     _setDepsForTesting(null)
+    _resetBeansShell()
   })
 
-  it('happy path: bean todo, run queued → starts running and spawns supervisor (AC #1)', async () => {
-    putRun({
-      bean: 'hordr-1602',
-      panes: {},
-      started_unix: 1,
-      status: 'queued',
-      step: 0,
-      updated_unix: 1,
-      workflow: 'implement',
-      worktree: null,
+  it('happy path: creates worktree + launches agent with default role', async () => {
+    const res = await invoke(['hordr-1234'])
+
+    expect(res.error, res.error?.message).to.be.undefined
+    expect(res.stdout).to.match(/started hordr-1234 in bean\/hordr-1234/)
+    expect(res.stdout).to.match(/role: implementer/)
+
+    expect(wtCalls).to.have.length(1)
+    expect(wtCalls[0]).to.deep.equal({beanId: 'hordr-1234', opts: undefined})
+    expect(depsCalls).to.have.length(1)
+    expect(depsCalls[0]).to.deep.equal({
+      beanId: 'hordr-1234',
+      cwd: '/wt/hordr-1234',
+      role: 'implementer',
+      workspaceId: 'wX',
     })
-
-    const res = await invoke(['hordr-1602'])
-
-    expect(res.error).to.be.undefined
-    expect(res.stdout).to.match(/started hordr-1602 \(supervisor pane spawned\)/)
   })
 
-  it('rejects if run is not in queued status', async () => {
-    putRun({
-      bean: 'hordr-1602',
-      panes: {},
-      started_unix: 1,
-      status: 'running',
-      step: 0,
-      updated_unix: 1,
-      workflow: 'implement',
-      worktree: null,
+  it('--role overrides the default', async () => {
+    const res = await invoke(['hordr-1234', '--role', 'reviewer'])
+
+    expect(res.error, res.error?.message).to.be.undefined
+    expect(depsCalls[0]?.role).to.equal('reviewer')
+  })
+
+  it('--base forwards to createWorktree', async () => {
+    const res = await invoke(['hordr-1234', '--base', 'main'])
+
+    expect(res.error, res.error?.message).to.be.undefined
+    expect(wtCalls[0]?.opts).to.deep.equal({base: 'main'})
+  })
+
+  it('--json emits bean, branch, pane, role, workspace', async () => {
+    const res = await invoke(['hordr-1234', '--json'])
+
+    expect(res.error, res.error?.message).to.be.undefined
+    const parsed = JSON.parse(res.stdout.trim()) as {
+      bean: string
+      branch: string
+      pane: string
+      role: string
+      workspace: string
+    }
+    expect(parsed).to.deep.equal({
+      bean: 'hordr-1234',
+      branch: 'bean/hordr-1234',
+      pane: 'wX:pNEW',
+      role: 'implementer',
+      workspace: 'wX',
     })
+  })
 
-    const res = await invoke(['hordr-1602'])
-
+  it('errors when bean id is missing', async () => {
+    const res = await invoke([])
     expect(res.error).to.be.instanceOf(Error)
-    expect(res.error!.message).to.match(/expected 'queued'/)
     expect(res.error!.oclif?.exit).to.equal(2)
-  })
-
-  it('--json emits parseable JSON with bean and outcome', async () => {
-    putRun({
-      bean: 'hordr-1602',
-      panes: {},
-      started_unix: 1,
-      status: 'queued',
-      step: 0,
-      updated_unix: 1,
-      workflow: 'implement',
-      worktree: null,
-    })
-
-    const res = await invoke(['hordr-1602', '--json'])
-
-    expect(res.error).to.be.undefined
-    const parsed = JSON.parse(res.stdout.trim()) as {bean: string; outcome: string}
-    expect(parsed.bean).to.equal('hordr-1602')
-    expect(parsed.outcome).to.equal('running')
-  })
-
-  // ---- ADR-0010: decomposed children skip planning ----
-
-  it('child of completed epic with no Run: creates Run directly at queued (ADR-0010)', async () => {
-    // Bean with a completed epic parent. Mock beans to return parent info.
-    const childBean = JSON.stringify({
-      ...JSON.parse(BEAN_JSON_TODO),
-      id: 'hordr-child1',
-      parent_id: 'hordr-epic1',
-    })
-    const epicBean = JSON.stringify({
-      body: VALID_BODY,
-      created_at: '2026-01-01T00:00:00Z',
-      etag: 'e2',
-      id: 'hordr-epic1',
-      path: 'hordr-epic1.md',
-      priority: 'normal',
-      slug: 'epic',
-      status: 'completed',
-      title: 'Epic',
-      type: 'epic',
-      updated_at: '2026-01-01T00:00:00Z',
-    })
-    let callCount = 0
-    _setShellForTesting(() => {
-      callCount++
-      // Alternating: child, epic, child (for getBody), then child (for setWorkflow return).
-      return callCount % 2 === 1 ? childBean : epicBean
-    })
-    _setDepsForTesting({
-      createWorktree: () => ({branch: 'bean/x', workspaceId: 'wX'}),
-      launchAgent: () => ({paneLabel: 'wX:p1'}),
-      paneExists: () => true,
-      removeWorktree() {},
-    } as unknown as Parameters<typeof _setDepsForTesting>[0])
-
-    const res = await invoke(['hordr-child1'])
-
-    expect(res.error, res.error?.message).to.be.undefined
-    expect(res.stdout).to.match(/started hordr-child1/)
-  })
-
-  // ---- Parent worktree inheritance ----
-
-  it('child of a parent with an active Run/worktree inherits that worktree (no createWorktree, no worktree: true needed)', async () => {
-    // Parent already has a Run with a worktree.
-    putRun({
-      bean: 'hordr-parent1',
-      panes: {},
-      started_unix: 1,
-      status: 'running',
-      step: 0,
-      updated_unix: 1,
-      workflow: 'coordinator',
-      worktree: {
-        branch: 'bean/hordr-parent1',
-        path: '/wt/parent',
-        workspace_id: 'ws-parent',
-      },
-    })
-
-    // Child bean references the parent; parent bean record is reachable too.
-    const childBean = JSON.stringify({
-      ...JSON.parse(BEAN_JSON_TODO),
-      id: 'hordr-child2',
-      parent: 'hordr-parent1',
-    })
-    const parentBean = JSON.stringify({
-      ...JSON.parse(BEAN_JSON_TODO),
-      id: 'hordr-parent1',
-    })
-    _setShellForTesting((_cmd, args) => {
-      // Route by bean id: parent lookups vs. child validation/body reads.
-      if (args[2] === 'hordr-parent1') return parentBean
-      return childBean
-    })
-    const captured: Array<{base?: string; bean: string}> = []
-    _setDepsForTesting({
-      createWorktree(bean: string, opts?: {base?: string}) {
-        captured.push({base: opts?.base, bean})
-        return {branch: `bean/${bean}`, workspaceId: 'should-not-be-used'}
-      },
-      launchAgent: () => ({paneLabel: 'ws-parent:p1'}),
-      paneExists: () => true,
-      removeWorktree() {},
-    } as unknown as Parameters<typeof _setDepsForTesting>[0])
-
-    const res = await invoke(['hordr-child2'])
-
-    expect(res.error, res.error?.message).to.be.undefined
-    // The child must NOT have triggered a new worktree creation.
-    expect(captured, 'createWorktree must not be called when parent worktree is inherited').to.have.lengthOf(0)
-
-    // The child Run must carry the parent's worktree verbatim.
-    const stored = getRun('hordr-child2')
-    expect(stored?.worktree).to.deep.equal({
-      branch: 'bean/hordr-parent1',
-      path: '/wt/parent',
-      workspace_id: 'ws-parent',
-    })
-  })
-
-  it('walks the parent chain: grandchild inherits grandparent worktree when intermediate parent has no Run', async () => {
-    // Grandparent has the worktree; parent has no Run at all.
-    putRun({
-      bean: 'hordr-gp1',
-      panes: {},
-      started_unix: 1,
-      status: 'running',
-      step: 0,
-      updated_unix: 1,
-      workflow: 'coordinator',
-      worktree: {branch: 'bean/hordr-gp1', path: '/wt/gp', workspace_id: 'ws-gp'},
-    })
-
-    const grandchildBean = JSON.stringify({...JSON.parse(BEAN_JSON_TODO), id: 'hordr-gc1', parent: 'hordr-parent2'})
-    const parentBean = JSON.stringify({...JSON.parse(BEAN_JSON_TODO), id: 'hordr-parent2', parent: 'hordr-gp1'})
-    const gpBean = JSON.stringify({...JSON.parse(BEAN_JSON_TODO), id: 'hordr-gp1'})
-    _setShellForTesting((_cmd, args) => {
-      // `beans show --json <id>` — id is args[2].
-      const id = args[2]
-      if (id === 'hordr-gp1') return gpBean
-      if (id === 'hordr-parent2') return parentBean
-      return grandchildBean
-    })
-    const captured: string[] = []
-    _setDepsForTesting({
-      createWorktree(bean: string) {
-        captured.push(bean)
-        return {branch: `bean/${bean}`, workspaceId: 'x'}
-      },
-      launchAgent: () => ({paneLabel: 'ws-gp:p1'}),
-      paneExists: () => true,
-      removeWorktree() {},
-    } as unknown as Parameters<typeof _setDepsForTesting>[0])
-
-    const res = await invoke(['hordr-gc1'])
-
-    expect(res.error, res.error?.message).to.be.undefined
-    expect(captured, 'createWorktree must not be called when an ancestor worktree exists').to.have.lengthOf(0)
-    const stored = getRun('hordr-gc1')
-    expect(stored?.worktree?.workspace_id).to.equal('ws-gp')
-  })
-
-  it('cycle guard: a cyclic parent chain terminates and returns null (no infinite loop)', async () => {
-    // A → B → A. Neither has a Run, so we'd loop forever without a guard.
-    // The cycle guard must terminate; the run then falls through to the
-    // wf.worktree path (default true) and creates its own worktree.
-    const beanA = JSON.stringify({...JSON.parse(BEAN_JSON_TODO), id: 'hordr-cycA', parent: 'hordr-cycB'})
-    const beanB = JSON.stringify({...JSON.parse(BEAN_JSON_TODO), id: 'hordr-cycB', parent: 'hordr-cycA'})
-    _setShellForTesting((_cmd, args) =>
-      // `beans show --json <id>` — id is args[2].
-      args[2] === 'hordr-cycB' ? beanB : beanA,
-    )
-    let createCalls = 0
-    _setDepsForTesting({
-      createWorktree() {
-        createCalls++
-        return {branch: 'bean/x', workspaceId: 'ws-fallback'}
-      },
-      launchAgent: () => ({paneLabel: 'p'}),
-      paneExists: () => true,
-      removeWorktree() {},
-    } as unknown as Parameters<typeof _setDepsForTesting>[0])
-
-    // Mocha's default 2s timeout catches an infinite loop. If we get here at
-    // all, the cycle guard worked.
-    const res = await invoke(['hordr-cycA'])
-
-    expect(res.error, res.error?.message).to.be.undefined
-    // No ancestor worktree found → fell through to wf.worktree default (true).
-    expect(createCalls).to.equal(1)
-    const stored = getRun('hordr-cycA')
-    expect(stored?.worktree?.workspace_id).to.equal('ws-fallback')
-  })
-
-  it('passes --base through to deps.createWorktree', async () => {
-    putRun({
-      bean: 'hordr-1602',
-      panes: {},
-      started_unix: 1,
-      status: 'queued',
-      step: 0,
-      updated_unix: 1,
-      workflow: 'implement_wt',
-      worktree: null,
-    })
-
-    const captured: Array<{base?: string; bean: string}> = []
-    _setDepsForTesting({
-      createWorktree(bean: string, opts?: {base?: string}) {
-        captured.push({base: opts?.base, bean})
-        return {branch: `bean/${bean}`, workspaceId: 'wX'}
-      },
-      launchAgent: () => ({paneLabel: 'wX:p1'}),
-      paneExists: () => true,
-      removeWorktree() {},
-    } as unknown as Parameters<typeof _setDepsForTesting>[0])
-
-    const res = await invoke(['hordr-1602', '--base', 'main'])
-
-    expect(res.error, res.error?.message).to.be.undefined
-    expect(captured).to.have.length(1)
-    expect(captured[0].base).to.equal('main')
-  })
-
-  it('persists worktree.path into run state so the agent launches inside the worktree', async () => {
-    putRun({
-      bean: 'hordr-1602',
-      panes: {},
-      started_unix: 1,
-      status: 'queued',
-      step: 0,
-      updated_unix: 1,
-      workflow: 'implement_wt',
-      worktree: null,
-    })
-
-    const WORKTREE_PATH = '/home/xeroc/.herdr/worktrees/repo/bean-hordr-1602'
-    _setDepsForTesting({
-      createWorktree: (bean: string) => ({
-        branch: `bean/${bean}`,
-        path: WORKTREE_PATH,
-        workspaceId: 'wX',
-      }),
-      launchAgent(opts: {cwd: string}) {
-        // The agent must be launched with cwd = worktree path, not the workspace id.
-        expect(opts.cwd, 'agent cwd must be worktree path').to.equal(WORKTREE_PATH)
-        return {paneLabel: 'wX:p1'}
-      },
-      paneExists: () => true,
-      removeWorktree() {},
-    } as unknown as Parameters<typeof _setDepsForTesting>[0])
-
-    const res = await invoke(['hordr-1602'])
-
-    expect(res.error, res.error?.message).to.be.undefined
-
-    const stored = getRun('hordr-1602')
-    expect(stored?.worktree?.path).to.equal(WORKTREE_PATH)
   })
 })

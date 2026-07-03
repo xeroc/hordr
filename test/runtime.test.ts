@@ -12,7 +12,7 @@ import {
   HerdrError,
   type ShellFn,
 } from '../src/herdr/worktree.js'
-import {_resetGitRunner, _setGitRunnerForTesting, createEngineDeps, type GitRunner} from '../src/runtime.js'
+import {_resetGitRunner, _setGitRunnerForTesting, createDeps, type GitRunner} from '../src/runtime.js'
 
 interface Call {
   args: string[]
@@ -52,14 +52,9 @@ const YAML = `
 hordr:
   primary_branch: develop
   worktree_branch_prefix: bean/
-  workflows:
-    implement:
-      steps:
-        - agent: implementer
-      worktree: true
 `
 
-describe('runtime / createEngineDeps.createWorktree', () => {
+describe('runtime / createDeps.createWorktree', () => {
   let configDir: string
   let origCwd: string
 
@@ -89,7 +84,7 @@ describe('runtime / createEngineDeps.createWorktree', () => {
 
   it('passes --base develop (from config) by default', () => {
     responder = () => JSON.stringify({id: 'cli:worktree:create', result: OPEN_RESULT})
-    const deps = createEngineDeps()
+    const deps = createDeps()
     const info = deps.createWorktree('hordr-999')
     const a = calls[0].args
     expect(a).to.include('--base')
@@ -103,7 +98,7 @@ describe('runtime / createEngineDeps.createWorktree', () => {
 
   it('passes --base from opts, overriding config', () => {
     responder = () => JSON.stringify({id: 'cli:worktree:create', result: OPEN_RESULT})
-    const deps = createEngineDeps()
+    const deps = createDeps()
     deps.createWorktree('hordr-999', {base: 'main'})
     const a = calls[0].args
     expect(a).to.include('--base')
@@ -133,7 +128,7 @@ describe('runtime / createEngineDeps.createWorktree', () => {
       return JSON.stringify({id: 'cli:worktree:open', result: OPEN_RESULT})
     }
 
-    const deps = createEngineDeps()
+    const deps = createDeps()
     const info = deps.createWorktree('hordr-999')
     expect(n).to.equal(2)
     expect(calls[0].args.slice(0, 2)).to.deep.equal(['worktree', 'create'])
@@ -161,7 +156,7 @@ describe('runtime / createEngineDeps.createWorktree', () => {
       throw new Error('should not reach open')
     }
 
-    const deps = createEngineDeps()
+    const deps = createDeps()
     expect(() => deps.createWorktree('hordr-999')).to.throw(/worktree_create_failed/)
   })
 
@@ -200,7 +195,7 @@ describe('runtime / createEngineDeps.createWorktree', () => {
       throw new Error(`unexpected herdr call: ${c.args.join(' ')}`)
     }
 
-    const deps = createEngineDeps()
+    const deps = createDeps()
     const info = deps.createWorktree('hordr-999')
 
     // Sequence: create (fail) → open (fail) → git branch -d → create (succeed).
@@ -242,7 +237,7 @@ describe('runtime / createEngineDeps.createWorktree', () => {
       throw new Error('unreachable')
     }
 
-    const deps = createEngineDeps()
+    const deps = createDeps()
     expect(() => deps.createWorktree('hordr-999')).to.throw(/workspace_busy/)
     expect(gitCalls).to.have.length(0)
   })
@@ -280,7 +275,7 @@ describe('runtime / createEngineDeps.createWorktree', () => {
       )
     }
 
-    const deps = createEngineDeps()
+    const deps = createDeps()
     expect(() => deps.createWorktree('hordr-999')).to.throw(/not fully merged/)
   })
 })

@@ -1,12 +1,13 @@
 /**
  * Harness resolution and agent launching.
  *
- * Uses tabs for agent panes. Prompt is passed directly to the harness via
- * `opencode run "<prompt>"` (or equivalent for other harnesses) — no
- * send-text/send-keys dance, no sleep.
+ * buildPrompt composes persona + bean body. The agent gets the full bean
+ * content to interpret; no section extraction. Fire-and-forget: the agent
+ * works in its pane, hordr does not wait.
  */
 import {execFileSync} from 'node:child_process'
 
+import {getBody} from '../beans/client.js'
 import {loadConfig} from '../config/loader.js'
 import {type HordrConfig} from '../config/schema.js'
 import {createTab, paneLabel as makePaneLabel, runInPane} from '../herdr/pane.js'
@@ -40,8 +41,6 @@ export function _resetWhich(): void {
   _which = defaultWhich
 }
 
-// --- helpers ---
-
 /** Shell-safe single-quote a string (handles embedded single quotes + newlines). */
 export function shellQuote(s: string): string {
   return `'${s.replaceAll("'", String.raw`'\''`)}'`
@@ -55,46 +54,38 @@ export function resolveHarness(role: string, config: HordrConfig): string {
 }
 
 /**
- * Build the prompt: persona text + bean body (raw, no section extraction).
- * The agent is smart enough to read and interpret the bean content.
+ * Build the prompt: persona text + bean body (raw). The agent reads the
+ * bean content directly and interprets it.
  */
-export function buildPrompt(role: string, config: HordrConfig, beanId: string): string {
+export function buildPrompt(role: string, config: HordrConfig, beanId: string, beanBody: string): string {
   const persona = config.agents[role]?.persona
   if (!persona) throw new HarnessError(`no agent configured for role '${role}'`)
   return `${persona}
 
 ---
 
-Proceed with bean: ${beanId}
+# Bean ${beanId}
+
+${beanBody}
 `
 }
 
 /**
- * Launch an agent. If `existingPaneId` is set, the prompt is sent to that
- * pane (single-pane-per-run model — step transitions reuse the same tab).
- * Otherwise a new tab is created via `herdr tab create`.
+ * Launch an agent into a FRESH pane: create tab, fetch bean body, build
+ * prompt, run harness. Returns the new pane id.
  */
-export function launchAgent(opts: {
-  beanId: string
-  cwd: string
-  existingPaneId?: string
-  role: string
-  workspaceId: string
-}): {
+export function launchAgent(opts: {beanId: string; cwd: string; role: string; workspaceId: string}): {
   paneLabel: string
 } {
   const config = loadConfig()
   const harness = resolveHarness(opts.role, config)
-  const prompt = buildPrompt(opts.role, config, opts.beanId)
+  const body = getBody(opts.beanId)
+  const prompt = buildPrompt(opts.role, config, opts.beanId, body)
 
-  let paneId = opts.existingPaneId
-  if (!paneId) {
-    const label = makePaneLabel(opts.beanId, opts.role)
-    const pane = createTab({cwd: opts.cwd, label, workspaceId: opts.workspaceId})
-    paneId = pane.pane_id
-  }
+  const label = makePaneLabel(opts.beanId, opts.role)
+  const pane = createTab({cwd: opts.cwd, label, workspaceId: opts.workspaceId})
 
-  runInPane(paneId, `${harness} run -i ${shellQuote(prompt)}`)
+  runInPane(pane.pane_id, `${harness} run -i ${shellQuote(prompt)}`)
 
-  return {paneLabel: paneId}
+  return {paneLabel: pane.pane_id}
 }

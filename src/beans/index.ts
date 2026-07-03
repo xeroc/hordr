@@ -1,10 +1,1 @@
-export {
-  BeansError,
-  type BeanStatus,
-  getBean,
-  getBody,
-  getStatus,
-  getWorkflow,
-  setStatus,
-  setWorkflow,
-} from './client.js'
+export {type BeanRecord, BeansError, getBean, getBody} from './client.js'

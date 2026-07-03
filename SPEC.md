@@ -1,408 +1,197 @@
 # Hordr — Specification
 
-> **Status:** Draft v3 — 2026-06-27
-> Hordr is a herdr plugin (standalone OCLIF binary) that orchestrates a horde of coding agents. It sequences agents through workflows with HITL gates and concurrency limits. Domain-specific behavior (what the agent does — commit, test, PR, research) lives entirely in agent personas, not in engine code.
+> **Status:** v4 — 2026-07-02 (the "slash": fire-and-forget, no engine/state)
+> Hordr is a herdr plugin that gives a coding agent an isolated worktree and a pane, with a bean as its brief. That's it.
 
 ---
 
 ## 1. Overview
 
-Hordr is a **generic agent orchestrator** (ADR-0011). It sequences agents through workflows with HITL gates and concurrency limits. The engine has two step kinds: `agent` (spawn + wait for done/blocked) and `hitl` (block for external signal). All domain-specific behavior — commits, tests, PRs, research methodology — lives in agent persona text, not engine code.
-
-Discovery (spec + ADR authoring) lives **outside** hordr. A skill working on `develop` produces an epic bean (whose body IS the spec) and ADR files. Hordr's role is decomposition (`hordr decompose`) and implementation (`hordr run`).
-
-### End-to-end flow
+Hordr is **glue, not an orchestrator.** It does not sequence agents through workflows, does not track run state, does not gate on human approval, does not drive a bean to completion. One `hordr run` is one shot: worktree + pane + agent. The agent works; the human decides what happens next.
 
 ```
-DISCOVERY (outside hordr — skill on develop)
-  human + LLM discuss problem, explore edges
-  → write ADRs to docs/adr/NNNN-*.md (on develop)
-  → create epic bean (body = spec + decision refs)
-  git commit on develop: + docs/adr/, + .beans/epic
-        │
-        ▼
-DECOMPOSE (hordr — on develop, no worktree)
-  hordr decompose <epic>
-  → creates N child task beans (--parent <epic>)
-  → fills epic's ## Decomposition section
-  → epic → completed
-        │
-        ▼
-IMPLEMENTATION (hordr — per child, worktree)
-  hordr run <child>   (or hordr drain)
-  → worktree: bean/<child-id>
-  → implement → test → review → commit → pr
-  → child → in-progress
-        │
-        ▼
-FINALIZE (human + hordr)
-  human reviews PRs, merges on GitHub
-  hordr close-merged
-  → child → completed, worktree removed
+┌─────────────┐        ┌──────────────────────────────┐        ┌─────────┐
+│   Beans     │◄───────│            Hordr             │───────►│  Herdr  │
+│ (bean CLI)  │  body  │  (OCLIF binary + plugin)     │ panes  │ (socket)│
+│ .beans/*.md │        │  run / cleanup / daemon      │ wktree │         │
+└─────────────┘        └──────────────────────────────┘        └─────────┘
+                                                                    │
+                                                                    ▼
+                                                              ┌──────────┐
+                                                              │ Harness  │
+                                                              │ (opencode│
+                                                              │  claude…)│
+                                                              └──────────┘
 ```
 
-Key: discovery and decomposition happen on `develop`. Only implementation spins off worktrees.
-
-### System boundaries
-
-```
-┌─────────────┐        ┌───────────────────────────────────┐        ┌─────────┐
-│   Beans     │◄───────│              Hordr                │───────►│  Herdr  │
-│ (bean CLI)  │ status │  (OCLIF binary + herdr plugin)    │ panes  │ (socket)│
-│ .beans/*.md │ body   │                                   │ wktree │         │
-└─────────────┘        │  ┌─────────┐  ┌────────┐  ┌─────┐ │        └─────────┘
-                       │  │ Run SM  │  │ Queue  │  │Steps│ │            │
-                       │  └─────────┘  └────────┘  └─────┘ │            ▼
-                       │       │                        │  │      ┌──────────┐
-                       │       │  $STATE_DIR/*.json     │  │      │ Harness  │
-                       └───────┴────────────────────────┴──┘      │ (opencode│
-                                  config: .beans.yml [hordr]      │ claude...│
-                                                                  └──────────┘
-```
-
-**Hordr owns:** Run state, queue, workflow engine, step handlers, config parsing, CLI surface.
-**Hordr delegates:** bean CRUD → `beans` CLI; worktree lifecycle → `herdr` CLI; agent execution → harness binaries; PR merge → human + GitHub.
+**Hordr owns:** config parsing, the worktree+pane+launch pipeline, the daemon stub.
+**Hordr delegates:** bean reads → `beans` CLI; worktree + pane lifecycle → `herdr` CLI; agent execution → harness binaries; everything else (sequencing, merge gating, parent/child orchestration) → the human.
 
 ---
 
-## 2. Bean lifecycle
+## 2. Commands
 
-Bean status stays coarse (Beans-native). Fine-grained workflow position lives in Run state.
+Three commands. That's the whole surface.
 
-| Bean status   | Body                  | Run state                         | What it means                  |
-| ------------- | --------------------- | --------------------------------- | ------------------------------ |
-| `todo`        | empty                 | _(none)_                          | Captured, not yet planned      |
-| `draft`       | being filled / filled | `planning` → `awaiting-approval`  | Spec drafted, HITL gate active |
-| `todo`        | complete              | `queued` or _(none)_              | Approved, ready to run         |
-| `in-progress` | complete              | `running` / `blocked` / `pr-open` | Workflow executing or PR open  |
-| `completed`   | complete              | `closed`                          | PR merged, worktree removed    |
-| `scrapped`    | —                     | —                                 | Abandoned                      |
+| Command                | Description                                                                                               |
+| ---------------------- | --------------------------------------------------------------------------------------------------------- |
+| `hordr run <bean>`     | Create a worktree, spawn the agent harness in a fresh pane with persona + bean body. Returns immediately. |
+| `hordr cleanup <bean>` | Remove the worktree hordr created for a bean (found by branch).                                           |
+| `hordr daemon`         | Run the daemon stub: unix socket, `GET /health` only. Grows agent-facing routes later.                    |
 
-### Body contract
+### `hordr run`
 
-The body contract is **type-aware** (ADR-0008):
-
-| Bean type     | Required sections                                                                        |
-| ------------- | ---------------------------------------------------------------------------------------- |
-| `task`, `bug` | Requirement, Spec, Acceptance Criteria, Test Plan (4 sections)                           |
-| `epic`        | Requirement, Spec, Decisions, Decomposition, Acceptance Criteria, Test Plan (6 sections) |
-
-**Task/bug body (4 sections):**
-
-```markdown
-## Requirement
-
-<what is needed and why>
-
-## Spec
-
-<technical approach, scope, key decisions>
-
-## Acceptance Criteria
-
-- [ ] <testable criterion>
-- [ ] <testable criterion>
-
-## Test Plan
-
-<how to verify, including test types and coverage notes>
+```
+hordr run <bean> [--role <name>] [--base <ref>] [--json]
 ```
 
-**Epic body (6 sections):**
+- `<bean>` — bean id (required). Hordr reads it via `beans show --json` to validate it exists and to inline its body into the prompt.
+- `--role` — agent role (default `implementer`). Must exist in `config.agents`.
+- `--base` — git base ref for the worktree (default `config.primary_branch`).
+- `--json` — emit `{bean, branch, pane, role, workspace}`.
 
-```markdown
-## Requirement
+Steps:
 
-<problem statement — why this epic exists>
+1. `getBean(beanId)` — validates the bean, fetches the body.
+2. `deps.createWorktree(beanId, {base?})` — `herdr worktree create`, with recovery for the "branch already exists" and "orphan branch" cases.
+3. `deps.launchAgent({beanId, cwd, role, workspaceId})` — `herdr tab create` + `herdr pane run` of `<harness> run -i '<prompt>'`. The prompt is `<persona>\n\n---\n\n# Bean <id>\n\n<body>` (ADR-0006).
 
-## Spec
+Fire-and-forget. Hordr does not wait for the agent, does not advance, does not track status.
 
-<full technical spec — scope, user journeys, key flows, constraints.
-This IS the spec document. There is no separate specs/ file.>
+### `hordr cleanup`
 
-## Decisions
-
-- [ADR-0007](docs/adr/0007-postgresql.md) — PostgreSQL for durable queue (accepted)
-- [ADR-0008](docs/adr/0008-concurrency-model.md) — Token-bucket rate limiter (accepted)
-
-## Decomposition
-
-<!-- filled by hordr decompose; empty until decomposition runs -->
-
-- [ ] bean-id — Child title
-- [ ] bean-id — Child title
-
-## Acceptance Criteria
-
-- [ ] <epic-level criterion — integration / end-to-end>
-
-## Test Plan
-
-<integration / E2E verification strategy for the epic as a whole>
+```
+hordr cleanup <bean> [--force] [--json]
 ```
 
-For epics, `## Decisions` and `## Decomposition` may have empty content (Decisions empty = no ADRs; Decomposition empty = not yet decomposed) but the section headers MUST exist. `## Acceptance Criteria` still requires at least one `- [ ]` checkbox for both types.
+- Finds the worktree by branch (`<worktree_branch_prefix><beanId>`).
+- `herdr worktree open` → `herdr worktree remove`.
+- `--force` forwards to remove (for unmerged changes).
+- No-op with a message if no worktree exists for the bean.
+- The git branch itself is left for `git branch -d` by the human.
 
-`hordr validate-spec <bean>` dispatches on bean type and checks the appropriate contract.
+### `hordr daemon`
 
-### Lifecycle table additions (ADR-0008, ADR-0010)
+```
+hordr daemon [--socket <path>]
+```
 
-| Bean status | Type | Body                               | Run state            | What it means                                                            |
-| ----------- | ---- | ---------------------------------- | -------------------- | ------------------------------------------------------------------------ |
-| `todo`      | epic | spec complete, Decomposition empty | _(none)_             | Created by discovery skill. Ready for `hordr decompose`.                 |
-| `completed` | epic | spec + Decomposition filled        | _(none)_             | Decomposed into children. Epic's job is done.                            |
-| `todo`      | task | full 4-section                     | _(none)_ or `queued` | Child of an epic (or standalone). Ready for `hordr run`. Skips planning. |
-
-**Decomposed children skip the planning phase entirely** (ADR-0010). No `draft-spec` step, no `awaiting-approval` Run state. `hordr run <child>` creates the Run directly at `queued`. Standalone tasks (not from decomposition) still go through `hordr plan` → `draft-spec` → `awaiting-approval` → `queued` as today.
-
-### Workflow assignment
-
-Each bean has a `workflow:` frontmatter field, set during `hordr plan` (defaults to `hordr.routing.default_workflow`). This is the only hordr-owned frontmatter field.
+- Listens on `$HORDR_SOCKET` (default `~/.hordr/hordr.sock`).
+- `GET /health` → `{ok: true}`. All other routes → 404 JSON.
+- SIGTERM/SIGINT → unlink socket, exit.
+- Holds no state. Exists so future agent-facing routes have stable plumbing (ADR-0004).
 
 ---
 
-## 3. Run state machine
+## 3. Configuration
 
-A Run is identified by its bean id (natural key). State persists to `$HERDR_PLUGIN_STATE_DIR/<bean-id>.json`.
-
-**Runs apply to task/bug beans only** (ADR-0009). Epic beans never have a Run — `hordr decompose` is a stateless command.
-
-### Entry paths
-
-There are two ways to enter the Run state machine:
-
-1. **Standalone task** (via `hordr plan`): `(none) → planning → awaiting-approval → queued`
-2. **Decomposed child** (via `hordr run <child>`): `(none) → queued` (ADR-0010 — body already complete from decomposition)
-
-```
-                      hordr plan                  hordr decompose
-                       (task)                       (epic)
-  (none) ──────────────────────► planning          │
-                                      │            │ creates children
-                                      │            │ (todo, full body)
-                                      ▼            │
-                            awaiting-approval      │
-                                      │            ▼
-                               hordr approve    ┌──────────┐
-                                      │         │  child   │ ← todo, body complete
-                           ┌──────────┘         │ (no Run) │
-                           ▼                    └────┬─────┘
-                        queued ◄─────────────────────┘
-                           │                        hordr run <child>
-                    hordr drain / run               (creates Run at queued)
-                           │
-                           ▼
-                        running
-                           │
-                     implement → test → review
-                           → commit → pr
-                           │           │
-                  any step │           │ close-merged
-                  can block│           ▼
-                           ▼         closed
-                        blocked
-                           │
-                hordr take / hordr reset
-                           │
-                           ▼
-            running (resume) / (none)
-```
-
-| Run state           | Bean status      | Supervisor pane | Description                             |
-| ------------------- | ---------------- | --------------- | --------------------------------------- |
-| _(none)_            | todo             | —               | No Run exists.                          |
-| `awaiting-approval` | draft            | _(idle)_        | Spec complete. HITL approve gate.       |
-| `queued`            | todo (full body) | —               | Approved, waiting for concurrency slot. |
-| `running`           | in-progress      | supervisor pane | Workflow executing.                     |
-| `blocked`           | in-progress      | _(idle)_        | Needs human (test-red, gh auth, etc.).  |
-| `pr-open`           | in-progress      | _(idle)_        | PR opened. Waiting for GitHub merge.    |
-| `closed`            | completed        | —               | Terminal. Worktree removed.             |
-
----
-
-## 4. Step kinds (ADR-0011)
-
-Two kinds. That's it.
-
-| Kind    | Agent? | Description                                                            | Completion signal                      |
-| ------- | ------ | ---------------------------------------------------------------------- | -------------------------------------- |
-| `agent` | yes    | Spawn a role-configured agent, wait for `done` or `blocked` (ADR-0013) | Agent's herdr status                   |
-| `hitl`  | no     | Block until an external command resolves the gate                      | `hordr approve` / `hordr close-merged` |
-
-**`agent` steps** are configured with `{agent: <role>}`. The engine spawns the harness binary for that role (from `config.agents.<role>.harness`), injects the persona text, and waits. The agent's self-reported herdr status IS the signal — the engine never parses agent output. `done` → advance. `blocked` → run blocks.
-
-**`hitl` steps** are configured with `{hitl: 'approve'}` or `{hitl: 'external'}`. The engine blocks the run until an external command resolves the gate.
-
-All domain-specific behavior (commit trailers, test execution, PR creation, code review, research methodology) lives in the **agent persona** — the opening prompt text defined in `config.agents.<role>.persona`. The engine is domain-agnostic.
-
-### Workflow YAML
+`.beans.yml` → `hordr:` block. Validated by Zod on every invocation.
 
 ```yaml
-workflows:
-  implement:
-    worktree: true # ADR-0012: worktree is workflow-level
-    steps:
-      - agent: implementer
-      - agent: tester
-      - agent: reviewer
-      - hitl: external # blocks until hordr close-merged
-  plan:
-    steps:
-      - agent: planner
-      - hitl: approve # blocks until hordr approve
-  research:
-    steps: # no worktree — non-coding workflow
-      - agent: researcher
-      - hitl: approve
-```
+beans:
+  path: .beans
+  prefix: hordr-
+  id_length: 4
 
----
-
-## 5. CLI commands
-
-| Command                      | Description                                                                                           |
-| ---------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `hordr validate-spec <bean>` | **Type-aware:** epics check 6 sections; tasks/bugs check 4. Exit 0 if valid, 1 if not.                |
-| `hordr approve <bean>`       | HITL gate: validate-spec, then bean `draft` → `todo`. Run → `queued`.                                 |
-| `hordr run <bean>`           | Enqueue bean. Decomposed children (ADR-0010) create Run directly at `queued`. Spawns supervisor pane. |
-| `hordr advance <bean>`       | Execute the next step. Idempotent — safe to call repeatedly.                                          |
-| `hordr supervise <bean>`     | Blocking loop: `while not terminal: advance; wait`. Runs in supervisor pane.                          |
-| `hordr take <bean>`          | Focus the blocked pane for interactive recovery. Run stays `blocked` until `advance`.                 |
-| `hordr status`               | List all Runs with state, step, pane refs. Show queue depth.                                          |
-| `hordr drain`                | Start queued Runs until concurrency limit.                                                            |
-| `hordr reset <bean>`         | Delete Run state + worktree + branch. Bean reverts to `todo`.                                         |
-| `hordr close-merged`         | Scan Runs in `pr-open`; for each merged PR: bean → `completed`, worktree remove.                      |
-
-### `hordr decompose` — contract (ADR-0009)
-
-**Preconditions:**
-
-- Bean type is `epic`, status is `todo`.
-- Body passes `validate-spec` for epic contract (all 6 sections present).
-- Decomposition section is empty (no children yet), unless `--force`.
-
-**Execution:**
-
-2. Planner reads epic body + every ADR in `## Decisions`.
-3. Planner creates child beans via `beans create "<title>" -t task --parent <epic-id>`.
-4. Planner fills epic's `## Decomposition` section.
-5. Epic → `completed`.
-
-**Postconditions:**
-
-- N child beans exist with status `todo`, parent `<epic-id>`, complete 4-section bodies.
-- Epic status `completed`, Decomposition section lists all children.
-
-**Idempotency:**
-
-- If epic already has children → warn, exit (unless `--force`).
-- Planner checks existing children before creating new ones.
-
-### Idempotency
-
-Every step handler is check-then-act:
-
-- **implement**: check if `hordr:<bean>:implementer` pane already exists and is alive → reuse, don't re-spawn.
-- **commit**: check if a commit with trailer `Refs: <bean-id>` already exists on the branch → skip.
-- **pr**: check if a PR already exists for the branch → skip.
-- **test**: always re-run (tests are non-destructive to re-execute).
-
-Pane identity is by label (`hordr:<bean-id>:<role>`), resolved via `herdr pane list` filtered by label. This survives herdr pane-id compaction.
-
----
-
-## 6. Configuration schema
-
-`.beans.yml` → `hordr:` block. Validated by zod on every invocation.
-
-```yaml
 hordr:
-  concurrency: 3
-  primary_branch: develop
-  worktree_branch_prefix: bean/
-  agents:
-    <role>:
+  primary_branch: develop # worktree base
+  worktree_branch_prefix: bean/ # → bean/<bean-id>
+
+  company: # optional — Agent Companies package
+    path: /path/to/company #   (omit, or null, to disable)
+
+  agents: # role → harness + persona
+    implementer: #   (default role for `hordr run`)
       harness: opencode # binary on PATH
       persona: | # opening prompt — ALL domain behavior lives here
-        ...
-  workflows:
-    <name>:
-      worktree: true # ADR-0012: optional, default false
-      steps:
-        - agent: <role> # spawn agent, wait for done/blocked
-        - hitl: approve # block until hordr approve
-        - hitl: external # block until hordr close-merged
-  routing:
-    default_workflow: implement
-    plan_workflow: plan
+        You implement a single task bean.
+        Read the bean body. Do the work. Commit when done.
+        If you cannot complete it, stop and wait for the human.
+    reviewer:
+      harness: opencode
+      persona: |
+        You review the diff on this branch…
 ```
 
+| Field                    | Type    | Default   | Description                                            |
+| ------------------------ | ------- | --------- | ------------------------------------------------------ |
+| `primary_branch`         | string  | `develop` | Base ref for worktrees                                 |
+| `worktree_branch_prefix` | string  | `bean/`   | Worktree branch prefix → `bean/<bean-id>`              |
+| `company.path`           | string? | —         | Agent Companies package root (enables persona loading) |
+| `agents.<role>.harness`  | string  | —         | Harness binary on PATH                                 |
+| `agents.<role>.persona`  | string  | —         | Opening prompt; required unless AGENTS.md supplies it  |
+
+Removed in v4: `concurrency`, `workflows`, `routing`. They belonged to the engine layer that no longer exists.
+
 ---
 
-## 7. Herdr plugin manifest
+## 4. The agent prompt
 
-Registered via `herdr plugin link`. Actions map to `hordr` subcommands. Event hooks fire on `worktree.created` / `worktree.removed`. See `herdr-plugin.toml`.
+```
+<persona text>
 
 ---
 
-## 8. Project layout
+# Bean <bean-id>
+
+<full bean body, raw markdown, verbatim>
+```
+
+The agent receives its persona (domain instructions: how to commit, what "done" means, when to stop) followed by the complete bean body (requirement, spec, AC, test plan — whatever the bean author wrote). Hordr does no section extraction, no template substitution beyond the bean id and body. The agent is expected to interpret the body itself.
+
+Personas come from one of two places (ADR-0007):
+
+1. `config.agents.<role>.persona` in `.beans.yml`, OR
+2. `agents/<role>/AGENTS.md` in the configured Agent Companies package (overrides #1 when a company is active).
+
+Every configured agent must have a persona by the time `loadConfig` returns — otherwise the loader throws.
+
+---
+
+## 5. Project layout
 
 ```
 hordr/
-├── .beans.yml                    # beans config + hordr: block
-├── .beans/                       # hordr's own backlog (dogfooded)
-├── CONTEXT.md                    # domain glossary
-├── SPEC.md                       # this document
-├── docs/adr/                     # architecture decisions
-├── herdr-plugin.toml             # herdr plugin manifest
-├── package.json
+├── bin/{run,dev}.js          # entry points (prod / ts-node dev)
 ├── src/
-│   ├── commands/                 # OCLIF command classes (one per CLI command)
-│   ├── config/
-│   │   └── schema.ts             # zod schema for hordr: block
-│   ├── beans/
-│   │   └── client.ts             # beans CLI wrapper
-│   ├── herdr/
-│   │   └── client.ts             # herdr CLI wrapper
-│   ├── engine/
-│   │   ├── run.ts                # Run state machine
-│   │   ├── queue.ts              # queue + concurrency
-│   │   ├── advance.ts            # idempotent step executor
-│   │   └── steps/                # one handler per step kind
-│   │       ├── draft-spec.ts
-│   │       ├── hitl.ts
-│   │       ├── implement.ts
-│   │       ├── test.ts
-│   │       ├── review.ts
-│   │       ├── commit.ts
-│   │       ├── pr.ts
-│   │       └── cleanup.ts
-│   ├── harness/
-│   │   └── launcher.ts           # harness resolution + persona injection
-│   └── state/
-│       └── run-store.ts          # $STATE_DIR/*.json I/O (zod-validated)
-└── test/
+│   ├── commands/
+│   │   ├── run.ts            # worktree + pane + harness
+│   │   ├── cleanup.ts        # worktree teardown
+│   │   └── daemon.ts         # unix-socket stub
+│   ├── beans/client.ts       # getBean / getBody (read-only)
+│   ├── config/{schema,loader}.ts
+│   ├── company.ts            # Agent Companies persona loading
+│   ├── daemon/{server,socket}.ts
+│   ├── harness/launcher.ts   # buildPrompt + launchAgent
+│   ├── herdr/{pane,worktree}.ts
+│   └── runtime.ts            # HordrDeps composition + test seam
+├── test/                     # mirrors src/ (Mocha + Chai)
+├── docs/adr/                 # 8 ADRs
+├── .beans.yml                # beans + hordr config
+└── herdr-plugin.toml         # herdr plugin manifest
 ```
 
 ---
 
-## 9. Non-goals (v1)
+## 6. Herdr plugin manifest
 
-- No daemon / background scheduler. All Runs are driven by explicit CLI invocations or supervisor panes. Phase 2.
-- No custom bean statuses. Bean status stays Beans-native (`todo/draft/in-progress/completed/scrapped`).
-- No multi-tenant or remote operation. Hordr runs locally, talks to local herdr socket and local `beans`.
-- No `main` branch operations. `main` is release-only.
-- No auto-merge. PR creation is terminal; merge is human + GitHub; `close-merged` finalizes.
-- No frontend / board UI. Phase 2 (herdr plugin pane).
-- No deploy workflow. Phase 2.
-- No open/extensible step kinds. The set of 8 kinds is closed.
+Hordr registers with herdr via `herdr-plugin.toml`. Three actions (`run`, `cleanup`, `daemon`) appear in herdr's UI; no event hooks (the worktree lifecycle is owned by `hordr run`/`hordr cleanup` directly, not by herdr-driven hooks).
 
 ---
 
-## 10. Phase 2 (deferred)
+## 7. Non-goals
 
-- Daemon watcher auto-firing `hordr run` on `ready` beans.
-- Horde board pane (herdr `[[panes]]` overlay).
-- Frontend/backend/deploy workflow specializations.
-- Custom event namespace (`hordr.run.started`, `hordr.run.blocked`).
-- Rust port (trigger: stable for one release cycle + desire for static binary).
+- No workflow sequencing, no multi-step orchestration, no HITL gates.
+- No run state, no queue, no concurrency limit.
+- No auto-merge, no PR detection, no `close-merged` equivalent.
+- No parent/child bean traversal — decomposition lives outside hordr.
+- No agent output parsing — the agent's pane is the agent's business.
+- No daemon routes beyond `/health` (yet). When agent-facing routes arrive, they will operate on beans/herdr directly, not on a hordr-internal mirror.
+
+---
+
+## 8. Future (when needed)
+
+- Agent-facing daemon routes: `POST /complete`, `POST /fail`, `POST /review-requested` — agents call back over the unix socket instead of stopping silently. Prompt will then bake in the curl commands.
+- Worktree branch deletion as part of `cleanup` (currently leaves the branch for `git branch -d`).
+- Role-specific worktree bases, multiple harness binaries per role, etc. — all deferred until a real use case appears.
