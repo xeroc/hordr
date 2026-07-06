@@ -168,14 +168,12 @@ describe('harness/launcher', () => {
       expect(tabCreate!.args).to.include('--cwd', '/repo/wt/bean-hordr-1501')
       expect(tabCreate!.args).to.include('--label', 'hordr:hordr-1501:implementer')
 
-      // 2. single pane run call with "opencode --mini '<prompt>'" (NOT "run -i";
-      //    -i is a dead flag — only --mini keeps the session alive after the agent turn).
+      // 2. single pane run call with "opencode run --interactive '<prompt>'"
       const run = paneCalls.find((c) => c.args[0] === 'pane' && c.args[1] === 'run')
       assert.ok(run, 'pane run was called')
       expect(run!.args).to.include('wX:pNEW')
       const cmd = run!.args.at(-1)!
-      expect(cmd).to.contain('opencode --mini')
-      expect(cmd).to.not.contain('run -i')
+      expect(cmd).to.contain('opencode run --interactive')
       expect(cmd).to.contain('hordr-1501')
     })
 

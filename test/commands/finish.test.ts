@@ -143,7 +143,7 @@ describe('commands/finish', () => {
     // git: checkout develop, then merge bean/hordr-1234
     expect(gitCalls).to.have.length(2)
     expect(gitCalls[0]!.args).to.deep.equal(['checkout', 'develop'])
-    expect(gitCalls[1]!.args).to.deep.equal(['merge', 'bean/hordr-1234'])
+    expect(gitCalls[1]!.args).to.deep.equal(['merge', '--no-ff', 'bean/hordr-1234'])
 
     // worktree open (to find workspace) then remove
     const openCall = wtCalls.find((c) => c[1] === 'open')
