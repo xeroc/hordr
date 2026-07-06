@@ -214,6 +214,7 @@ When `company.path` is set (or `HORDR_COMPANY` + `HORDR_PROJECT` env vars are), 
 | Command                | Description                                                                                           |
 | ---------------------- | ----------------------------------------------------------------------------------------------------- |
 | `hordr run <bean>`     | Create a worktree, spawn the agent harness in a fresh pane with persona + bean body. Fire-and-forget. |
+| `hordr finish <bean>`  | Verify the bean is `completed`, merge its branch into `primary_branch`, remove the worktree.          |
 | `hordr cleanup <bean>` | Remove the worktree for a bean (found by branch). `--force` for unmerged changes.                     |
 | `hordr daemon`         | Run the daemon stub (unix socket, `/health` only). Grows agent-facing routes later.                   |
 
@@ -224,6 +225,12 @@ When `company.path` is set (or `HORDR_COMPANY` + `HORDR_PROJECT` env vars are), 
 | `--role <name>` | `implementer` | Agent role (must exist in `config.agents`)           |
 | `--base <ref>`  | `develop`     | Git base ref for the worktree                        |
 | `--json`        | off           | Emit `{bean, branch, pane, role, workspace}` as JSON |
+
+### `hordr finish` flags
+
+| Flag     | Default | Description                                               |
+| -------- | ------- | --------------------------------------------------------- |
+| `--json` | off     | Emit `{bean, branch, merged, removed, workspace}` as JSON |
 
 ### `hordr cleanup` flags
 

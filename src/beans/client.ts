@@ -48,6 +48,7 @@ export class BeansError extends Error {
 
 // --- test seams ---
 export interface ShellOptions {
+  cwd?: string
   encoding: 'utf8'
   stdio?: Array<'ignore' | 'pipe'>
 }
@@ -55,6 +56,7 @@ export type ShellFn = (cmd: string, args: string[], opts: ShellOptions) => strin
 
 const defaultShell: ShellFn = (cmd, args, opts) =>
   execFileSync(cmd, args, {
+    cwd: opts.cwd,
     encoding: 'utf8',
     stdio: opts.stdio ?? ['ignore', 'pipe', 'pipe'],
   }) as unknown as string
@@ -86,9 +88,9 @@ function assertBeansOnPath(): void {
   }
 }
 
-function runBeans(args: string[], beanId: string): string {
+function runBeans(args: string[], beanId: string, cwd?: string): string {
   try {
-    return _shell(BEAN_BIN, args, {encoding: 'utf8'})
+    return _shell(BEAN_BIN, args, {cwd, encoding: 'utf8'})
   } catch (error) {
     const e = error as {message?: string; stderr?: string}
     const snippet = (e.stderr ?? e.message ?? '').slice(0, 200)
@@ -96,10 +98,13 @@ function runBeans(args: string[], beanId: string): string {
   }
 }
 
-/** Read a bean by id. Throws BeansError on CLI failure or malformed JSON. */
-export function getBean(beanId: string): BeanRecord {
+/**
+ * Read a bean by id. Throws BeansError on CLI failure or malformed JSON.
+ * Pass `opts.cwd` to read from a different checkout (e.g. a worktree).
+ */
+export function getBean(beanId: string, opts?: {cwd?: string}): BeanRecord {
   assertBeansOnPath()
-  const raw = runBeans(['show', '--json', beanId], beanId)
+  const raw = runBeans(['show', '--json', beanId], beanId, opts?.cwd)
   let data: unknown
   try {
     data = JSON.parse(raw)

@@ -15,6 +15,7 @@ import {
 interface Call {
   args: string[]
   cmd: string
+  opts: ShellOptions
 }
 
 const SAMPLE_BODY = '## Requirement\n\nDo the thing.\n\n## Spec\n\nApproach.\n'
@@ -35,8 +36,8 @@ const SAMPLE_BEAN_JSON = JSON.stringify(SAMPLE_BEAN)
 
 let calls: Call[] = []
 let responder: ((c: Call) => string) | null = null
-const mockShell: ShellFn = (cmd: string, args: string[], _opts: ShellOptions) => {
-  const c: Call = {args, cmd}
+const mockShell: ShellFn = (cmd: string, args: string[], opts: ShellOptions) => {
+  const c: Call = {args, cmd, opts}
   calls.push(c)
   if (responder) return responder(c)
   throw new Error(`unexpected shell call: ${cmd} ${args.join(' ')}`)
@@ -62,6 +63,13 @@ describe('beans/client', () => {
     expect(bean.title).to.equal('Scaffold')
     expect(bean.body).to.equal(SAMPLE_BODY)
     expect(bean.etag).to.equal('abc123')
+  })
+
+  it('getBean forwards opts.cwd to the shell (worktree-relative reads)', () => {
+    responder = () => SAMPLE_BEAN_JSON
+    getBean('hordr-1001', {cwd: '/wt/hordr-1001'})
+    expect(calls).to.have.length(1)
+    expect(calls[0]!.opts.cwd).to.equal('/wt/hordr-1001')
   })
 
   it('getBody returns the body string unchanged', () => {

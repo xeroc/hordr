@@ -5,12 +5,12 @@
  * content to interpret; no section extraction. Fire-and-forget: the agent
  * works in its pane, hordr does not wait.
  */
-import {execFileSync} from 'node:child_process'
+import { execFileSync } from 'node:child_process'
 
-import {getBody} from '../beans/client.js'
-import {loadConfig} from '../config/loader.js'
-import {type HordrConfig} from '../config/schema.js'
-import {createTab, paneLabel as makePaneLabel, runInPane} from '../herdr/pane.js'
+import { getBody } from '../beans/client.js'
+import { loadConfig } from '../config/loader.js'
+import { type HordrConfig } from '../config/schema.js'
+import { createTab, paneLabel as makePaneLabel, runInPane } from '../herdr/pane.js'
 
 export class HarnessError extends Error {
   constructor(message: string) {
@@ -24,7 +24,7 @@ export type WhichFn = (binary: string) => boolean
 
 const defaultWhich: WhichFn = (binary) => {
   try {
-    execFileSync('sh', ['-c', `command -v ${binary}`], {encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe']})
+    execFileSync('sh', ['-c', `command -v ${binary}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
     return true
   } catch {
     return false
@@ -74,7 +74,7 @@ ${beanBody}
  * Launch an agent into a FRESH pane: create tab, fetch bean body, build
  * prompt, run harness. Returns the new pane id.
  */
-export function launchAgent(opts: {beanId: string; cwd: string; role: string; workspaceId: string}): {
+export function launchAgent(opts: { beanId: string; cwd: string; role: string; workspaceId: string }): {
   paneLabel: string
 } {
   const config = loadConfig()
@@ -83,13 +83,13 @@ export function launchAgent(opts: {beanId: string; cwd: string; role: string; wo
   const prompt = buildPrompt(opts.role, config, opts.beanId, body)
 
   const label = makePaneLabel(opts.beanId, opts.role)
-  const pane = createTab({cwd: opts.cwd, label, workspaceId: opts.workspaceId})
+  const pane = createTab({ cwd: opts.cwd, label, workspaceId: opts.workspaceId })
 
   // ponytail: --mini (not "run -i"). opencode's -i/--interactive flag is dead —
   // the handler reads args.mini, not args.interactive. Without --mini, "opencode run"
   // takes the non-interactive path and exits the moment the session goes idle.
   // --mini boots the split-footer interactive mode that stays alive for human input.
-  runInPane(pane.pane_id, `${harness} --mini ${shellQuote(prompt)}`)
+  runInPane(pane.pane_id, `${harness} run --interactive ${shellQuote(prompt)}`)
 
-  return {paneLabel: pane.pane_id}
+  return { paneLabel: pane.pane_id }
 }
