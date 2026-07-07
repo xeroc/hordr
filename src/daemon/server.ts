@@ -1,10 +1,9 @@
 /**
- * HTTP/JSON daemon stub (hordr-zn3f). Minimal hordr keeps the daemon alive
- * as a /health endpoint over a unix socket so future agent-facing routes
- * can slot in without re-plumbing. Routes beyond /health return 404.
+ * HTTP/JSON daemon over a unix socket (ADR-0012).
  *
- * Transport: unix socket (default $HOME/.hordr/hordr.sock, HORDR_SOCKET).
- * fs perms = auth; no token, no port allocation, no CORS.
+ * Extensible route registry: built-in /health, plus addRoute for the broker
+ * routes (/done, fleet status, etc.). Transport: unix socket
+ * ($HORDR_SOCKET, default ~/.hordr/hordr.sock). fs perms = auth.
  */
 import type {IncomingMessage, ServerResponse} from 'node:http'
 
@@ -14,24 +13,71 @@ import path from 'node:path'
 
 import {socketPath} from './socket.js'
 
+export interface DaemonRequest {
+  body: unknown
+  method: string
+  path: string
+}
+
 export interface DaemonResponse {
   body: unknown
   status: number
 }
 
-/** Pure route handler. /health only; everything else 404. */
-export function handleRequest(method: string, urlPath: string): DaemonResponse {
-  if (method === 'GET' && urlPath === '/health') return {body: {ok: true}, status: 200}
+type RouteHandler = (req: DaemonRequest) => DaemonResponse
+
+interface Route {
+  handler: RouteHandler
+  method: string
+  path: string
+}
+
+// Built-in routes. /health is always present.
+const builtinRoutes: Route[] = [{handler: () => ({body: {ok: true}, status: 200}), method: 'GET', path: '/health'}]
+
+// User-registered routes (broker routes added at daemon startup).
+const userRoutes: Route[] = []
+
+/** Register a route. Called at daemon startup to wire broker endpoints. */
+export function addRoute(method: string, path: string, handler: RouteHandler): void {
+  userRoutes.push({handler, method, path})
+}
+
+/** Clear user-registered routes (keeps /health). Used in tests. */
+export function resetRoutes(): void {
+  userRoutes.length = 0
+}
+
+/** Pure route dispatcher. */
+export function handleRequest(method: string, urlPath: string, body?: unknown): DaemonResponse {
+  const routes = [...builtinRoutes, ...userRoutes]
+  const route = routes.find((r) => r.method === method && r.path === urlPath)
+  if (route) return route.handler({body, method, path: urlPath})
   return {body: {error: `unknown route: ${method} ${urlPath}`}, status: 404}
 }
 
 export function createListener() {
-  return (req: IncomingMessage, res: ServerResponse): void => {
-    const {body: respBody, status} = handleRequest(req.method ?? 'GET', req.url ?? '/')
+  return async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+    const body = await readBody(req)
+    const {body: respBody, status} = handleRequest(req.method ?? 'GET', req.url ?? '/', body)
     const json = JSON.stringify(respBody)
     res.writeHead(status, {'Content-Length': Buffer.byteLength(json), 'Content-Type': 'application/json'})
     res.end(json)
   }
+}
+
+/** Read and JSON-parse the request body (empty for GET). */
+function readBody(req: IncomingMessage): Promise<unknown> {
+  return new Promise((resolve) => {
+    let buf = ''
+    req.setEncoding('utf8')
+    req.on('data', (chunk: string) => {
+      buf += chunk
+    })
+    req.on('end', () => {
+      resolve(buf ? JSON.parse(buf) : undefined)
+    })
+  })
 }
 
 export interface DaemonServer {
