@@ -1,0 +1,11 @@
+# Fleet: serialized milestone-scoped dispatch
+
+**Supersedes:** ADR-0003 (fire-and-forget run), ADR-0005 (worktree-per-bean), ADR-0008 (no lifecycle state) — at the architectural level.
+
+Hordr grows a **fleet** model on top of the existing `hordr run` primitive. A fleet is the runtime instance of one team (an Agent Companies package, ADR-0007) working one **milestone bean** in one **worktree**. It is bounded 1:1:1 — one milestone → at most one active fleet → exactly one worktree (branch `milestone/<id>`). `hordr fleet finish` tears all three down together.
+
+A fleet runs a **serialized dispatch loop** owned by the daemon: pick the next ready task bean (scoped to the milestone's subtree), spawn one ephemeral agent invocation against it in the fleet's shared worktree, wait for completion, roll up status, repeat. There is no Director agent and no persistent member pane — planning is external (the human grills the bean tree before `fleet create`), and each task is worked by a fresh, hordr-run-equivalent invocation that terminates on completion. The pane is reused across sequential invocations (one stable viewing window per fleet); the agent process is not. Roles are derived from each bean's `assigned:` field and resolved against the company manifest at spawn time — mixed harness backends per role fall out for free.
+
+Rationale: the prior "fire-and-forget, one bean = one worktree = one shot" model (ADR-0003/0005) could not express a team working a shared body of work over time. Rooting the fleet in a milestone bean (not a free-floating namespace like cafleet's `fleet_id`) and routing work through bean state (not a message bus) keeps beans as the single source of truth while adding coordination. Serialized dispatch sidesteps the concurrent-committer problem a shared worktree would otherwise create — one task at a time means git stays clean and "one task = one commit" is trivially true. The worktree-per-bean model survives as the special case for `hordr run <bean>` outside any fleet.
+
+The trade-off is explicit: hordr is no longer stateless (ADR-0008 is reversed — see ADR-0012) and no longer purely fire-and-forget inside a fleet. The daemon owns a per-fleet loop and SQLite-backed process state. Outside a fleet, `hordr run`/`hordr cleanup` behave exactly as before.

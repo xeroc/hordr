@@ -1,5 +1,8 @@
 # Unix-socket daemon (stub, grows later)
 
+> **Superseded by ADR-0012 (daemon-as-broker with SQLite) on 2026-07-07. Kept for history.**
+> The daemon is no longer a stub — it is the broker, owning the dispatch loop, `/done` route, rollup, and self-heal poll, backed by SQLite process state. The "currently answers GET /health only" and "grows later" framing below is now actively wrong; the fleet work is the growth this ADR anticipated.
+
 Hordr keeps a long-running daemon (`hordr daemon`) that listens on a unix socket (`$HORDR_SOCKET`, default `~/.hordr/hordr.sock`) and currently answers `GET /health` only. All other routes return 404.
 
 Rationale: agents will need to talk back to hordr — to report completion, request review, declare a block, surface artifacts. A unix socket is the right transport for that (fs perms = auth, no port allocation, no CORS, no token) and keeping the server process alive means future endpoints slot in without re-plumbing the discovery story. The prompt does **not** reference the daemon yet, because there is nothing useful for an agent to call. The daemon exists so the _plumbing_ is stable when the _features_ arrive.
