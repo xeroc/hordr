@@ -1,0 +1,162 @@
+import {expect} from 'chai'
+
+import {
+  _resetShell,
+  _setShellForTesting,
+  type DispatchableBean,
+  getDispatchable,
+  pickDispatchable,
+  type ShellFn,
+} from '../../src/dispatch/dispatch.js'
+
+const bean = (id: string, priority: string, assigned?: string): DispatchableBean => ({
+  assigned,
+  id,
+  priority,
+  title: `Task ${id}`,
+})
+
+describe('dispatch/dispatch', () => {
+  describe('pickDispatchable (pure)', () => {
+    it('returns the intersection of descendants ∩ ready, sorted by priority then id', () => {
+      const descendants = [
+        bean('hordr-0001', 'normal'),
+        bean('hordr-0002', 'critical'),
+        bean('hordr-0003', 'high'),
+        bean('hordr-0004', 'normal'),
+      ]
+      const ready = [
+        bean('hordr-0001', 'normal'),
+        bean('hordr-0002', 'critical'),
+        bean('hordr-0004', 'normal'),
+        bean('hordr-0099', 'critical'),
+      ]
+
+      const result = pickDispatchable(descendants, ready)
+      expect(result.map((b) => b.id)).to.deep.equal(['hordr-0002', 'hordr-0001', 'hordr-0004'])
+    })
+
+    it('returns empty when descendants ∩ ready is empty', () => {
+      expect(pickDispatchable([bean('hordr-0001', 'normal')], [bean('hordr-0099', 'critical')])).to.have.length(0)
+    })
+
+    it('preserves assigned field from the ready set', () => {
+      const result = pickDispatchable([bean('hordr-0001', 'normal')], [bean('hordr-0001', 'normal', 'implementer')])
+      expect(result[0]!.assigned).to.equal('implementer')
+    })
+
+    it('priority order: critical > high > normal > low > deferred', () => {
+      const all = [
+        bean('a', 'low'),
+        bean('b', 'critical'),
+        bean('c', 'deferred'),
+        bean('d', 'high'),
+        bean('e', 'normal'),
+      ]
+      expect(pickDispatchable(all, all).map((b) => b.id)).to.deep.equal(['b', 'd', 'e', 'a', 'c'])
+    })
+  })
+
+  describe('getDispatchable (mocked shell)', () => {
+    let calls: Array<{args: string[]; cwd?: string}>
+
+    beforeEach(() => {
+      calls = []
+      const mock: ShellFn = (args, opts) => {
+        calls.push({args, cwd: opts?.cwd})
+        const joined = args.join(' ')
+        if (joined.startsWith('query')) {
+          return JSON.stringify({
+            bean: {
+              children: [
+                {id: 'hordr-0001', title: 'T1', type: 'task'},
+                {id: 'hordr-0002', title: 'T2', type: 'task'},
+                {id: 'hordr-0003', title: 'T3', type: 'task'},
+              ],
+            },
+          })
+        }
+
+        if (joined.includes('list') && joined.includes('--ready')) {
+          return JSON.stringify([
+            {assigned: 'implementer', id: 'hordr-0001', priority: 'normal', title: 'T1'},
+            {assigned: 'tester', id: 'hordr-0002', priority: 'critical', title: 'T2'},
+          ])
+        }
+
+        throw new Error(`unexpected beans call: ${joined}`)
+      }
+
+      _setShellForTesting(mock)
+    })
+
+    afterEach(() => {
+      _resetShell()
+    })
+
+    it('queries descendants and ready, returns intersection sorted by priority', () => {
+      const result = getDispatchable('hordr-test', {cwd: '/wt'})
+
+      expect(calls).to.have.length(2)
+      expect(calls.some((c) => c.args[0] === 'query')).to.be.true
+      expect(calls.some((c) => c.args.includes('--ready'))).to.be.true
+      expect(calls.every((c) => c.cwd === '/wt')).to.be.true
+
+      expect(result.map((b) => b.id)).to.deep.equal(['hordr-0002', 'hordr-0001'])
+      expect(result[0]!.assigned).to.equal('tester')
+    })
+
+    it('returns empty when no descendants are ready', () => {
+      // eslint-disable-next-line unicorn/consistent-function-scoping -- test-local mock
+      const mock: ShellFn = (args) => {
+        const joined = args.join(' ')
+        if (joined.startsWith('query')) {
+          return JSON.stringify({bean: {children: [{id: 'hordr-0001', type: 'task'}]}})
+        }
+
+        if (joined.includes('--ready')) return JSON.stringify([])
+        throw new Error(`unexpected: ${joined}`)
+      }
+
+      _setShellForTesting(mock)
+      expect(getDispatchable('hordr-test')).to.have.length(0)
+    })
+
+    it('handles nested descendants (epic → task)', () => {
+      // eslint-disable-next-line unicorn/consistent-function-scoping -- test-local mock
+      const mock: ShellFn = (args) => {
+        const joined = args.join(' ')
+        if (joined.startsWith('query')) {
+          return JSON.stringify({
+            bean: {
+              children: [
+                {
+                  children: [
+                    {id: 'hordr-0001', type: 'task'},
+                    {id: 'hordr-0002', type: 'task'},
+                  ],
+                  id: 'epic-1',
+                  type: 'epic',
+                },
+                {id: 'hordr-0003', type: 'task'},
+              ],
+            },
+          })
+        }
+
+        if (joined.includes('--ready')) {
+          return JSON.stringify([
+            {assigned: 'implementer', id: 'hordr-0002', priority: 'high', title: 'T2'},
+            {assigned: 'tester', id: 'hordr-0003', priority: 'normal', title: 'T3'},
+          ])
+        }
+
+        throw new Error(`unexpected: ${joined}`)
+      }
+
+      _setShellForTesting(mock)
+      const result = getDispatchable('hordr-test')
+      expect(result.map((b) => b.id)).to.deep.equal(['hordr-0002', 'hordr-0003'])
+    })
+  })
+})
