@@ -9,6 +9,17 @@
  * Pure function with injected deps: the daemon wires fetchAncestry (beans
  * query for parent chain + subtree status) and markCompleted (beans update).
  */
+/**
+ * Check if the milestone bean is completed (the rollup reached the root).
+ * The daemon uses this after rollup to mark the fleet finishable.
+ */
+export function isMilestoneComplete(
+  milestoneId: string,
+  deps: {beanStatus: (id: string) => string | undefined},
+): boolean {
+  return deps.beanStatus(milestoneId) === 'completed'
+}
+
 export interface AncestorInfo {
   descendantsAllCompleted: boolean
   id: string

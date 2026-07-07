@@ -1,6 +1,6 @@
 import {expect} from 'chai'
 
-import {rollup} from '../../src/dispatch/rollup.js'
+import {isMilestoneComplete, rollup} from '../../src/dispatch/rollup.js'
 
 // Each ancestor node: id + whether all its descendants are completed.
 const ancestor = (id: string, done: boolean) => ({descendantsAllCompleted: done, id})
@@ -62,5 +62,15 @@ describe('dispatch/rollup', () => {
     })
 
     expect(result).to.deep.equal(['milestone-1'])
+  })
+
+  describe('isMilestoneComplete', () => {
+    it('returns true when milestone bean status is completed', () => {
+      expect(isMilestoneComplete('hordr-ms1', {beanStatus: () => 'completed'})).to.be.true
+    })
+
+    it('returns false when milestone bean status is not completed', () => {
+      expect(isMilestoneComplete('hordr-ms1', {beanStatus: () => 'in-progress'})).to.be.false
+    })
   })
 })
