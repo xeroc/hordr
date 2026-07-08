@@ -203,6 +203,76 @@ hordr:
 | `agents.<role>.harness`  | string  | —         | Harness binary on PATH                                 |
 | `agents.<role>.persona`  | string  | —         | Opening prompt; required unless AGENTS.md supplies it  |
 
+### Example configuration
+
+#### Zero config (defaults)
+
+Hordr works out of the box — a `.beans.yml` with just a `beans:` block and no
+`hordr:` section uses sensible defaults:
+
+```yaml
+beans:
+  path: .beans
+  prefix: hordr-
+  id_length: 4
+# No hordr: block needed — defaults cover everything
+```
+
+| Default                  | Value      | Source                           |
+| ------------------------ | ---------- | -------------------------------- |
+| `primary_branch`         | `develop`  | schema default                   |
+| `worktree_branch_prefix` | `bean/`    | schema default                   |
+| `agents.implementer`     | `opencode` | fleet-shaped persona (see below) |
+| `agents.tester`          | `opencode` | fleet-shaped persona             |
+| `agents.reviewer`        | `opencode` | fleet-shaped persona             |
+
+Default personas are minimal fleet instructions: read one assigned bean, do
+the work, commit, `hordr done <id>`, stop. See [docs/fleet-guide.md](docs/fleet-guide.md)
+for fuller alternatives.
+
+#### Minimal fleet config
+
+Override just what you need — everything else stays at defaults:
+
+```yaml
+beans:
+  path: .beans
+  prefix: hordr-
+
+hordr:
+  primary_branch: main # override the default 'develop'
+  agents:
+    implementer:
+      harness: opencode
+      persona: |
+        You implement ONE task bean assigned to you.
+        Read it: beans show <assigned-bean-id>
+        Do ONLY that task's work.
+        When done: beans update <id> -s completed, commit, then hordr done <id>.
+        Then stop.
+```
+
+`tester` and `reviewer` are still available from defaults — only `implementer`
+is overridden.
+
+#### Full config with Agent Companies
+
+```yaml
+beans:
+  path: .beans
+  prefix: hordr-
+
+hordr:
+  primary_branch: develop
+  company:
+    path: /path/to/my-company # agents/<role>/AGENTS.md drives personas
+  agents:
+    implementer: # fallback if company has no AGENTS.md for this role
+      harness: opencode
+      persona: |
+        Custom fallback persona …
+```
+
 ### Agent Companies (optional)
 
 When `company.path` is set (or `HORDR_COMPANY` + `HORDR_PROJECT` env vars are), hordr loads personas from `agents/<role>/AGENTS.md` in the package. Each AGENTS.md with a `harness:` frontmatter field overrides the matching role in `.beans.yml`, with declared skills inlined as an `--- Attached Skills ---` block. See [ADR-0007](docs/adr/0007-agent-companies.md).
