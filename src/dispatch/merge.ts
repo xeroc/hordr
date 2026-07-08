@@ -33,3 +33,11 @@ export function mergeBranch(opts: MergeOpts, deps: {git: GitFn}): MergeResult {
     return {conflict: true, message: (error as Error).message}
   }
 }
+
+/** Merge the milestone integration branch back to primary (fleet finish). */
+export function mergeMilestoneToPrimary(
+  opts: {cwd: string; milestoneId: string; primaryBranch: string},
+  deps: {git: GitFn},
+): MergeResult {
+  return mergeBranch({cwd: opts.cwd, source: `ms/${opts.milestoneId}`, target: opts.primaryBranch}, deps)
+}

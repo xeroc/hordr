@@ -1,6 +1,6 @@
 import {expect} from 'chai'
 
-import {type GitFn, mergeBranch} from '../../src/dispatch/merge.js'
+import {type GitFn, mergeBranch, mergeMilestoneToPrimary} from '../../src/dispatch/merge.js'
 
 describe('dispatch/merge', () => {
   describe('mergeBranch', () => {
@@ -43,6 +43,21 @@ describe('dispatch/merge', () => {
 
       mergeBranch({cwd: '/custom/repo', source: 'x', target: 'y'}, {git})
       expect(cwds.every((c) => c === '/custom/repo')).to.be.true
+    })
+  })
+
+  describe('mergeMilestoneToPrimary', () => {
+    it('merges ms/<id> into the primary branch', () => {
+      const calls: string[][] = []
+      const git: GitFn = (args) => {
+        calls.push(args)
+      }
+
+      const result = mergeMilestoneToPrimary({cwd: '/repo', milestoneId: 'hordr-nh1h', primaryBranch: 'develop'}, {git})
+
+      expect(result.conflict).to.be.false
+      expect(calls[0]).to.deep.equal(['checkout', 'develop'])
+      expect(calls[1]).to.deep.equal(['merge', '--no-ff', 'ms/hordr-nh1h'])
     })
   })
 })
