@@ -9,11 +9,12 @@ import {
   type ShellFn,
 } from '../../src/dispatch/dispatch.js'
 
-const bean = (id: string, priority: string, assigned?: string): DispatchableBean => ({
+const bean = (id: string, priority: string, assigned?: string, type = 'task'): DispatchableBean => ({
   assigned,
   id,
   priority,
   title: `Task ${id}`,
+  type,
 })
 
 describe('dispatch/dispatch', () => {
@@ -55,6 +56,24 @@ describe('dispatch/dispatch', () => {
       ]
       expect(pickDispatchable(all, all).map((b) => b.id)).to.deep.equal(['b', 'd', 'e', 'a', 'c'])
     })
+
+    it('excludes feature/epic/milestone beans — only task and bug are executable', () => {
+      const descendants = [
+        bean('task-1', 'normal', undefined, 'task'),
+        bean('feat-1', 'normal', undefined, 'feature'),
+        bean('epic-1', 'normal', undefined, 'epic'),
+        bean('bug-1', 'normal', undefined, 'bug'),
+      ]
+      const ready = [
+        bean('task-1', 'normal', undefined, 'task'),
+        bean('feat-1', 'normal', undefined, 'feature'),
+        bean('epic-1', 'normal', undefined, 'epic'),
+        bean('bug-1', 'normal', undefined, 'bug'),
+      ]
+
+      const result = pickDispatchable(descendants, ready)
+      expect(result.map((b) => b.id)).to.deep.equal(['bug-1', 'task-1'])
+    })
   })
 
   describe('getDispatchable (mocked shell)', () => {
@@ -79,8 +98,8 @@ describe('dispatch/dispatch', () => {
 
         if (joined.includes('list') && joined.includes('--ready')) {
           return JSON.stringify([
-            {assigned: 'implementer', id: 'hordr-0001', priority: 'normal', title: 'T1'},
-            {assigned: 'tester', id: 'hordr-0002', priority: 'critical', title: 'T2'},
+            {assigned: 'implementer', id: 'hordr-0001', priority: 'normal', title: 'T1', type: 'task'},
+            {assigned: 'tester', id: 'hordr-0002', priority: 'critical', title: 'T2', type: 'task'},
           ])
         }
 
@@ -146,8 +165,8 @@ describe('dispatch/dispatch', () => {
 
         if (joined.includes('--ready')) {
           return JSON.stringify([
-            {assigned: 'implementer', id: 'hordr-0002', priority: 'high', title: 'T2'},
-            {assigned: 'tester', id: 'hordr-0003', priority: 'normal', title: 'T3'},
+            {assigned: 'implementer', id: 'hordr-0002', priority: 'high', title: 'T2', type: 'task'},
+            {assigned: 'tester', id: 'hordr-0003', priority: 'normal', title: 'T3', type: 'task'},
           ])
         }
 

@@ -34,7 +34,11 @@ export interface DispatchableBean {
   id: string
   priority: string
   title: string
+  type: string
 }
+
+/** Only task and bug beans are executable — features, epics, milestones are containers. */
+const EXECUTABLE_TYPES = new Set(['bug', 'task'])
 
 // --- priority ordering ---
 
@@ -59,10 +63,10 @@ function byPriorityThenId(a: DispatchableBean, b: DispatchableBean): number {
 
 // --- pure logic ---
 
-/** Intersection of descendants ∩ ready, sorted by priority then id. */
+/** Intersection of descendants ∩ ready ∩ executable types, sorted by priority then id. */
 export function pickDispatchable(descendants: DispatchableBean[], ready: DispatchableBean[]): DispatchableBean[] {
   const descendantIds = new Set(descendants.map((d) => d.id))
-  return ready.filter((r) => descendantIds.has(r.id)).sort(byPriorityThenId)
+  return ready.filter((r) => descendantIds.has(r.id) && EXECUTABLE_TYPES.has(r.type)).sort(byPriorityThenId)
 }
 
 // --- tree flattening ---
@@ -86,6 +90,7 @@ function flattenDescendants(node: RawBean): DispatchableBean[] {
         id: child.id,
         priority: child.priority ?? 'normal',
         title: child.title ?? '',
+        type: child.type ?? 'task',
       },
       ...flattenDescendants(child),
     )
