@@ -8,6 +8,8 @@ export const AgentDefSchema = z.object({
   persona: z.string().optional(),
 })
 
+export type AgentDef = z.infer<typeof AgentDefSchema>
+
 export const CompanyRefSchema = z.object({
   // Path to the Agent Companies package root (where COMPANY.md, agents/, skills/ live).
   path: z.string().min(1),
