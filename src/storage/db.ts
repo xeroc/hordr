@@ -58,4 +58,18 @@ CREATE TABLE IF NOT EXISTS invocations (
   ended_at                TEXT,
   commit_sha              TEXT
 );
+
+CREATE TABLE IF NOT EXISTS lanes (
+  project_key             TEXT NOT NULL,
+  fleet_milestone_bean_id TEXT NOT NULL,
+  epic_bean_id            TEXT NOT NULL,
+  worktree_path           TEXT NOT NULL,
+  branch                  TEXT NOT NULL,
+  pane_id                 TEXT,
+  status                  TEXT NOT NULL,
+  current_task_bean_id    TEXT,
+  created_at              TEXT NOT NULL,
+  PRIMARY KEY (project_key, fleet_milestone_bean_id, epic_bean_id),
+  FOREIGN KEY (project_key, fleet_milestone_bean_id) REFERENCES fleets(project_key, milestone_bean_id)
+);
 `

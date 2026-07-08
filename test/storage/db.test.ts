@@ -123,5 +123,61 @@ describe('storage/db', () => {
       expect(row.role).to.equal('implementer')
       expect(row.commit_sha).to.equal('abc123')
     })
+
+    it('creates a lanes table for per-epic worktree state', () => {
+      applySchema(db)
+      const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all() as {
+        name: string
+      }[]
+      expect(tables.map((t) => t.name)).to.include('lanes')
+    })
+
+    it('lanes table has the per-epic columns', () => {
+      applySchema(db)
+      const cols = db.prepare('PRAGMA table_info(lanes)').all() as {name: string}[]
+      const names = cols.map((c) => c.name)
+      expect(names).to.include.members([
+        'project_key',
+        'fleet_milestone_bean_id',
+        'epic_bean_id',
+        'worktree_path',
+        'branch',
+        'pane_id',
+        'status',
+        'current_task_bean_id',
+        'created_at',
+      ])
+    })
+
+    it('lanes FK rejects orphan inserts (project_key + fleet must exist)', () => {
+      applySchema(db)
+      expect(() =>
+        db
+          .prepare(
+            "INSERT INTO lanes (project_key, fleet_milestone_bean_id, epic_bean_id, worktree_path, branch, status, created_at) VALUES ('nope', 'nope', 'epic-1', '/wt', 'ms/x/epic-1', 'pending', '2026-01-01T00:00:00Z')",
+          )
+          .run(),
+      ).to.throw()
+    })
+
+    it('lanes composite PK prevents duplicate (project, fleet, epic)', () => {
+      applySchema(db)
+      db.prepare(
+        "INSERT INTO projects (project_key, config_path, beans_path, registered_at) VALUES ('pk1', '/c', '/b', '2026-01-01T00:00:00Z')",
+      ).run()
+      db.prepare(
+        "INSERT INTO fleets (project_key, milestone_bean_id, worktree_path, branch, status, created_at) VALUES ('pk1', 'hordr-9999', '/wt', 'ms/hordr-9999', 'active', '2026-01-01T00:00:00Z')",
+      ).run()
+      db.prepare(
+        "INSERT INTO lanes (project_key, fleet_milestone_bean_id, epic_bean_id, worktree_path, branch, status, created_at) VALUES ('pk1', 'hordr-9999', 'epic-1', '/wt1', 'ms/x/epic-1', 'active', '2026-01-01T00:00:00Z')",
+      ).run()
+      expect(() =>
+        db
+          .prepare(
+            "INSERT INTO lanes (project_key, fleet_milestone_bean_id, epic_bean_id, worktree_path, branch, status, created_at) VALUES ('pk1', 'hordr-9999', 'epic-1', '/wt2', 'ms/x/epic-1b', 'active', '2026-01-01T00:00:00Z')",
+          )
+          .run(),
+      ).to.throw()
+    })
   })
 })
