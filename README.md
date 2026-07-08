@@ -1,238 +1,293 @@
 # Hordr
 
-A herdr plugin that gives a coding agent an isolated git worktree and a herdr pane, with a bean as its brief. Hordr is **glue, not an orchestrator** — it does not sequence agents through workflows, does not track run state, does not gate on human approval. One `hordr run` is one shot: worktree + pane + agent.
-
-## What hordr does
+A herdr plugin that gives coding agents isolated git worktrees and panes, with
+beans as their briefs. Two modes: **single-bean** (one agent, one task,
+fire-and-forget) and **fleet** (a team of agents working a milestone in
+parallel, each epic in its own worktree, coordinated by a daemon broker).
 
 ```
-hordr run <bean>
-  → beans show <bean>          (validate + read body)
-  → herdr worktree create      (isolated checkout, branch bean/<id>)
-  → herdr tab create           (fresh pane in the worktree's workspace)
-  → herdr pane run "<harness> run -i '<persona + bean body>'"
-  → returns. The agent works. The human decides what happens next.
+                         ┌─────────┐
+                         │  Beans  │  (work contracts: milestone → epic → task)
+                         └────┬────┘
+                              │
+                    ┌─────────┴──────────┐
+                    │       Hordr        │
+                    │  run / finish /    │
+                    │  fleet / daemon    │
+                    └─────────┬──────────┘
+                              │
+              ┌───────────────┼───────────────┐
+              │               │               │
+         ┌────┴────┐    ┌─────┴─────┐   ┌─────┴──────┐
+         │  Herdr  │    │  Harness  │   │  Daemon    │
+         │ (panes, │    │ (opencode,│   │ (broker:   │
+         │  wtrees)│    │  claude…) │   │  dispatch, │
+         └─────────┘    └───────────┘   │  rollup,   │
+                                         │  merge)    │
+                                         └────────────┘
 ```
-
-That is the whole product. Plus `hordr cleanup <bean>` to tear the worktree back down, and a `hordr daemon` stub (unix socket, `/health` only) kept alive so future agent-facing routes have stable plumbing.
-
-## Key Features
-
-- **Fire-and-forget.** No Run state, no queue, no advance loop, no supervisor pane. `hordr run` is a pure function of (bean, config) → (worktree, pane).
-- **Worktree isolation.** Each bean gets `bean/<bean-id>` branched from `develop`. Agents never touch `develop` directly.
-- **Bean body is the prompt.** Persona + full bean body inlined verbatim. No `beans show` round-trip from inside the agent, no section extraction.
-- **Domain-agnostic.** How to commit, when to open a PR, what "done" means — all of it lives in the agent persona text. Hordr injects no domain knowledge.
-- **Agent Companies.** Personas can live in an Agent Companies package (`agents/<role>/AGENTS.md`) instead of a YAML string, with skill composition.
-- **Daemon stub.** Unix socket with `/health` only. The plumbing is stable; agent-facing routes slot in later without a redesign.
 
 ---
 
 ## Table of Contents
 
-- [Tech Stack](#tech-stack)
-- [Prerequisites](#prerequisites)
-- [Getting Started](#getting-started)
-- [Architecture](#architecture)
+- [Quick start](#quick-start)
+- [Use cases](#use-cases)
+  - [1. One-off task (single bean)](#1-one-off-task-single-bean)
+  - [2. Fleet: team on a milestone](#2-fleet-team-on-a-milestone)
+  - [3. Fleet with cross-epic dependencies](#3-fleet-with-cross-epic-dependencies)
+  - [4. Mixed-backend team](#4-mixed-backend-team)
 - [Configuration](#configuration)
 - [Commands](#commands)
+- [Architecture](#architecture)
+- [The fleet model](#the-fleet-model)
 - [Testing](#testing)
-- [Herdr Plugin Integration](#herdr-plugin-integration)
-- [Architecture Decision Records](#architecture-decision-records)
+- [ADRs](#architecture-decision-records)
 - [License](#license)
 
 ---
 
-## Tech Stack
-
-| Layer               | Technology                                     |
-| ------------------- | ---------------------------------------------- |
-| **Language**        | TypeScript 5 (ESM, strict mode)                |
-| **CLI Framework**   | OCLIF 4 (`@oclif/core` + `@oclif/plugin-help`) |
-| **Validation**      | Zod 3 (config schema, bean envelope)           |
-| **YAML Parsing**    | `yaml` 2 (`.beans.yml` config)                 |
-| **Package Manager** | Bun (install, build, dev)                      |
-| **Test Runner**     | Mocha 11 + Chai 4                              |
-| **Linter**          | ESLint 9 (`eslint-config-oclif`)               |
-| **Formatter**       | Prettier (`@oclif/prettier-config`)            |
-
----
-
-## Prerequisites
-
-- **[herdr](https://herdr.dev) 0.7.0+** — terminal workspace manager. Hordr drives panes and worktrees through herdr's socket API.
-- **[beans](https://github.com/your-org/beans)** — the issue tracker. Hordr reads bean bodies via `beans show --json`.
-- **Bun 1.3+** (recommended) or Node.js 18+.
-- **A harness binary** — the agent CLI hordr spawns (`opencode`, `claude`, `codex`, …). Configured per role in `.beans.yml`.
-- **git** — for worktree management.
-
----
-
-## Getting Started
+## Quick start
 
 ```bash
 git clone https://github.com/herdr/hordr.git
 cd hordr
 bun install
 bun run build
-
-# Verify
-./bin/run.js --version
-./bin/run.js --help
-
-# Link as a herdr plugin
 herdr plugin link .
 ```
 
-### Configure
-
-Hordr reads from `.beans.yml` in your project root:
-
-```yaml
-beans:
-  path: .beans
-
-hordr:
-  primary_branch: develop
-  worktree_branch_prefix: bean/
-  agents:
-    implementer:
-      harness: opencode
-      persona: |
-        You implement a single task bean.
-        Read the bean body. Do the work. Commit when done.
-        If you cannot complete it, stop and wait for the human.
-```
-
-### Run a bean
+Hordr works out of the box — a `.beans.yml` with just a `beans:` block is
+enough. No `hordr:` section required; defaults cover `implementer`, `tester`,
+and `reviewer` roles with opencode.
 
 ```bash
-# Create a task bean (via the beans CLI)
-beans create "Add config validation" -t task -d "$(cat <<'EOF'
-## Requirement
-We need config validation.
-
-## Spec
-Add zod validation to the config loader.
-
-## Acceptance Criteria
-- [ ] Invalid config exits non-zero
-- [ ] Valid config returns a typed object
-EOF
-)"
+# Create a task
+beans create "Add input validation" -t task -d "Validate all inputs at trust boundaries."
 
 # Hand it to an agent
 hordr run hordr-XXXX
 # → started hordr-XXXX in bean/hordr-XXXX (role: implementer, pane: wX:pNEW)
 ```
 
-The agent now runs in its own worktree + pane. Hordr is done. Inspect the work, review the commit, merge or iterate — that's all you.
+The agent works in an isolated worktree. When done, it commits and the work is
+ready for review.
 
 ---
 
-## Architecture
+## Use cases
+
+### 1. One-off task (single bean)
+
+The simplest mode: one bean, one worktree, one agent. Fire-and-forget.
+
+```bash
+# Create the task
+beans create "Fix null-pointer in config loader" -t bug -d "$(cat <<'EOF'
+## Requirement
+
+The config loader crashes on missing `hordr:` block.
+
+## Acceptance Criteria
+
+- [ ] Missing `hordr:` block uses defaults instead of crashing
+EOF
+)"
+
+# Spawn an agent in an isolated worktree
+hordr run hordr-XXXX
+
+# Agent commits to bean/hordr-XXXX. Verify and merge:
+hordr finish hordr-XXXX
+# → merged bean/hordr-XXXX into develop, removed worktree
+```
+
+**When to use:** single tasks, bug fixes, quick experiments. No team
+coordination needed.
+
+### 2. Fleet: team on a milestone
+
+A fleet convenes a team (from an Agent Companies package or defaults) to work a
+milestone in parallel. Each epic gets its own worktree; tasks within an epic are
+serialized; epics run in parallel.
+
+**Step 1: Plan the milestone** (external to hordr — a planning session with a
+human, producing a bean tree):
+
+```bash
+# Milestone
+beans create "User authentication" -t milestone -d "Full auth: login, logout, sessions."
+
+# Epics under the milestone (each gets its own parallel worktree)
+beans create "Login flow" -t epic --parent hordr-MS
+beans create "Session management" -t epic --parent hordr-MS
+
+# Tasks under each epic — assigned to roles via `assigned:` frontmatter
+beans create "Implement login form" -t task --parent hordr-EPIC1 \
+  -d "$(cat <<'EOF'
+---
+assigned: implementer
+---
+## Requirement
+Build the login form component.
+EOF
+)"
+
+beans create "Test login flow" -t task --parent hordr-EPIC1 \
+  --blocked-by hordr-TASK1 \
+  -d "$(cat <<'EOF'
+---
+assigned: tester
+---
+## Requirement
+Write integration tests for login.
+EOF
+)"
+
+beans create "Implement session store" -t task --parent hordr-EPIC2 \
+  -d "$(cat <<'EOF'
+---
+assigned: implementer
+---
+## Requirement
+Build the session storage layer.
+EOF
+)"
+```
+
+**Step 2: Start the fleet** (coming soon — commands in development):
+
+```bash
+hordr fleet create hordr-MS
+# → created ms/hordr-MS from develop
+# → lane 1: epic hordr-EPIC1 (login flow) — worktree, dispatch loop
+# → lane 2: epic hordr-EPIC2 (session mgmt) — worktree, dispatch loop
+# → daemon running, 2 parallel lanes
+```
+
+**Step 3: Observe:**
+
+```bash
+hordr fleet status hordr-MS
+# ┌─────────────────────────────────────────────────┐
+# │ Fleet: hordr-MS (User authentication) [active]  │
+# ├─────────────────────────────────────────────────┤
+# │ Lane 1: hordr-EPIC1 (Login flow) [active]       │
+# │   Current: hordr-TASK1 (implement login form)   │
+# │   Role: implementer · Pane: w1:p1               │
+# │ Lane 2: hordr-EPIC2 (Session management) [active]│
+# │   Current: hordr-TASK3 (implement session store)│
+# │   Role: implementer · Pane: w2:p1               │
+# └─────────────────────────────────────────────────┘
+```
+
+**Step 4: Finish** (when all epics are merged into the milestone branch):
+
+```bash
+hordr fleet finish hordr-MS
+# → merged ms/hordr-MS into develop (--no-ff)
+# → all worktrees removed, fleet torn down
+```
+
+**What happens inside each lane:**
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│                       CLI Commands                            │
-│            src/commands/{run,cleanup,daemon}.ts               │
-├──────────────────────────────────────────────────────────────┤
-│                       HordrDeps (seam)                        │
-│          src/runtime.ts — createWorktree /                    │
-│           launchAgent / removeWorktree                        │
-├──────────────────┬──────────────┬──────────────┬─────────────┤
-│  Harness Layer   │    Herdr     │    Beans     │   Daemon    │
-│  (persona +      │ (panes,      │ (read-only:  │ (unix sock  │
-│   body → prompt) │  worktrees)  │  getBean)    │  /health)   │
-└──────────────────┴──────────────┴──────────────┴─────────────┘
+1. Daemon picks the next ready task (beans list --ready, scoped to the epic)
+2. Reads assigned: from the bean → resolves role/persona/harness
+3. Spawns agent invocation: "<harness> run --interactive '<persona + bean body>'"
+4. Agent works, commits (one task = one commit), calls hordr done <bean-id>
+5. Daemon verifies completion, rolls up status (fixup + autosquash into the commit)
+6. Picks the next task (respecting --blocked-by chains)
+7. When the epic completes: merges epic branch into ms/<milestone-id>
 ```
 
-The `HordrDeps` interface (`src/runtime.ts`) is the seam: the three operations hordr needs (create a worktree, launch an agent, remove a worktree) are defined there and wired to real herdr/harness calls in `createDeps()`. Tests inject mocks.
+### 3. Fleet with cross-epic dependencies
 
-### Directory Structure
+Epics can block each other. A blocked epic gets no worktree until its blocker
+merges — then its worktree is created from the milestone branch, which now
+contains the blocking epic's code. Lazy creation = automatic dependency
+resolution.
+
+```bash
+# Epic 2 depends on Epic 1
+beans create "User profile page" -t epic --parent hordr-MS --blocked-by hordr-EPIC1
+beans create "Build profile UI" -t task --parent hordr-EPIC3 \
+  -d "$(cat <<'EOF'
+---
+assigned: implementer
+---
+Uses the auth module from the login flow epic.
+EOF
+)"
+```
 
 ```
-hordr/
-├── bin/{run,dev}.js
-├── src/
-│   ├── commands/{run,cleanup,daemon}.ts
-│   ├── beans/client.ts        # getBean, getBody (read-only)
-│   ├── config/{schema,loader,index}.ts
-│   ├── company.ts             # Agent Companies persona loading
-│   ├── daemon/{server,socket}.ts
-│   ├── harness/{launcher,index}.ts
-│   ├── herdr/{pane,worktree}.ts
-│   └── runtime.ts             # HordrDeps + createDeps + test seam
-├── test/                      # mirrors src/
-├── docs/adr/                  # 8 ADRs
-├── .beans.yml
-└── herdr-plugin.toml
+fleet create → ms/MS branch from develop
+  epic-1 unblocked → worktree from ms/MS → work → merge into ms/MS
+  epic-3 blocked-by epic-1 → no worktree yet
+  epic-1 merges → epic-3 unblocked → worktree from ms/MS (has epic-1's code!)
 ```
+
+If a merge produces a conflict (parallel epics touch the same file), the lane
+enters `conflict` status. `fleet status` shows it. The human resolves manually;
+the daemon detects the resolution on the next tick.
+
+### 4. Mixed-backend team
+
+Different roles can use different harness binaries. The `harness:` field in the
+agent config (or Agent Companies AGENTS.md frontmatter) controls which binary
+each role spawns.
+
+```yaml
+hordr:
+  agents:
+    implementer:
+      harness: opencode # opencode.ai
+      persona: |
+        You implement ONE task bean ...
+    tester:
+      harness: claude # Claude Code
+      persona: |
+        You test ONE task bean ...
+    reviewer:
+      harness: codex # OpenAI Codex CLI
+      persona: |
+        You review ONE task bean ...
+```
+
+Each invocation spawns the role's harness — no fleet-level configuration needed.
+The daemon is harness-agnostic.
 
 ---
 
 ## Configuration
 
-`.beans.yml` carries two blocks: `beans:` (the beans CLI config) and `hordr:` (hordr's config).
+`.beans.yml` carries two blocks: `beans:` (the beans CLI config) and `hordr:`
+(hordr's config). The `hordr:` block is **optional** — defaults cover everything.
+
+### Zero config (defaults)
 
 ```yaml
 beans:
   path: .beans
   prefix: hordr-
   id_length: 4
-
-hordr:
-  primary_branch: develop # worktree base
-  worktree_branch_prefix: bean/ # → bean/<bean-id>
-  company: # optional — Agent Companies package
-    path: /path/to/company #   omit/null to disable
-  agents: # role → harness + persona
-    implementer: # default role for `hordr run`
-      harness: opencode
-      persona: |
-        You implement a single task bean…
-    reviewer:
-      harness: opencode
-      persona: |
-        You review the diff on this branch…
+# No hordr: block needed
 ```
 
-| Field                    | Type    | Default   | Description                                            |
-| ------------------------ | ------- | --------- | ------------------------------------------------------ |
-| `primary_branch`         | string  | `develop` | Base ref for worktrees                                 |
-| `worktree_branch_prefix` | string  | `bean/`   | Worktree branch prefix → `bean/<bean-id>`              |
-| `company.path`           | string? | —         | Agent Companies package root (enables persona loading) |
-| `agents.<role>.harness`  | string  | —         | Harness binary on PATH                                 |
-| `agents.<role>.persona`  | string  | —         | Opening prompt; required unless AGENTS.md supplies it  |
+| Default                  | Value      | Description                                   |
+| ------------------------ | ---------- | --------------------------------------------- |
+| `primary_branch`         | `develop`  | Base ref for worktrees and merges             |
+| `worktree_branch_prefix` | `bean/`    | Branch prefix for single-bean worktrees       |
+| `agents.implementer`     | `opencode` | Fleet-shaped persona (one task, commit, done) |
+| `agents.tester`          | `opencode` | Fleet-shaped persona                          |
+| `agents.reviewer`        | `opencode` | Fleet-shaped persona                          |
 
-### Example configuration
-
-#### Zero config (defaults)
-
-Hordr works out of the box — a `.beans.yml` with just a `beans:` block and no
-`hordr:` section uses sensible defaults:
-
-```yaml
-beans:
-  path: .beans
-  prefix: hordr-
-  id_length: 4
-# No hordr: block needed — defaults cover everything
-```
-
-| Default                  | Value      | Source                           |
-| ------------------------ | ---------- | -------------------------------- |
-| `primary_branch`         | `develop`  | schema default                   |
-| `worktree_branch_prefix` | `bean/`    | schema default                   |
-| `agents.implementer`     | `opencode` | fleet-shaped persona (see below) |
-| `agents.tester`          | `opencode` | fleet-shaped persona             |
-| `agents.reviewer`        | `opencode` | fleet-shaped persona             |
-
-Default personas are minimal fleet instructions: read one assigned bean, do
-the work, commit, `hordr done <id>`, stop. See [docs/fleet-guide.md](docs/fleet-guide.md)
+Default personas are minimal fleet instructions: read one assigned bean, do the
+work, commit, `hordr done <id>`, stop. See [docs/fleet-guide.md](docs/fleet-guide.md)
 for fuller alternatives.
 
-#### Minimal fleet config
-
-Override just what you need — everything else stays at defaults:
+### Minimal override
 
 ```yaml
 beans:
@@ -240,7 +295,7 @@ beans:
   prefix: hordr-
 
 hordr:
-  primary_branch: main # override the default 'develop'
+  primary_branch: main
   agents:
     implementer:
       harness: opencode
@@ -252,10 +307,9 @@ hordr:
         Then stop.
 ```
 
-`tester` and `reviewer` are still available from defaults — only `implementer`
-is overridden.
+`tester` and `reviewer` are still available from defaults.
 
-#### Full config with Agent Companies
+### Full config with Agent Companies
 
 ```yaml
 beans:
@@ -267,185 +321,233 @@ hordr:
   company:
     path: /path/to/my-company # agents/<role>/AGENTS.md drives personas
   agents:
-    implementer: # fallback if company has no AGENTS.md for this role
+    implementer: # fallback if company has no AGENTS.md
       harness: opencode
       persona: |
         Custom fallback persona …
 ```
 
-### Agent Companies (optional)
+### Field reference
 
-When `company.path` is set (or `HORDR_COMPANY` + `HORDR_PROJECT` env vars are), hordr loads personas from `agents/<role>/AGENTS.md` in the package. Each AGENTS.md with a `harness:` frontmatter field overrides the matching role in `.beans.yml`, with declared skills inlined as an `--- Attached Skills ---` block. See [ADR-0007](docs/adr/0007-agent-companies.md).
+| Field                    | Type    | Default         | Description                                           |
+| ------------------------ | ------- | --------------- | ----------------------------------------------------- |
+| `primary_branch`         | string  | `develop`       | Base ref for worktrees and fleet integration branches |
+| `worktree_branch_prefix` | string  | `bean/`         | Branch prefix for single-bean worktrees               |
+| `company.path`           | string? | —               | Agent Companies package root                          |
+| `agents.<role>.harness`  | string  | `opencode`      | Harness binary on PATH                                |
+| `agents.<role>.persona`  | string  | (fleet default) | Opening prompt for the role                           |
+
+### The `assigned:` bean frontmatter convention
+
+Every dispatchable bean (type `task` or `bug`) carries an `assigned:` field in
+its YAML frontmatter — the role slug of the agent that should work it:
+
+```yaml
+---
+title: Implement the frobnicator
+type: task
+status: todo
+priority: high
+assigned: implementer
+---
+```
+
+The planner writes `assigned:` during the planning session. The daemon reads it
+at dispatch time to resolve the persona + harness. Missing `assigned:` defaults
+to `implementer`. See [docs/fleet-guide.md](docs/fleet-guide.md) for details.
 
 ---
 
 ## Commands
 
-| Command                | Description                                                                                           |
-| ---------------------- | ----------------------------------------------------------------------------------------------------- |
-| `hordr run <bean>`     | Create a worktree, spawn the agent harness in a fresh pane with persona + bean body. Fire-and-forget. |
-| `hordr finish <bean>`  | Verify the bean is `completed`, merge its branch into `primary_branch`, remove the worktree.          |
-| `hordr cleanup <bean>` | Remove the worktree for a bean (found by branch). `--force` for unmerged changes.                     |
-| `hordr daemon`         | Run the daemon stub (unix socket, `/health` only). Grows agent-facing routes later.                   |
+### Single-bean mode (available now)
 
-### `hordr run` flags
+| Command                | Description                                                                  |
+| ---------------------- | ---------------------------------------------------------------------------- |
+| `hordr run <bean>`     | Create a worktree, spawn the agent harness in a fresh pane. Fire-and-forget. |
+| `hordr finish <bean>`  | Verify the bean is `completed`, merge its branch, remove the worktree.       |
+| `hordr cleanup <bean>` | Remove the worktree for a bean. `--force` for unmerged changes.              |
+| `hordr daemon`         | Run the daemon broker (unix socket). Auto-started by fleet commands.         |
+
+#### `hordr run`
+
+```bash
+hordr run <bean> [--role <name>] [--base <ref>] [--json]
+```
 
 | Flag            | Default       | Description                                          |
 | --------------- | ------------- | ---------------------------------------------------- |
-| `--role <name>` | `implementer` | Agent role (must exist in `config.agents`)           |
+| `--role <name>` | `implementer` | Agent role (must exist in config)                    |
 | `--base <ref>`  | `develop`     | Git base ref for the worktree                        |
 | `--json`        | off           | Emit `{bean, branch, pane, role, workspace}` as JSON |
 
-### `hordr finish` flags
+#### `hordr finish`
 
-| Flag     | Default | Description                                               |
-| -------- | ------- | --------------------------------------------------------- |
-| `--json` | off     | Emit `{bean, branch, merged, removed, workspace}` as JSON |
+```bash
+hordr finish <bean> [--json]
+```
 
-### `hordr cleanup` flags
+Verifies the bean is `completed` (reading from the worktree, not the main
+repo — the worktree has the up-to-date status), merges `bean/<id>` into
+`primary_branch` via `--no-ff`, removes the worktree.
 
-| Flag      | Default | Description                                            |
-| --------- | ------- | ------------------------------------------------------ |
-| `--force` | off     | Force-remove even if the worktree has unmerged changes |
-| `--json`  | off     | Emit `{bean, branch, removed, workspace}` as JSON      |
+#### `hordr cleanup`
+
+```bash
+hordr cleanup <bean> [--force] [--json]
+```
+
+### Fleet mode (in development)
+
+| Command                          | Description                                                                     |
+| -------------------------------- | ------------------------------------------------------------------------------- |
+| `hordr fleet create <milestone>` | Create the milestone integration branch, scan for unblocked epics, start lanes. |
+| `hordr fleet status <milestone>` | Show fleet state + all lanes (active/pending/merging/conflict/done).            |
+| `hordr fleet finish <milestone>` | Assert all epics merged, merge `ms/<id>` into primary, teardown.                |
+| `hordr fleet abort <milestone>`  | Stop all lanes. `--force` removes all worktrees + milestone branch.             |
 
 ---
 
-## The prompt hordr builds
+## Architecture
 
 ```
-<persona text>
+src/
+├── commands/          # OCLIF command classes (run, finish, cleanup, daemon, fleet/*)
+├── beans/             # beans CLI client (read-only: getBean, getBody)
+├── config/            # schema (Zod), loader, defaults
+├── company/           # Agent Companies manifest parsing
+├── daemon/            # unix-socket server (extensible route registry)
+├── dispatch/          # the fleet dispatch core:
+│   ├── dispatch.ts    #   getDispatchable (subtree ∩ --ready, priority sort)
+│   ├── role.ts        #   resolveRole (bean's assigned: → persona + harness)
+│   ├── spawn.ts       #   buildInvocationPrompt + spawnInvocation
+│   ├── loop.ts        #   dispatchNext (the per-lane step function)
+│   ├── done.ts        #   handleDone (/done route: verify + acknowledge)
+│   ├── heal.ts        #   checkInvocation (self-heal poll: done? crash? wait?)
+│   ├── rollup.ts      #   rollup (ancestry walk) + isMilestoneComplete + areAllEpicsCompleted
+│   ├── squash.ts      #   squashRollup (fixup + autosquash into work commit)
+│   ├── lane.ts        #   lane lifecycle state machine (pending→active→merging→done)
+│   ├── scan.ts        #   scanForNewLanes (tick-driven lazy worktree creation)
+│   ├── branch.ts      #   milestoneBranchName + createMilestoneBranch
+│   └── merge.ts       #   mergeBranch + mergeMilestoneToPrimary (conflict detection)
+├── harness/           # buildPrompt, launchAgent, shellQuote
+├── herdr/             # pane + worktree wrappers (shells out to herdr CLI)
+├── storage/           # SQLite (db.ts: schema + pragmas; project.ts: git-common-dir key)
+└── runtime.ts         # HordrDeps + gitMergeBranch + test seams
+```
+
+Every dispatch module is a **pure function with injected dependencies** —
+testable in isolation, wired to real I/O by the daemon and command classes.
 
 ---
 
-# Bean <bean-id>
+## The fleet model
 
-<full bean body, raw markdown, verbatim>
+### Fleet = milestone + team + daemon broker
+
+A fleet is the runtime instance of a team working a milestone. It is bounded
+1:1:1 — one milestone → one fleet → one milestone integration branch
+(`ms/<milestone-id>`). The daemon is the broker: it dispatches, rolls up, merges,
+and self-heals. There is no Director agent — planning is external.
+
+### Per-epic lanes (parallel)
+
+Each unblocked epic under the milestone gets its own **lane**: a worktree
+branched from the milestone integration branch, a pane, and a serialized
+dispatch loop. Lanes are parallel across epics; tasks within a lane are
+serialized (one at a time, driven by `--blocked-by` chains).
+
+```
+Fleet (milestone hordr-MS)
+├── milestone branch: ms/hordr-MS (from primary, at fleet create)
+│
+├── Lane: epic-1 (unblocked at start)
+│   ├── worktree from ms/hordr-MS → branch ms/hordr-MS/epic-1
+│   ├── dispatch loop (serialized: task→task→task via --blocked-by)
+│   └── on epic-complete: merge into ms/hordr-MS, teardown worktree
+│
+├── Lane: epic-2 (blocked-by epic-1 — no worktree yet)
+│   └── when epic-1 merges → unblocked → worktree from ms/hordr-MS (has epic-1's code)
+│
+└── Lane: epic-3 (unblocked at start, parallel with epic-1)
+    └── worktree from ms/hordr-MS → runs in parallel
 ```
 
-The persona is the ONLY place domain knowledge lives — how to commit, whether to open a PR, what "done" means. The bean body is the brief. Hordr does no section extraction, no templating beyond the id and body. The agent interprets the body itself.
+### Lazy worktree creation
+
+Worktrees are created **only when the epic becomes unblocked** — not at fleet
+create. The milestone integration branch accumulates completed epics' merged
+code. When an epic unblocks, its worktree branches from the current branch
+state, so it **auto-inherits** earlier epics' code. No explicit merge-forward.
+
+### One task = one commit
+
+Each task bean produces exactly one commit. The agent commits code + bean
+status; the daemon folds any rollup status changes into the same commit via
+`git commit --fixup` + `GIT_SEQUENCE_EDITOR=true git rebase -i --autosquash`.
+The commit SHA is rewritten (autosquash); the audit row records the post-squash
+SHA.
+
+### Self-heal, no timeouts
+
+The daemon polls each active lane's current task on a tick (default 5s). If the
+bean flipped to `completed` (whether via `/done` or forgotten), the daemon
+proceeds. If the pane is gone and the bean isn't completed (crash), it marks the
+task `blocked`. **No wall-clock timeouts** — the daemon never kills an agent for
+taking too long. The human decides what's stuck.
+
+### Merge conflicts → block, don't auto-resolve
+
+If an epic→milestone merge conflicts, the lane enters `conflict` status. The
+human resolves manually. The daemon detects the resolution on the next tick.
+No agentic conflict resolution — it needs human judgment.
+
+### Storage boundary
+
+| Lives in **beans** (in-repo, committed)     | Lives in **SQLite** (daemon, machine-scoped)      |
+| ------------------------------------------- | ------------------------------------------------- |
+| Bean bodies, types, statuses, assignments   | Project registry (git-common-dir keys)            |
+| Milestone's work contract + child task tree | Fleet rows (milestone, integration branch)        |
+| Status rollup (task → epic → milestone)     | Lane rows (per-epic: worktree, pane, status)      |
+| Dynamic beans (created mid-work)            | Invocation audit (task → commit sha → timestamps) |
+
+The daemon **never mirrors bean status into SQLite**. It re-reads `.beans/` in
+the worktree whenever it needs work-state. Crash recovery = restart and re-derive.
 
 ---
 
 ## Testing
 
 ```bash
-# Full suite
-bun run test
-
-# Specific file
-npx mocha test/commands/run.test.ts
-
-# Pattern
-npx mocha --grep "run" "test/**/*.test.ts"
+bun run test          # full suite (Mocha + Chai + ESLint)
+bun run typecheck     # tsc --noEmit
+bun run lint          # ESLint
 ```
 
-Mocha + Chai, run through `ts-node/esm` (no build needed). Tests use module-level seams (`_setShellForTesting`, `_setDepsForTesting`) to mock herdr/beans/git.
-
-### Test layout
-
-```
-test/
-├── commands/   # run, cleanup, (daemon via test/daemon/)
-├── beans/      # client (getBean/getBody)
-├── config/     # schema + loader
-├── harness/    # launcher (buildPrompt, launchAgent)
-├── herdr/      # pane, worktree wrappers
-├── daemon/     # server (/health stub)
-├── company.test.ts
-└── runtime.test.ts
-```
-
-### Scripts
-
-| Command             | Description                              |
-| ------------------- | ---------------------------------------- |
-| `bun run build`     | Compile TypeScript to `dist/`            |
-| `bun run test`      | Run Mocha test suite + lint (`posttest`) |
-| `bun run lint`      | Run ESLint                               |
-| `bun run typecheck` | Run `tsc --noEmit`                       |
-
----
-
-## Herdr Plugin Integration
-
-`herdr-plugin.toml` registers hordr with herdr:
-
-```toml
-id = "herdr.hordr"
-name = "Hordr"
-version = "0.3.0"
-min_herdr_version = "0.7.0"
-```
-
-### Actions (3)
-
-| Action ID | Command         | Description                        |
-| --------- | --------------- | ---------------------------------- |
-| `run`     | `hordr run`     | Spawn an agent on a bean           |
-| `cleanup` | `hordr cleanup` | Remove a bean's worktree           |
-| `daemon`  | `hordr daemon`  | Start the daemon stub (background) |
-
-### No event hooks
-
-Earlier versions wired `worktree.created` / `worktree.removed` hooks. With the engine gone, hordr owns the worktree lifecycle directly via `run`/`cleanup`; herdr-driven hooks would just duplicate that.
-
-### Linking
-
-```bash
-herdr plugin link .
-herdr plugin list --plugin herdr.hordr
-herdr plugin action list --plugin herdr.hordr
-```
-
----
-
-## Troubleshooting
-
-### `hordr run` fails with "no agent configured for role 'X'"
-
-The role isn't in `.beans.yml` under `hordr.agents`. Either add it, or pass `--role <name>` for a role that exists.
-
-### `hordr run` fails with "no persona"
-
-The agent role has no `persona` in `.beans.yml` and no `agents/<role>/AGENTS.md` in the company package (when one is configured). Add one or the other.
-
-### Agent pane not spawning
-
-`herdr` must be running and you must be inside a herdr session:
-
-```bash
-herdr status
-herdr pane list --json
-```
-
-### `hordr cleanup` says "no worktree for X"
-
-The branch `bean/<bean-id>` has no linked worktree. Either it was never created, or herdr already removed it. The git branch may still exist — check with `git branch --list 'bean/*'` and `git branch -d` if stale.
-
-### Worktree creation fails with "branch already exists"
-
-Hordr's recovery path normally handles this (reuses via `herdr worktree open`, or deletes an orphan branch and retries). If it still fails, the branch is probably checked out elsewhere:
-
-```bash
-git worktree list          # see where it's linked
-git branch --list 'bean/*' # see the branch state
-```
+177 tests, all passing. Tests use module-level seams (`_setShellForTesting`,
+`_setGitRunnerForTesting`) to mock beans/git/herdr — no real I/O in the test
+suite.
 
 ---
 
 ## Architecture Decision Records
 
-| ADR                                              | Title                                     |
-| ------------------------------------------------ | ----------------------------------------- |
-| [0001](docs/adr/0001-standalone-herdr-plugin.md) | Standalone OCLIF binary as a herdr plugin |
-| [0002](docs/adr/0002-typescript-oclif-zod.md)    | TypeScript + OCLIF + Zod                  |
-| [0003](docs/adr/0003-fire-and-forget-run.md)     | Fire-and-forget run model                 |
-| [0004](docs/adr/0004-unix-socket-daemon-stub.md) | Unix-socket daemon (stub, grows later)    |
-| [0005](docs/adr/0005-worktree-per-bean.md)       | Worktree-per-bean, branch is `bean/<id>`  |
-| [0006](docs/adr/0006-bean-body-is-prompt.md)     | Bean body is the agent prompt             |
-| [0007](docs/adr/0007-agent-companies.md)         | Agent Companies support                   |
-| [0008](docs/adr/0008-no-lifecycle-state.md)      | Hordr owns no lifecycle state             |
+| ADR                                                          | Title                                      | Status                             |
+| ------------------------------------------------------------ | ------------------------------------------ | ---------------------------------- |
+| [0001](docs/adr/0001-standalone-herdr-plugin.md)             | Standalone OCLIF binary as a herdr plugin  | Active                             |
+| [0002](docs/adr/0002-typescript-oclif-zod.md)                | TypeScript + OCLIF + Zod                   | Active                             |
+| [0003](docs/adr/0003-fire-and-forget-run.md)                 | Fire-and-forget run model                  | Superseded by 0009 (fleet)         |
+| [0004](docs/adr/0004-unix-socket-daemon-stub.md)             | Unix-socket daemon stub                    | Superseded by 0012 (broker)        |
+| [0005](docs/adr/0005-worktree-per-bean.md)                   | Worktree-per-bean                          | Superseded by 0009 (per-milestone) |
+| [0006](docs/adr/0006-bean-body-is-prompt.md)                 | Bean body is the agent prompt              | Active                             |
+| [0007](docs/adr/0007-agent-companies.md)                     | Agent Companies support                    | Active                             |
+| [0008](docs/adr/0008-no-lifecycle-state.md)                  | Hordr owns no lifecycle state              | Superseded by 0009 + 0012          |
+| [0009](docs/adr/0009-fleet-serialized-milestone-dispatch.md) | Fleet: milestone-scoped team dispatch      | Active                             |
+| [0010](docs/adr/0010-bean-projection-broker-no-timeouts.md)  | Bean-state-projection broker, no timeouts  | Active                             |
+| [0011](docs/adr/0011-rollup-via-fixup-autosquash.md)         | Broker-owned rollup via fixup + autosquash | Active                             |
+| [0012](docs/adr/0012-daemon-as-broker-with-sqlite.md)        | Daemon-as-broker with SQLite process state | Active                             |
+| [0013](docs/adr/0013-dynamic-beans-draft-gated.md)           | Dynamic beans: draft-gated                 | Active                             |
+| [0014](docs/adr/0014-per-epic-worktrees-lazy-creation.md)    | Per-epic worktrees with lazy creation      | Active                             |
 
 ---
 
