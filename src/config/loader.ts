@@ -52,8 +52,9 @@ export function loadConfig(pathArg?: string): HordrConfig {
     throw new ConfigError(`Invalid hordr config:\n  ${lines.join('\n  ')}`, configPath)
   }
 
-  // Phase 2: config-based company path (project entry — no chdir, already in project)
-  const companyCtx = getCompanyContext(parsed.data.company?.path)
+  // Phase 2: company path — env var HORDR_COMPANY_PATH overrides config, then config's company.path
+  const companyPath = process.env.HORDR_COMPANY_PATH ?? parsed.data.company?.path
+  const companyCtx = getCompanyContext(companyPath)
 
   // Agent Companies: populate agents from AGENTS.md bodies + inline skills.
   const result = companyCtx ? applyAgentOverrides(parsed.data, companyCtx) : parsed.data

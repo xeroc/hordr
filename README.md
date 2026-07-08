@@ -329,13 +329,13 @@ hordr:
 
 ### Field reference
 
-| Field                    | Type    | Default         | Description                                           |
-| ------------------------ | ------- | --------------- | ----------------------------------------------------- |
-| `primary_branch`         | string  | `develop`       | Base ref for worktrees and fleet integration branches |
-| `worktree_branch_prefix` | string  | `bean/`         | Branch prefix for single-bean worktrees               |
-| `company.path`           | string? | —               | Agent Companies package root                          |
-| `agents.<role>.harness`  | string  | `opencode`      | Harness binary on PATH                                |
-| `agents.<role>.persona`  | string  | (fleet default) | Opening prompt for the role                           |
+| Field                    | Type    | Default         | Description                                                        |
+| ------------------------ | ------- | --------------- | ------------------------------------------------------------------ |
+| `primary_branch`         | string  | `develop`       | Base ref for worktrees and fleet integration branches              |
+| `worktree_branch_prefix` | string  | `bean/`         | Branch prefix for single-bean worktrees                            |
+| `company.path`           | string? | —               | Agent Companies package root (or set `HORDR_COMPANY_PATH` env var) |
+| `agents.<role>.harness`  | string  | `opencode`      | Harness binary on PATH                                             |
+| `agents.<role>.persona`  | string  | (fleet default) | Opening prompt for the role                                        |
 
 ### The `assigned:` bean frontmatter convention
 
