@@ -115,9 +115,9 @@ function fetchReady(cwd?: string): DispatchableBean[] {
 
 // --- public API ---
 
-/** Get the sorted list of dispatchable task beans for a milestone's fleet. */
-export function getDispatchable(milestoneId: string, opts?: {cwd?: string}): DispatchableBean[] {
-  const descendants = fetchDescendants(milestoneId, opts?.cwd)
+/** Get the sorted list of dispatchable task beans under a subtree root (epic or milestone). */
+export function getDispatchable(rootBeanId: string, opts?: {cwd?: string}): DispatchableBean[] {
+  const descendants = fetchDescendants(rootBeanId, opts?.cwd)
   const ready = fetchReady(opts?.cwd)
   return pickDispatchable(descendants, ready)
 }

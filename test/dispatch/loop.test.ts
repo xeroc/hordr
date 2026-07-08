@@ -5,7 +5,7 @@ import type {BeanRecord} from '../../src/beans/client.js'
 import type {HordrConfig} from '../../src/config/schema.js'
 import type {DispatchableBean} from '../../src/dispatch/dispatch.js'
 
-import {dispatchNext, type FleetContext} from '../../src/dispatch/loop.js'
+import {dispatchNext, type LaneContext} from '../../src/dispatch/loop.js'
 
 const config: HordrConfig = {
   agents: {
@@ -16,10 +16,10 @@ const config: HordrConfig = {
   worktree_branch_prefix: 'bean/',
 }
 
-const ctx: FleetContext = {
-  milestoneId: 'hordr-ms1',
+const ctx: LaneContext = {
+  epicId: 'hordr-ep1',
   paneId: 'w1:p1',
-  worktreePath: '/wt/hordr-ms1',
+  worktreePath: '/wt/hordr-ep1',
 }
 
 function mockBean(id: string, assigned: string, body: string): BeanRecord {

@@ -14,8 +14,8 @@ import type {DispatchableBean} from './dispatch.js'
 import {resolveRole} from './role.js'
 import {buildInvocationPrompt} from './spawn.js'
 
-export interface FleetContext {
-  milestoneId: string
+export interface LaneContext {
+  epicId: string
   paneId: string
   worktreePath: string
 }
@@ -33,7 +33,7 @@ export interface DispatchOutcome {
 }
 
 /** Pick the next dispatchable task and spawn an invocation for it. */
-export function dispatchNext(ctx: FleetContext, config: HordrConfig, deps: DispatchDeps): DispatchOutcome {
+export function dispatchNext(ctx: LaneContext, config: HordrConfig, deps: DispatchDeps): DispatchOutcome {
   const dispatchable = deps.fetchDispatchable()
   if (dispatchable.length === 0) return {beanId: '', dispatched: false, role: ''}
 
