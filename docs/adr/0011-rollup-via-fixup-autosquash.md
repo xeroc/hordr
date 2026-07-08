@@ -1,5 +1,7 @@
 # Broker-owned rollup via fixup + autosquash
 
+**Amended:** 2026-07-08 — rollup scope changed to epic-level (stops at epic, not milestone) under the per-epic model (ADR-0014). Milestone-level completion is a separate fleet-level check after all epic merges.
+
 When a task bean flips to `completed`, status must propagate upward: an epic/feature/milestone is `completed` only when **all** its descendants are. The daemon owns this rollup deterministically — not the member, not a planner agent. Rollup is a pure function of the bean tree; spending a model call on it is waste, and trusting every role's persona to walk ancestry correctly is fragile.
 
 The `/done` handler, after verifying the task is `completed` and the working tree is clean, walks the task's ancestry (via `beans query`) in the worktree. For each ancestor whose subtree is now all-completed, it runs `beans update <ancestor> -s completed --cwd <worktree>`. Each bean is its own `.md` file, so the rollup writes never conflict with the member's work-commit files.

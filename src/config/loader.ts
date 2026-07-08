@@ -3,6 +3,7 @@ import path from 'node:path'
 import {parse} from 'yaml'
 
 import {applyAgentOverrides, getCompanyContext} from '../company.js'
+import {DEFAULT_AGENTS} from './defaults.js'
 import {type HordrConfig, HordrConfigSchema} from './schema.js'
 
 export class ConfigError extends Error {
@@ -42,9 +43,10 @@ export function loadConfig(pathArg?: string): HordrConfig {
   }
 
   const doc = (raw ?? {}) as Record<string, unknown>
-  if (!('hordr' in doc)) throw new ConfigError('No hordr config found', configPath)
+  // Missing hordr: block is fine — defaults cover it.
+  const hordrBlock = ('hordr' in doc ? doc.hordr : {}) as Record<string, unknown>
 
-  const parsed = HordrConfigSchema.safeParse(doc.hordr)
+  const parsed = HordrConfigSchema.safeParse(hordrBlock)
   if (!parsed.success) {
     const lines = parsed.error.issues.map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`)
     throw new ConfigError(`Invalid hordr config:\n  ${lines.join('\n  ')}`, configPath)
@@ -55,6 +57,11 @@ export function loadConfig(pathArg?: string): HordrConfig {
 
   // Agent Companies: populate agents from AGENTS.md bodies + inline skills.
   const result = companyCtx ? applyAgentOverrides(parsed.data, companyCtx) : parsed.data
+
+  // Merge default agents (user-configured agents take precedence).
+  for (const [role, def] of Object.entries(DEFAULT_AGENTS)) {
+    if (!(role in result.agents)) result.agents[role] = def
+  }
 
   // Runtime validation: every agent needs a persona by now (from .beans.yml or AGENTS.md).
   for (const [role, agent] of Object.entries(result.agents)) {

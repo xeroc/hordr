@@ -1,1 +1,224 @@
-# Agent Development Guidelines
+# Hordr — Agent Development Guide
+
+Hordr is a herdr plugin that gives coding agents isolated git worktrees and
+panes, with beans as their briefs. Two modes: single-bean (`hordr run`) and
+fleet (a team working a milestone in parallel, each epic in its own worktree,
+coordinated by a daemon broker). See README.md for the full feature set and
+docs/fleet-guide.md for the fleet model.
+
+## Before You Start
+
+Run `beans prime` and heed its output. When making a commit, include the
+relevant bean IDs in the commit message.
+
+## Project Layout
+
+```
+src/
+├── commands/          OCLIF command classes (run, finish, cleanup, daemon, fleet/*)
+├── beans/             beans CLI client (read-only: getBean, getBody)
+├── config/            schema (Zod), loader, defaults (zero-config agents)
+├── company/           Agent Companies manifest parsing (AGENTS.md, SKILL.md)
+├── daemon/            unix-socket server (extensible route registry)
+├── dispatch/          the fleet dispatch core — all pure functions:
+│   ├── dispatch.ts    getDispatchable (subtree ∩ --ready, priority sort)
+│   ├── role.ts        resolveRole (bean's assigned: → persona + harness)
+│   ├── spawn.ts       buildInvocationPrompt + spawnInvocation
+│   ├── loop.ts        dispatchNext (per-lane step function)
+│   ├── done.ts        handleDone (/done route: verify + acknowledge)
+│   ├── heal.ts        checkInvocation (self-heal: done? crash? wait?)
+│   ├── rollup.ts      rollup + isMilestoneComplete + areAllEpicsCompleted
+│   ├── squash.ts      squashRollup (fixup + autosquash into work commit)
+│   ├── lane.ts        lane lifecycle state machine
+│   ├── scan.ts        scanForNewLanes (lazy worktree creation)
+│   ├── branch.ts      milestoneBranchName + createMilestoneBranch
+│   └── merge.ts       mergeBranch + mergeMilestoneToPrimary (conflict detection)
+├── harness/           buildPrompt, launchAgent, shellQuote
+├── herdr/             pane + worktree wrappers
+├── storage/           SQLite (db.ts: schema + pragmas; project.ts: git-common-dir)
+└── runtime.ts         HordrDeps + gitMergeBranch + test seams
+```
+
+Every dispatch module is a **pure function with injected dependencies**
+(`ShellFn`, `GitFn`, `DispatchDeps`, etc.). Tests mock the deps; the daemon
+and command classes wire the real I/O. Follow this pattern for new modules.
+
+## Beans — Structure and Planning
+
+### Bean type hierarchy
+
+```
+milestone            ← one per release / main topic; gets the fleet
+├─ epic              ← thematic container; gets a parallel worktree (lane)
+│  ├─ feature        ← user-facing deliverable (optional intermediate level)
+│  │  └─ task        ← concrete unit of work; one task = one commit
+│  └─ task           ← tasks can sit directly under epics
+└─ ...
+```
+
+Levels map 1:1 to types: `milestone` → `epic` → `feature` → `task`. Never skip
+a level (no `task` directly under a `milestone`). Epics and milestones are
+containers — they hold children, they are not executed. Wire parents with
+`--parent`.
+
+**Epic vs feature:** epic groups work by theme and gets its own parallel
+worktree. Feature is an optional intermediate grouping within an epic. Task is
+the executable unit — one task produces one commit.
+
+### Planning a milestone
+
+When planning work on hordr, decompose the milestone into epics and tasks.
+Each epic becomes a parallel lane (its own worktree). Tasks within an epic are
+serialized. Cross-epic dependencies use `--blocked-by` — a blocked epic gets no
+worktree until its blocker merges.
+
+### The `assigned:` frontmatter convention
+
+**Every task bean carries an `assigned:` field** naming the role that should
+work it. The default roles are:
+
+| Role          | Harness    | What it does                                              |
+| ------------- | ---------- | --------------------------------------------------------- |
+| `implementer` | `opencode` | Implements the task: reads the bean, writes code, commits |
+| `tester`      | `opencode` | Tests the task: writes tests, runs them, reports failures |
+| `reviewer`    | `opencode` | Reviews the task: checks the diff, approves or blocks     |
+
+Example task bean with assignment:
+
+```markdown
+---
+title: Implement the frobnicator
+type: task
+status: todo
+priority: high
+assigned: implementer
+---
+
+## Requirement
+
+Build the frobnicator module.
+
+## Acceptance Criteria
+
+- [ ] It frobs
+- [ ] Tests pass
+```
+
+When creating task beans during planning, **always set `assigned:`** to the
+appropriate role. Missing `assigned:` defaults to `implementer` (with a
+warning). Unresolvable roles (not in config) cause the daemon to block the
+task.
+
+### Implement → test → review pipelines
+
+Use `--blocked-by` to chain tasks into a pipeline within an epic:
+
+```bash
+beans create "Implement X" -t task --parent hordr-EPIC
+# → hordr-0001
+
+beans create "Test X" -t task --parent hordr-EPIC \
+  --blocked-by hordr-0001
+# → hordr-0002 (not ready until 0001 completes)
+
+beans create "Review X" -t task --parent hordr-EPIC \
+  --blocked-by hordr-0002
+# → hordr-0003 (not ready until 0002 completes)
+```
+
+The daemon dispatches only unblocked tasks (`beans list --ready`). After
+`hordr-0001` completes, `hordr-0002` becomes ready, then `hordr-0003`. This
+creates the implement → test → review pipeline naturally.
+
+### Cross-epic dependencies
+
+```bash
+beans create "Profile page" -t epic --parent hordr-MS \
+  --blocked-by hordr-AUTH-EPIC
+```
+
+Epic `hordr-PROFILE-EPIC` gets no worktree until `hordr-AUTH-EPIC` merges.
+When it unblocks, its worktree branches from the milestone integration branch
+(`ms/<id>`) which now contains the auth epic's code — lazy creation is
+automatic dependency resolution.
+
+### Dynamic beans (mid-work)
+
+An agent may discover new work during a task. It creates beans via `beans
+create ... -s draft`. Dynamic beans land in `draft` status — the human reviews
+and flips to `todo` to dispatch them. The daemon never auto-dispatches draft
+beans.
+
+### Status flow
+
+Status flows up automatically via the daemon's rollup: a parent is `completed`
+only when all descendants are `completed`. The agent does NOT walk the tree or
+propagate status — the daemon owns rollup (fixup + autosquash into the work
+commit).
+
+## Bean Hygiene
+
+1. **Check before creating.** Run `beans list --json` and scan for existing
+   beans covering the same scope. Duplicates waste context.
+2. **Restructuring.** When a design session changes scope, rewrite bean bodies
+   by appending a `## REWRITTEN SCOPE (date — supersedes content above)`
+   section. Don't scrap beans that have accumulated context; rewrite in place.
+3. **Design decisions → milestone body.** Capture architectural decisions in
+   the milestone body with struct layouts, flow diagrams, and rationale.
+   Individual tasks carry the acceptance criteria (TDD checklist).
+4. **Active milestones may supersede code state.** ADRs describe the current
+   deployed architecture. An active milestone's body may contain design
+   decisions that will change the code but haven't landed yet. Always check
+   `beans list --json --ready` for in-flight work before assuming the docs
+   reflect reality.
+
+## Development Workflow
+
+### TDD
+
+RED → GREEN → REFACTOR for every feature/bug fix. Tests first. No exceptions.
+
+### Pure-function pattern
+
+New dispatch logic follows the established pattern:
+
+```typescript
+// src/dispatch/something.ts
+export interface SomethingDeps {
+  fetchX: (id: string) => X
+  doY: (val: string) => void
+}
+
+export function doSomething(id: string, deps: SomethingDeps): Result {
+  // pure logic, no I/O — all side effects through deps
+}
+
+// test/dispatch/something.test.ts
+// Mock the deps, test the logic. No real beans/git/herdr calls in tests.
+```
+
+### Shell seams
+
+Tests mock `beans`, `git`, and `herdr` via module-level seams
+(`_setShellForTesting`, `_setGitRunnerForTesting`). Never make real I/O calls
+in tests.
+
+### Lint is law
+
+Fix all lint errors before commit. The project uses `eslint-config-oclif` with
+`@oclif/prettier-config` (`bracketSpacing: false`, `singleQuote: true`,
+`semi: false`). Run `bun run lint` before committing.
+
+### Commit convention
+
+Use the commit skill. Include bean IDs in the commit message:
+
+```
+feat(dispatch): add ephemeral invocation spawn for fleet dispatch
+
+...
+
+Refs: hordr-iubj
+```
+
+Do NOT prefix with an emoji — pre-commit's `gitmojify` hook handles that.

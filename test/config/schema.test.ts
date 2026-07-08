@@ -81,8 +81,13 @@ describe('config/schema', () => {
     expect(cfg.agents).to.have.property('reviewer')
   })
 
-  it('exits non-zero with "No hordr config found" when block is missing', () => {
-    expect(() => loadConfig(write(MISSING_BLOCK_YAML))).to.throw(ConfigError, 'No hordr config found')
+  it('uses default agents when hordr block is missing', () => {
+    const cfg = loadConfig(write(MISSING_BLOCK_YAML))
+    expect(cfg.agents).to.have.property('implementer')
+    expect(cfg.agents).to.have.property('tester')
+    expect(cfg.agents).to.have.property('reviewer')
+    expect(cfg.agents.implementer!.harness).to.equal('opencode')
+    expect(cfg.agents.implementer!.persona).to.contain('hordr done')
   })
 
   it('produces a zod error naming the harness field when empty', () => {
@@ -97,5 +102,22 @@ describe('config/schema', () => {
     // Regression guard: a YAML block with only a comment parses as null,
     // which must not crash the loader now that company is nullable.
     expect(() => loadConfig(write(COMPANY_NULL_YAML))).to.not.throw()
+  })
+
+  it('fills unconfigured roles with defaults (merge — user agents take precedence)', () => {
+    // VALID_YAML has implementer + reviewer but no tester
+    const cfg = loadConfig(write(VALID_YAML))
+    expect(cfg.agents).to.have.property('tester') // filled by default
+    expect(cfg.agents.tester!.harness).to.equal('opencode')
+    // User-configured persona is preserved, not overwritten by default
+    expect(cfg.agents.implementer!.persona).to.match(/You are the implementer/)
+  })
+
+  it('default agents all have harness + persona', () => {
+    const cfg = loadConfig(write(MISSING_BLOCK_YAML))
+    for (const [, agent] of Object.entries(cfg.agents)) {
+      expect(agent.harness).to.be.a('string').with.length.greaterThan(0)
+      expect(agent.persona).to.be.a('string').with.length.greaterThan(0)
+    }
   })
 })
