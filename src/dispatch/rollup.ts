@@ -10,9 +10,18 @@
  * query for parent chain + subtree status) and markCompleted (beans update).
  */
 /**
- * Check if the milestone bean is completed (the rollup reached the root).
- * The daemon uses this after rollup to mark the fleet finishable.
+ * Check if all the milestone's epic children are completed (ADR-0014).
+ * Called after each epic merge into the milestone branch. If true, the
+ * milestone bean itself can be marked completed → fleet is finishable.
  */
+export function areAllEpicsCompleted(
+  milestoneId: string,
+  deps: {fetchEpicStatuses: (id: string) => Array<{id: string; status: string}>},
+): boolean {
+  const epics = deps.fetchEpicStatuses(milestoneId)
+  return epics.length > 0 && epics.every((e) => e.status === 'completed')
+}
+
 export function isMilestoneComplete(
   milestoneId: string,
   deps: {beanStatus: (id: string) => string | undefined},

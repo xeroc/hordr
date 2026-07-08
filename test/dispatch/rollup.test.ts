@@ -1,6 +1,6 @@
 import {expect} from 'chai'
 
-import {isMilestoneComplete, rollup} from '../../src/dispatch/rollup.js'
+import {areAllEpicsCompleted, isMilestoneComplete, rollup} from '../../src/dispatch/rollup.js'
 
 // Each ancestor node: id + whether all its descendants are completed.
 const ancestor = (id: string, done: boolean) => ({descendantsAllCompleted: done, id})
@@ -71,6 +71,34 @@ describe('dispatch/rollup', () => {
 
     it('returns false when milestone bean status is not completed', () => {
       expect(isMilestoneComplete('hordr-ms1', {beanStatus: () => 'in-progress'})).to.be.false
+    })
+  })
+
+  describe('areAllEpicsCompleted', () => {
+    it('returns true when all epic children are completed', () => {
+      expect(
+        areAllEpicsCompleted('hordr-ms1', {
+          fetchEpicStatuses: () => [
+            {id: 'epic-1', status: 'completed'},
+            {id: 'epic-2', status: 'completed'},
+          ],
+        }),
+      ).to.be.true
+    })
+
+    it('returns false when any epic is not completed', () => {
+      expect(
+        areAllEpicsCompleted('hordr-ms1', {
+          fetchEpicStatuses: () => [
+            {id: 'epic-1', status: 'completed'},
+            {id: 'epic-2', status: 'in-progress'},
+          ],
+        }),
+      ).to.be.false
+    })
+
+    it('returns false when milestone has no epics', () => {
+      expect(areAllEpicsCompleted('hordr-ms1', {fetchEpicStatuses: () => []})).to.be.false
     })
   })
 })
