@@ -68,6 +68,14 @@ export function getFleet(db: Database.Database, projectKey: string, milestoneId:
   return r ? toFleetRow(r) : undefined
 }
 
+/** All fleets, optionally filtered by status (e.g. 'active'). Ordered oldest-first. */
+export function listFleets(db: Database.Database, opts?: {status?: string}): FleetRow[] {
+  const rows = opts?.status
+    ? (db.prepare('SELECT * FROM fleets WHERE status = ? ORDER BY created_at').all(opts.status) as FleetDbRow[])
+    : (db.prepare('SELECT * FROM fleets ORDER BY created_at').all() as FleetDbRow[])
+  return rows.map((r) => toFleetRow(r))
+}
+
 export function deleteFleet(db: Database.Database, projectKey: string, milestoneId: string): void {
   db.prepare('DELETE FROM fleets WHERE project_key = ? AND milestone_bean_id = ?').run(projectKey, milestoneId)
 }
