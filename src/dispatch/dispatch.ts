@@ -111,6 +111,35 @@ function fetchDescendants(milestoneId: string, cwd?: string): DispatchableBean[]
   return data.bean ? flattenDescendants(data.bean) : []
 }
 
+interface DraftBean {
+  id: string
+  status: string
+  title?: string
+}
+
+/**
+ * Beans under the milestone with status == 'draft' (ADR-0013). These await
+ * human review before they can be dispatched. Reuses the dispatch shell seam.
+ */
+export function listDrafts(milestoneId: string, opts?: {cwd?: string}): Array<{id: string; title: string}> {
+  const query = `{ bean(id: "${milestoneId}") { children { id title status children { id title status children { id title status } } } } }`
+  const raw = _shell(['query', '--json', query], {cwd: opts?.cwd})
+  const data = JSON.parse(raw) as {bean?: {children?: DraftBean[]}}
+
+  const drafts: Array<{id: string; title: string}> = []
+  const walk = (nodes: DraftBean[] | undefined): void => {
+    for (const node of nodes ?? []) {
+      if (node.status === 'draft') drafts.push({id: node.id, title: node.title ?? ''})
+      // children aren't returned by this fixed-depth query for draft leaves, but
+      // walk anyway in case a draft has its own subtree.
+      walk((node as unknown as {children?: DraftBean[]}).children)
+    }
+  }
+
+  walk(data.bean?.children)
+  return drafts
+}
+
 /** Fetch the globally-ready beans (readiness is beans' job). */
 function fetchReady(cwd?: string): DispatchableBean[] {
   const raw = _shell(['list', '--ready', '--json'], {cwd})

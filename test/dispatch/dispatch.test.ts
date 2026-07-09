@@ -5,6 +5,7 @@ import {
   _setShellForTesting,
   type DispatchableBean,
   getDispatchable,
+  listDrafts,
   pickDispatchable,
   type ShellFn,
 } from '../../src/dispatch/dispatch.js'
@@ -176,6 +177,38 @@ describe('dispatch/dispatch', () => {
       _setShellForTesting(mock)
       const result = getDispatchable('hordr-test')
       expect(result.map((b) => b.id)).to.deep.equal(['hordr-0002', 'hordr-0003'])
+    })
+
+    it('listDrafts returns only status==draft descendants (any depth)', () => {
+      _setShellForTesting((args) => {
+        if (args.includes('query')) {
+          return JSON.stringify({
+            bean: {
+              children: [
+                {
+                  children: [
+                    {id: 'hordr-0001', status: 'todo', title: 'T1'},
+                    {id: 'hordr-0002', status: 'draft', title: 'T2'},
+                  ],
+                  id: 'epic-1',
+                  status: 'todo',
+                  title: 'Epic 1',
+                },
+                {id: 'hordr-0003', status: 'draft', title: 'T3'},
+                {id: 'hordr-0004', status: 'completed', title: 'T4'},
+              ],
+            },
+          })
+        }
+
+        throw new Error(`unexpected: ${args.join(' ')}`)
+      })
+
+      const drafts = listDrafts('hordr-test')
+      expect(drafts).to.deep.equal([
+        {id: 'hordr-0002', title: 'T2'},
+        {id: 'hordr-0003', title: 'T3'},
+      ])
     })
   })
 })

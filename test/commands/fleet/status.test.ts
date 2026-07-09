@@ -6,6 +6,10 @@ import os from 'node:os'
 import path from 'node:path'
 
 import FleetStatus from '../../../src/commands/fleet/status.js'
+import {
+  _resetShell as _resetDispatchShell,
+  _setShellForTesting as _setDispatchShell,
+} from '../../../src/dispatch/dispatch.js'
 import {openFleetDb} from '../../../src/storage/db.js'
 import {_setProjectKeyResolverForTesting} from '../../../src/storage/project.js'
 
@@ -84,6 +88,8 @@ describe('commands/fleet/status', () => {
     origCwd = process.cwd()
     process.chdir(configDir)
     _setProjectKeyResolverForTesting(() => PK)
+    // default: no drafts under the milestone
+    _setDispatchShell(() => JSON.stringify({bean: {children: []}}))
   })
 
   afterEach(() => {
@@ -92,6 +98,7 @@ describe('commands/fleet/status', () => {
     else process.env.HORDR_DB = origDb
     rmSync(configDir, {force: true, recursive: true})
     _setProjectKeyResolverForTesting(null)
+    _resetDispatchShell()
   })
 
   it('shows fleet state + lanes (human)', async () => {
@@ -147,5 +154,40 @@ describe('commands/fleet/status', () => {
     const res = await invoke([MS])
     expect(res.error).to.be.instanceOf(Error)
     expect(res.error!.message).to.match(/no fleet for/)
+  })
+
+  it('lists drafts-awaiting-review (human)', async () => {
+    seedRows(dbFile)
+    _setDispatchShell(() =>
+      JSON.stringify({
+        bean: {
+          children: [
+            {
+              children: [{id: 'hordr-d1', status: 'draft', title: 'Draft 1'}],
+              id: 'epic-1',
+              status: 'todo',
+              title: 'E1',
+            },
+            {id: 'hordr-d2', status: 'draft', title: 'Draft 2'},
+          ],
+        },
+      }),
+    )
+
+    const res = await invoke([MS])
+    expect(res.error, res.error?.message).to.be.undefined
+    expect(res.stdout).to.match(/drafts awaiting review/)
+    expect(res.stdout).to.match(/hordr-d1: Draft 1/)
+    expect(res.stdout).to.match(/hordr-d2: Draft 2/)
+  })
+
+  it('emits drafts[] in --json', async () => {
+    seedRows(dbFile)
+    _setDispatchShell(() => JSON.stringify({bean: {children: [{id: 'hordr-d1', status: 'draft', title: 'Draft 1'}]}}))
+
+    const res = await invoke([MS, '--json'])
+    expect(res.error, res.error?.message).to.be.undefined
+    const parsed = JSON.parse(res.stdout.trim()) as {drafts: Array<{id: string; title: string}>}
+    expect(parsed.drafts).to.deep.equal([{id: 'hordr-d1', title: 'Draft 1'}])
   })
 })
