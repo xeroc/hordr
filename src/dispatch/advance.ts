@@ -37,7 +37,7 @@ export interface AdvanceLaneDeps {
   paneAlive: (paneId: string) => boolean
   removeWorktree: (branch: string) => void
   setLaneCurrentTask: (loc: LaneLoc, taskId: null | string) => void
-  spawn: (harness: string, prompt: string) => void
+  spawn: (opts: {harness: string; paneId: string; prompt: string}) => void
   updateLaneStatus: (loc: LaneLoc, status: string) => void
 }
 
@@ -71,7 +71,7 @@ export function advanceLane(opts: AdvanceLaneOpts, deps: AdvanceLaneDeps): Advan
       {
         fetchBean: deps.fetchBean,
         fetchDispatchable: () => dispatchable,
-        spawn: deps.spawn,
+        spawn: (harness, prompt) => deps.spawn({harness, paneId: opts.lane.paneId ?? '', prompt}),
       },
     )
     if (!outcome.dispatched) return {action: 'idle'}

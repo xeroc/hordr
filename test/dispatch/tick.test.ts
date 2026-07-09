@@ -52,8 +52,8 @@ describe('dispatch/tick', () => {
       mergeBranch: () => ({conflict: false}),
       paneAlive: () => true,
       removeWorktree() {},
-      spawn(_h, prompt) {
-        spawnCalls.push(prompt)
+      spawn(opts) {
+        spawnCalls.push(opts.prompt)
       },
     })
 

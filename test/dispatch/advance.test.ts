@@ -73,8 +73,8 @@ function depsFor(state: DepsState): AdvanceLaneDeps {
     setLaneCurrentTask(_loc, taskId) {
       state.currentTask = taskId
     },
-    spawn(_h, prompt) {
-      state.spawnCalled.push(prompt)
+    spawn(opts) {
+      state.spawnCalled.push(opts.prompt)
     },
     updateLaneStatus(_loc, status) {
       state.status = status

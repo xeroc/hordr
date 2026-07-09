@@ -41,7 +41,7 @@ export interface TickDeps {
   mergeBranch: (opts: {cwd: string; source: string; target: string}) => MergeResult
   paneAlive: (paneId: string) => boolean
   removeWorktree: (branch: string) => void
-  spawn: (harness: string, prompt: string) => void
+  spawn: (opts: {harness: string; paneId: string; prompt: string}) => void
 }
 
 export interface TickResult {

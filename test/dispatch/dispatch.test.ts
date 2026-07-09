@@ -4,6 +4,8 @@ import {
   _resetShell,
   _setShellForTesting,
   type DispatchableBean,
+  fetchAncestry,
+  fetchEpics,
   getDispatchable,
   listDrafts,
   pickDispatchable,
@@ -222,6 +224,87 @@ describe('dispatch/dispatch', () => {
         {id: 'hordr-0002', title: 'T2'},
         {id: 'hordr-0003', title: 'T3'},
       ])
+    })
+
+    it('fetchEpics returns the milestone direct children', () => {
+      _setShellForTesting((args) => {
+        if (args.includes('query')) {
+          return JSON.stringify({
+            bean: {
+              children: [
+                {id: 'epic-1', title: 'Epic 1'},
+                {id: 'epic-2', title: 'Epic 2'},
+              ],
+            },
+          })
+        }
+
+        throw new Error(`unexpected: ${args.join(' ')}`)
+      })
+      expect(fetchEpics('hordr-ms1')).to.deep.equal([
+        {id: 'epic-1', title: 'Epic 1'},
+        {id: 'epic-2', title: 'Epic 2'},
+      ])
+    })
+
+    it('fetchAncestry walks task→feature→epic, stopping at epic', () => {
+      _setShellForTesting((args) => {
+        if (args.includes('query')) {
+          return JSON.stringify({
+            bean: {
+              // task's parent is a feature; feature's parent is the epic
+              parent: {
+                children: [
+                  {id: 'task-1', status: 'completed'},
+                  {id: 'task-2', status: 'completed'},
+                ],
+                id: 'feat-1',
+                parent: {
+                  children: [
+                    {id: 'feat-1', status: 'in-progress'},
+                    {id: 'feat-2', status: 'todo'},
+                  ],
+                  id: 'epic-1',
+                  status: 'todo',
+                  type: 'epic',
+                },
+                status: 'todo',
+                type: 'feature',
+              },
+            },
+          })
+        }
+
+        throw new Error(`unexpected: ${args.join(' ')}`)
+      })
+      const ancestry = fetchAncestry('task-1')
+      expect(ancestry).to.deep.equal([
+        {descendantsAllCompleted: true, id: 'feat-1'}, // both tasks done
+        {descendantsAllCompleted: false, id: 'epic-1'}, // feat-2 still todo
+      ])
+    })
+
+    it('fetchAncestry stops at epic when task is directly under it', () => {
+      _setShellForTesting((args) => {
+        if (args.includes('query')) {
+          return JSON.stringify({
+            bean: {
+              parent: {
+                children: [
+                  {id: 'task-1', status: 'completed'},
+                  {id: 'task-2', status: 'todo'},
+                ],
+                id: 'epic-1',
+                status: 'todo',
+                type: 'epic',
+              },
+            },
+          })
+        }
+
+        throw new Error(`unexpected: ${args.join(' ')}`)
+      })
+      expect(fetchAncestry('task-1')).to.deep.equal([{descendantsAllCompleted: false, id: 'epic-1'}])
     })
   })
 })

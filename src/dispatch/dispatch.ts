@@ -148,6 +148,48 @@ export function fetchChildStatuses(beanId: string, opts?: {cwd?: string}): Array
   return data.bean?.children ?? []
 }
 
+/** The milestone's direct children as epic infos (for the lane scanner). */
+export function fetchEpics(milestoneId: string, opts?: {cwd?: string}): Array<{id: string; title: string}> {
+  const query = `{ bean(id: "${milestoneId}") { children { id title } } }`
+  const raw = _shell(['query', '--json', query], {cwd: opts?.cwd})
+  const data = JSON.parse(raw) as {bean?: {children?: Array<{id: string; title?: string}>}}
+  return (data.bean?.children ?? []).map((c) => ({id: c.id, title: c.title ?? ''}))
+}
+
+interface AncestorNode {
+  children?: Array<{id: string; status: string}>
+  id: string
+  parent?: AncestorNode
+  status: string
+  type: string
+}
+
+/**
+ * A task's ancestor chain (nearest-first) with each ancestor's subtree
+ * completion, stopping at the epic level (per-epic model, ADR-0014). Feeds
+ * rollup(): the daemon marks each ancestor completed when its subtree is done.
+ */
+export function fetchAncestry(
+  taskId: string,
+  opts?: {cwd?: string},
+): Array<{descendantsAllCompleted: boolean; id: string}> {
+  const query = `{ bean(id: "${taskId}") { parent { id type status children { id status } parent { id type status children { id status } } } } }`
+  const raw = _shell(['query', '--json', query], {cwd: opts?.cwd})
+  const data = JSON.parse(raw) as {bean?: {parent?: AncestorNode}}
+
+  const result: Array<{descendantsAllCompleted: boolean; id: string}> = []
+  let node = data.bean?.parent
+  while (node) {
+    const children = node.children ?? []
+    const allDone = children.length > 0 && children.every((c) => c.status === 'completed')
+    result.push({descendantsAllCompleted: allDone, id: node.id})
+    if (node.type === 'epic') break // stop at epic — milestone-level is fleet finish's job
+    node = node.parent
+  }
+
+  return result
+}
+
 /** Fetch the globally-ready beans (readiness is beans' job). */
 function fetchReady(cwd?: string): DispatchableBean[] {
   const raw = _shell(['list', '--ready', '--json'], {cwd})
