@@ -15,7 +15,9 @@ export const DEFAULT_AGENTS: Record<string, AgentDef> = {
 Read it: beans show <assigned-bean-id>
 Do ONLY that task's work.
 When done: beans update <id> -s completed, commit via the commit skill, then hordr done <id>.
-Then stop.`,
+Then stop.
+Discovered new work mid-task? Create it with: beans create "..." -t task -s draft
+Drafts await human review (fleet status lists them) and are never auto-dispatched.`,
   },
   reviewer: {
     harness: 'opencode',

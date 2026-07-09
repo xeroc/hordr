@@ -186,6 +186,24 @@ export function removeWorktree(opts: WorktreeRemoveOpts): void {
 }
 
 /**
+ * Remove a worktree by its branch: open (resolve workspace) then remove.
+ * Tolerant of an already-gone worktree (lane was 'done' / merged). Used by
+ * fleet abort --force and the broker's epic-merge teardown.
+ */
+export function removeWorktreeByBranch(branch: string, cwd: string): void {
+  let workspaceId: string | undefined
+  try {
+    const result = openWorktree({branch, cwd})
+    workspaceId = result.workspace_id
+  } catch (error) {
+    if (!(error instanceof HerdrError) || !/worktree_not_found/.test(error.message)) throw error
+    return // already gone
+  }
+
+  if (workspaceId) removeWorktree({workspaceId})
+}
+
+/**
  * Compute the worktree branch name for a bean: `<prefix><beanId>`.
  * The prefix comes from hordr config (default "bean/", SPEC §6).
  * Example: branchFor("hordr-1234", "bean/") => "bean/hordr-1234"

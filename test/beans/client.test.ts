@@ -8,6 +8,7 @@ import {
   BeansError,
   getBean,
   getBody,
+  markBeanCompleted,
   type ShellFn,
   type ShellOptions,
 } from '../../src/beans/client.js'
@@ -99,5 +100,22 @@ describe('beans/client', () => {
   it('throws BeansError on non-JSON output', () => {
     responder = () => 'not json {{{'
     expect(() => getBean('hordr-1001')).to.throw(BeansError, /non-JSON/)
+  })
+
+  it('markBeanCompleted runs `beans update <id> -s completed` with the cwd (ADR-0011 rollup)', () => {
+    responder = () => '' // beans update returns nothing on success
+    markBeanCompleted('hordr-1001', {cwd: '/wt/hordr-1001'})
+    expect(calls).to.have.length(1)
+    expect(calls[0]!.cmd).to.equal('beans')
+    expect(calls[0]!.args).to.deep.equal(['update', 'hordr-1001', '-s', 'completed'])
+    expect(calls[0]!.opts.cwd).to.equal('/wt/hordr-1001')
+  })
+
+  it('markBeanCompleted wraps a non-zero exit as BeansError', () => {
+    responder = () => {
+      throw Object.assign(new Error('Command failed'), {stderr: 'no such bean'})
+    }
+
+    expect(() => markBeanCompleted('hordr-9999')).to.throw(BeansError, /hordr-9999/)
   })
 })
