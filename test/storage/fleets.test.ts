@@ -10,6 +10,7 @@ import {
   getFleet,
   listLanes,
   registerFleet,
+  setLanePane,
   updateLaneStatus,
 } from '../../src/storage/fleets.js'
 
@@ -181,6 +182,23 @@ describe('storage/fleets', () => {
       })
       updateLaneStatus(db, {epicId: 'epic-a', milestoneId: MS, projectKey: PK}, 'merging')
       expect(listLanes(db, PK, MS)[0]!.status).to.equal('merging')
+    })
+
+    it('setLanePane records the stable pane id', () => {
+      seedFleet(db)
+      addLane(db, {
+        branch: 'b1',
+        createdAt: NOW,
+        currentTaskBeanId: null,
+        epicBeanId: 'epic-a',
+        fleetMilestoneBeanId: MS,
+        paneId: null,
+        projectKey: PK,
+        status: 'active',
+        worktreePath: '/wt',
+      })
+      setLanePane(db, {epicId: 'epic-a', milestoneId: MS, projectKey: PK}, 'w1:p1')
+      expect(listLanes(db, PK, MS)[0]!.paneId).to.equal('w1:p1')
     })
   })
 })

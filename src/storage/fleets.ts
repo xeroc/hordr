@@ -151,3 +151,10 @@ export function updateLaneStatus(db: Database.Database, loc: LaneLoc, status: st
     'UPDATE lanes SET status = ? WHERE project_key = ? AND fleet_milestone_bean_id = ? AND epic_bean_id = ?',
   ).run(status, loc.projectKey, loc.milestoneId, loc.epicId)
 }
+
+/** Record the lane's stable pane id (created on first dispatch, reused after). */
+export function setLanePane(db: Database.Database, loc: LaneLoc, paneId: string): void {
+  db.prepare(
+    'UPDATE lanes SET pane_id = ? WHERE project_key = ? AND fleet_milestone_bean_id = ? AND epic_bean_id = ?',
+  ).run(paneId, loc.projectKey, loc.milestoneId, loc.epicId)
+}
