@@ -12,7 +12,7 @@ import type Database from 'better-sqlite3'
 import type {BeanRecord} from '../beans/client.js'
 
 import {createMilestoneBranch, type GitFn, milestoneBranchName} from '../dispatch/branch.js'
-import {ensureProject, getFleet, registerFleet} from '../storage/fleets.js'
+import {ensureProject, type FleetRow, getFleet, type LaneRow, listLanes, registerFleet} from '../storage/fleets.js'
 
 export class FleetError extends Error {
   constructor(message: string) {
@@ -81,4 +81,22 @@ export async function createFleet(
 
   const daemon = await deps.ensureDaemon()
   return {branch, daemonStarted: daemon.started}
+}
+
+export interface FleetSnapshot {
+  fleet: FleetRow
+  lanes: LaneRow[]
+}
+
+/**
+ * Read the fleet + its lanes for `fleet status`. Throws FleetError if no fleet
+ * row exists for the milestone. Read-only — no beans/git calls.
+ */
+export function describeFleet(db: Database.Database, projectKey: string, milestoneId: string): FleetSnapshot {
+  const fleet = getFleet(db, projectKey, milestoneId)
+  if (!fleet) {
+    throw new FleetError(`no fleet for ${milestoneId} (project ${projectKey})`)
+  }
+
+  return {fleet, lanes: listLanes(db, projectKey, milestoneId)}
 }
