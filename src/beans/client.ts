@@ -1,8 +1,9 @@
 /* eslint-disable camelcase -- field names mirror the on-disk beans JSON contract */
 /**
- * Thin synchronous wrapper around the `beans` CLI. Hordr only reads beans
- * (for the agent prompt) — it does not write bean state. Worktree/pane
- * lifecycle is hordr's job; bean status is the human's.
+ * Thin synchronous wrapper around the `beans` CLI. Hordr reads beans for the
+ * agent prompt, and — in the fleet model — the broker writes bean status as
+ * part of rollup (ADR-0011: `beans update <ancestor> -s completed`). Outside
+ * rollup, bean status is the human's/member's; hordr does not write it.
  */
 import {execFileSync} from 'node:child_process'
 import {z} from 'zod'
@@ -124,4 +125,14 @@ export function getBean(beanId: string, opts?: {cwd?: string}): BeanRecord {
 /** Convenience: just the body (used by the agent prompt). */
 export function getBody(beanId: string): string {
   return getBean(beanId).body
+}
+
+/**
+ * Mark a bean completed (broker rollup, ADR-0011). The one sanctioned bean-
+ * status write from hordr; pass opts.cwd to write in a worktree checkout so
+ * the rollup writes land with the member's work. Throws BeansError on failure.
+ */
+export function markBeanCompleted(beanId: string, opts?: {cwd?: string}): void {
+  assertBeansOnPath()
+  runBeans(['update', beanId, '-s', 'completed'], beanId, opts?.cwd)
 }

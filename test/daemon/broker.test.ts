@@ -1,7 +1,10 @@
 /* eslint-disable camelcase -- task_id mirrors the /done socket JSON contract */
 import {expect} from 'chai'
 
-import {doneRouteHandler, startBroker, tickIntervalMs} from '../../src/daemon/broker.js'
+import type {HordrConfig} from '../../src/config/schema.js'
+
+import {_resetShell as _resetBeansShell, _setShellForTesting as _setBeansShell} from '../../src/beans/client.js'
+import {createTickDeps, doneRouteHandler, startBroker, tickIntervalMs} from '../../src/daemon/broker.js'
 import {applySchema, openDb} from '../../src/storage/db.js'
 
 describe('daemon/broker', () => {
@@ -110,6 +113,34 @@ describe('daemon/broker', () => {
     it('returns 409 when the task is not completed', () => {
       const res = handler({body: {task_id: 'task-open'}, method: 'POST', path: '/done'})
       expect(res.status).to.equal(409)
+    })
+  })
+
+  describe('createTickDeps.markCompleted', () => {
+    let beansCalls: string[][]
+
+    beforeEach(() => {
+      beansCalls = []
+      _setBeansShell((_cmd, args) => {
+        beansCalls.push(args)
+        return ''
+      })
+    })
+
+    afterEach(() => {
+      _resetBeansShell()
+    })
+
+    it('runs `beans update <id> -s completed` (ADR-0011 rollup wiring)', () => {
+      const config: HordrConfig = {
+        agents: {implementer: {harness: 'opencode', persona: 'x'}},
+        primary_branch: 'develop',
+        worktree_branch_prefix: 'bean/',
+      }
+      const deps = createTickDeps(config, '/repo')
+      deps.markCompleted('hordr-1001')
+      const updateCall = beansCalls.find((a) => a[0] === 'update')
+      expect(updateCall).to.deep.equal(['update', 'hordr-1001', '-s', 'completed'])
     })
   })
 })

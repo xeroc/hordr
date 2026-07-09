@@ -11,7 +11,7 @@ import type Database from 'better-sqlite3'
 
 import type {HordrConfig} from '../config/schema.js'
 
-import {getBean} from '../beans/client.js'
+import {getBean, markBeanCompleted} from '../beans/client.js'
 import {fetchAncestry, fetchEpics, getDispatchable} from '../dispatch/dispatch.js'
 import {handleDone} from '../dispatch/done.js'
 import {mergeBranch} from '../dispatch/merge.js'
@@ -44,12 +44,9 @@ export function createTickDeps(config: HordrConfig, cwd: string): TickDeps {
     fetchDispatchable: (epicId) => getDispatchable(epicId, {cwd}),
     fetchEpics: (milestoneId) => fetchEpics(milestoneId, {cwd}),
     hasReadyWork: (epicId) => getDispatchable(epicId, {cwd}).length > 0,
-    markCompleted(_id) {
-      // ponytail: delegate status writes to the beans CLI (members/humans own
-      // bean state). The rollup's markCompleted is a no-op here — the member
-      // already flipped the task completed; epic/milestone rollup is observed
-      // by the next tick via epicStatus. (Wiring a beans update would reverse
-      // hordr's read-only stance — see ADR-0012.)
+    markCompleted(id) {
+      // ADR-0011: rollup propagates status upward via `beans update -s completed`.
+      markBeanCompleted(id, {cwd})
     },
     mergeBranch: (opts) =>
       mergeBranch({cwd: opts.cwd, source: opts.source, target: opts.target}, {git: getGitRunner()}),
