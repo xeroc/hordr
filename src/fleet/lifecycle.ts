@@ -165,3 +165,52 @@ export function finishFleet(
   deleteFleet(db, opts.projectKey, milestoneId)
   return {branch: fleet.branch, merged: true}
 }
+
+export interface AbortFleetDeps {
+  git: GitFn
+  /**
+   * Remove a lane's worktree by its branch. Tolerant: a no-op if the worktree
+   * is already gone (lane was 'done' / merged). Only called with --force.
+   */
+  removeWorktree: (branch: string) => void
+}
+
+export interface AbortFleetResult {
+  branch: string
+  worktreesRemoved: number
+}
+
+/**
+ * Abort a fleet: delete all lane rows + the fleet row so the daemon's tick
+ * stops dispatching (no fleet row → no loops). By default worktrees are kept
+ * (work preserved for manual inspection); --force also removes every lane
+ * worktree and deletes the ms/<id> branch. Beans are always kept for retry.
+ */
+export function abortFleet(
+  db: Database.Database,
+  milestoneId: string,
+  opts: {cwd: string; force: boolean; projectKey: string},
+  deps: AbortFleetDeps,
+): AbortFleetResult {
+  const fleet = getFleet(db, opts.projectKey, milestoneId)
+  if (!fleet) {
+    throw new FleetError(`no fleet for ${milestoneId} (project ${opts.projectKey})`)
+  }
+
+  const lanes = listLanes(db, opts.projectKey, milestoneId)
+  let worktreesRemoved = 0
+
+  if (opts.force) {
+    for (const lane of lanes) {
+      deps.removeWorktree(lane.branch)
+      worktreesRemoved++
+    }
+
+    // Discard the milestone integration branch (-D: unmerged work is intentional).
+    deps.git(['branch', '-D', fleet.branch], {cwd: opts.cwd})
+  }
+
+  deleteLanes(db, opts.projectKey, milestoneId)
+  deleteFleet(db, opts.projectKey, milestoneId)
+  return {branch: fleet.branch, worktreesRemoved}
+}

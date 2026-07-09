@@ -4,7 +4,7 @@ import {expect} from 'chai'
 
 import type {BeanRecord} from '../../src/beans/client.js'
 
-import {createFleet, describeFleet, finishFleet, FleetError} from '../../src/fleet/lifecycle.js'
+import {abortFleet, createFleet, describeFleet, finishFleet, FleetError} from '../../src/fleet/lifecycle.js'
 import {applySchema, openDb} from '../../src/storage/db.js'
 import {addLane, ensureProject, getFleet, registerFleet} from '../../src/storage/fleets.js'
 
@@ -281,6 +281,91 @@ describe('fleet/lifecycle', () => {
         FleetError,
         /no fleet for nope/,
       )
+    })
+  })
+
+  describe('abortFleet', () => {
+    let db: Database.Database
+    let gitCalls: string[][]
+    let removedBranches: string[]
+
+    beforeEach(() => {
+      db = openDb(':memory:')
+      applySchema(db)
+      ensureProject(db, {beansPath: '/b', companyPath: null, configPath: '/c', projectKey: PK})
+      registerFleet(db, {
+        branch: `ms/${MS}`,
+        createdAt: NOW,
+        milestoneBeanId: MS,
+        projectKey: PK,
+        status: 'active',
+        worktreePath: '/repo',
+      })
+      addLane(db, {
+        branch: 'ms/x/epic-a',
+        createdAt: NOW,
+        currentTaskBeanId: null,
+        epicBeanId: 'epic-a',
+        fleetMilestoneBeanId: MS,
+        paneId: null,
+        projectKey: PK,
+        status: 'active',
+        worktreePath: '/wt/epic-a',
+      })
+      gitCalls = []
+      removedBranches = []
+    })
+
+    afterEach(() => {
+      db.close()
+    })
+
+    it('keeps worktrees by default, deletes lane + fleet rows', () => {
+      const res = abortFleet(
+        db,
+        MS,
+        {cwd: '/repo', force: false, projectKey: PK},
+        {
+          git(args) {
+            gitCalls.push(args)
+          },
+          removeWorktree(branch) {
+            removedBranches.push(branch)
+          },
+        },
+      )
+
+      expect(res.worktreesRemoved).to.equal(0)
+      expect(removedBranches).to.have.length(0)
+      expect(gitCalls).to.have.length(0)
+      expect(getFleet(db, PK, MS)).to.be.undefined
+    })
+
+    it('--force removes lane worktrees + ms branch, deletes rows', () => {
+      const res = abortFleet(
+        db,
+        MS,
+        {cwd: '/repo', force: true, projectKey: PK},
+        {
+          git(args) {
+            gitCalls.push(args)
+          },
+          removeWorktree(branch) {
+            removedBranches.push(branch)
+          },
+        },
+      )
+
+      expect(res.worktreesRemoved).to.equal(1)
+      expect(removedBranches).to.deep.equal(['ms/x/epic-a'])
+      expect(gitCalls).to.deep.equal([['branch', '-D', `ms/${MS}`]])
+      expect(getFleet(db, PK, MS)).to.be.undefined
+    })
+
+    it('refuses when no fleet row exists', () => {
+      expect(() =>
+        abortFleet(db, 'nope', {cwd: '/repo', force: false, projectKey: PK}, {git() {}, removeWorktree() {}}),
+      ).to.throw(FleetError, /no fleet for nope/)
     })
   })
 })
