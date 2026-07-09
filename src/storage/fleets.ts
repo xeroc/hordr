@@ -159,6 +159,13 @@ export function setLanePane(db: Database.Database, loc: LaneLoc, paneId: string)
   ).run(paneId, loc.projectKey, loc.milestoneId, loc.epicId)
 }
 
+/** Set/clear the task the lane is currently working (null = idle). */
+export function setLaneCurrentTask(db: Database.Database, loc: LaneLoc, taskId: null | string): void {
+  db.prepare(
+    'UPDATE lanes SET current_task_bean_id = ? WHERE project_key = ? AND fleet_milestone_bean_id = ? AND epic_bean_id = ?',
+  ).run(taskId, loc.projectKey, loc.milestoneId, loc.epicId)
+}
+
 // --- provenance (ADR-0013) ---
 
 export interface ProvenanceRow {
