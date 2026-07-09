@@ -42,6 +42,19 @@ describe('dispatch/dispatch', () => {
       expect(pickDispatchable([bean('hordr-0001', 'normal')], [bean('hordr-0099', 'critical')])).to.have.length(0)
     })
 
+    // ADR-0013: draft beans are never dispatched. The gate is beans' `--ready`
+    // filter (drafts are excluded from --ready), so pickDispatchable — which
+    // intersects descendants ∩ ready — never selects a draft. No hordr-side
+    // governance code; this test pins the invariant.
+    it('never dispatches a draft bean (excluded by beans --ready filter)', () => {
+      const descendants = [
+        bean('hordr-0001', 'normal'), // a ready task
+        bean('hordr-0002', 'normal'), // a draft task (NOT in --ready)
+      ]
+      const ready = [bean('hordr-0001', 'normal')] // draft hordr-0002 absent
+      expect(pickDispatchable(descendants, ready).map((b) => b.id)).to.deep.equal(['hordr-0001'])
+    })
+
     it('preserves assigned field from the ready set', () => {
       const result = pickDispatchable([bean('hordr-0001', 'normal')], [bean('hordr-0001', 'normal', 'implementer')])
       expect(result[0]!.assigned).to.equal('implementer')
