@@ -1,11 +1,11 @@
 ---
 # hordr-uye4
 title: Lane management (per-epic worktrees)
-status: todo
+status: completed
 type: epic
 priority: critical
 created_at: 2026-07-08T08:44:00Z
-updated_at: 2026-07-08T08:44:00Z
+updated_at: 2026-07-09T10:53:33Z
 parent: hordr-nh1h
 ---
 
