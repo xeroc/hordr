@@ -12,7 +12,18 @@ import type Database from 'better-sqlite3'
 import type {BeanRecord} from '../beans/client.js'
 
 import {createMilestoneBranch, type GitFn, milestoneBranchName} from '../dispatch/branch.js'
-import {ensureProject, type FleetRow, getFleet, type LaneRow, listLanes, registerFleet} from '../storage/fleets.js'
+import {mergeMilestoneToPrimary} from '../dispatch/merge.js'
+import {areAllEpicsCompleted, isMilestoneComplete} from '../dispatch/rollup.js'
+import {
+  deleteFleet,
+  deleteLanes,
+  ensureProject,
+  type FleetRow,
+  getFleet,
+  type LaneRow,
+  listLanes,
+  registerFleet,
+} from '../storage/fleets.js'
 
 export class FleetError extends Error {
   constructor(message: string) {
@@ -99,4 +110,58 @@ export function describeFleet(db: Database.Database, projectKey: string, milesto
   }
 
   return {fleet, lanes: listLanes(db, projectKey, milestoneId)}
+}
+
+export interface FinishFleetDeps {
+  /** Status of a bean in the worktree ('completed', 'todo', …). */
+  beanStatus: (id: string) => string | undefined
+  /** The milestone's direct children (epics) with their status. */
+  fetchEpicStatuses: (id: string) => Array<{id: string; status: string}>
+  git: GitFn
+}
+
+export interface FinishFleetResult {
+  branch: string
+  merged: boolean
+}
+
+/**
+ * Finish a fleet: assert the milestone + all its epics are completed, merge
+ * ms/<id> into primary (--no-ff), then delete the lane + fleet rows. Refuses
+ * if the milestone isn't complete or any epic is still open. On a merge
+ * conflict it throws (human must resolve in the milestone branch).
+ *
+ * Worktrees are torn down by the daemon when each epic merges (lane → done);
+ * finish only drops the bookkeeping rows.
+ */
+export function finishFleet(
+  db: Database.Database,
+  milestoneId: string,
+  opts: {cwd: string; primaryBranch: string; projectKey: string},
+  deps: FinishFleetDeps,
+): FinishFleetResult {
+  const fleet = getFleet(db, opts.projectKey, milestoneId)
+  if (!fleet) {
+    throw new FleetError(`no fleet for ${milestoneId} (project ${opts.projectKey})`)
+  }
+
+  if (!isMilestoneComplete(milestoneId, {beanStatus: deps.beanStatus})) {
+    throw new FleetError(`milestone ${milestoneId} is not completed — rollup must close it first`)
+  }
+
+  if (!areAllEpicsCompleted(milestoneId, {fetchEpicStatuses: deps.fetchEpicStatuses})) {
+    throw new FleetError(`not all epics under ${milestoneId} are completed`)
+  }
+
+  const result = mergeMilestoneToPrimary(
+    {cwd: opts.cwd, milestoneId, primaryBranch: opts.primaryBranch},
+    {git: deps.git},
+  )
+  if (result.conflict) {
+    throw new FleetError(`merge of ms/${milestoneId} into ${opts.primaryBranch} conflicted — resolve manually`)
+  }
+
+  deleteLanes(db, opts.projectKey, milestoneId)
+  deleteFleet(db, opts.projectKey, milestoneId)
+  return {branch: fleet.branch, merged: true}
 }

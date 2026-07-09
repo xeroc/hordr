@@ -140,6 +140,14 @@ export function listDrafts(milestoneId: string, opts?: {cwd?: string}): Array<{i
   return drafts
 }
 
+/** Direct children of a bean with their status (milestone → epics). */
+export function fetchChildStatuses(beanId: string, opts?: {cwd?: string}): Array<{id: string; status: string}> {
+  const query = `{ bean(id: "${beanId}") { children { id status } } }`
+  const raw = _shell(['query', '--json', query], {cwd: opts?.cwd})
+  const data = JSON.parse(raw) as {bean?: {children?: Array<{id: string; status: string}>}}
+  return data.bean?.children ?? []
+}
+
 /** Fetch the globally-ready beans (readiness is beans' job). */
 function fetchReady(cwd?: string): DispatchableBean[] {
   const raw = _shell(['list', '--ready', '--json'], {cwd})

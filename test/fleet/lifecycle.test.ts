@@ -4,7 +4,7 @@ import {expect} from 'chai'
 
 import type {BeanRecord} from '../../src/beans/client.js'
 
-import {createFleet, describeFleet, FleetError} from '../../src/fleet/lifecycle.js'
+import {createFleet, describeFleet, finishFleet, FleetError} from '../../src/fleet/lifecycle.js'
 import {applySchema, openDb} from '../../src/storage/db.js'
 import {addLane, ensureProject, getFleet, registerFleet} from '../../src/storage/fleets.js'
 
@@ -187,6 +187,100 @@ describe('fleet/lifecycle', () => {
 
       expect(err).to.be.instanceOf(FleetError)
       expect((err as FleetError).message).to.match(/no fleet for nope/)
+    })
+  })
+
+  describe('finishFleet', () => {
+    let db: Database.Database
+    let gitCalls: Array<{args: string[]; cwd: string}>
+    let milestoneStatus: string
+    let epicStatuses: Array<{id: string; status: string}>
+    let gitThrows: boolean
+
+    beforeEach(() => {
+      db = openDb(':memory:')
+      applySchema(db)
+      ensureProject(db, {beansPath: '/b', companyPath: null, configPath: '/c', projectKey: PK})
+      registerFleet(db, {
+        branch: `ms/${MS}`,
+        createdAt: NOW,
+        milestoneBeanId: MS,
+        projectKey: PK,
+        status: 'active',
+        worktreePath: '/repo',
+      })
+      gitCalls = []
+      milestoneStatus = 'completed'
+      epicStatuses = [
+        {id: 'epic-1', status: 'completed'},
+        {id: 'epic-2', status: 'completed'},
+      ]
+      gitThrows = false
+    })
+
+    afterEach(() => {
+      db.close()
+    })
+
+    function deps() {
+      return {
+        beanStatus(id: string) {
+          return id === MS ? milestoneStatus : undefined
+        },
+        fetchEpicStatuses() {
+          return epicStatuses
+        },
+        git(args: string[], opts: {cwd: string}): void {
+          if (gitThrows) throw new Error('merge conflict')
+          gitCalls.push({args, cwd: opts.cwd})
+        },
+      }
+    }
+
+    it('merges ms/<id> into primary and deletes rows when milestone + epics complete', () => {
+      finishFleet(db, MS, {cwd: '/repo', primaryBranch: PRIMARY, projectKey: PK}, deps())
+
+      expect(gitCalls).to.have.length(2)
+      expect(gitCalls[0]!.args).to.deep.equal(['checkout', PRIMARY])
+      expect(gitCalls[1]!.args).to.deep.equal(['merge', '--no-ff', `ms/${MS}`])
+      expect(getFleet(db, PK, MS)).to.be.undefined
+    })
+
+    it('refuses when the milestone bean is not completed', () => {
+      milestoneStatus = 'in-progress'
+      expect(() => finishFleet(db, MS, {cwd: '/repo', primaryBranch: PRIMARY, projectKey: PK}, deps())).to.throw(
+        FleetError,
+        /not completed/,
+      )
+      expect(gitCalls).to.have.length(0)
+    })
+
+    it('refuses when any epic is not completed', () => {
+      epicStatuses = [
+        {id: 'epic-1', status: 'completed'},
+        {id: 'epic-2', status: 'in-progress'},
+      ]
+      expect(() => finishFleet(db, MS, {cwd: '/repo', primaryBranch: PRIMARY, projectKey: PK}, deps())).to.throw(
+        FleetError,
+        /not all epics/,
+      )
+      expect(gitCalls).to.have.length(0)
+    })
+
+    it('throws on merge conflict and keeps the fleet row', () => {
+      gitThrows = true
+      expect(() => finishFleet(db, MS, {cwd: '/repo', primaryBranch: PRIMARY, projectKey: PK}, deps())).to.throw(
+        FleetError,
+        /conflicted/,
+      )
+      expect(getFleet(db, PK, MS)).to.exist
+    })
+
+    it('refuses when no fleet row exists', () => {
+      expect(() => finishFleet(db, 'nope', {cwd: '/repo', primaryBranch: PRIMARY, projectKey: PK}, deps())).to.throw(
+        FleetError,
+        /no fleet for nope/,
+      )
     })
   })
 })
