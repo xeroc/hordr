@@ -158,3 +158,62 @@ export function setLanePane(db: Database.Database, loc: LaneLoc, paneId: string)
     'UPDATE lanes SET pane_id = ? WHERE project_key = ? AND fleet_milestone_bean_id = ? AND epic_bean_id = ?',
   ).run(paneId, loc.projectKey, loc.milestoneId, loc.epicId)
 }
+
+// --- provenance (ADR-0013) ---
+
+export interface ProvenanceRow {
+  createdByTaskBeanId: string
+  fleetMilestoneBeanId: string
+  projectKey: string
+  recordedAt: string
+  spawnedBeanId: string
+}
+
+interface ProvenanceDbRow {
+  created_by_task_bean_id: string
+  fleet_milestone_bean_id: string
+  project_key: string
+  recorded_at: string
+  spawned_bean_id: string
+}
+
+function toProvenanceRow(r: ProvenanceDbRow): ProvenanceRow {
+  return {
+    createdByTaskBeanId: r.created_by_task_bean_id,
+    fleetMilestoneBeanId: r.fleet_milestone_bean_id,
+    projectKey: r.project_key,
+    recordedAt: r.recorded_at,
+    spawnedBeanId: r.spawned_bean_id,
+  }
+}
+
+/**
+ * Record that a task invocation spawned a dynamic bean. Forensics only — not a
+ * dispatch gate. Idempotent on (project_key, spawned_bean_id): a bean keeps its
+ * first-recorded creator.
+ */
+export function recordProvenance(db: Database.Database, row: ProvenanceRow): void {
+  db.prepare(
+    'INSERT OR IGNORE INTO bean_provenance (project_key, fleet_milestone_bean_id, created_by_task_bean_id, spawned_bean_id, recorded_at) VALUES (?, ?, ?, ?, ?)',
+  ).run(row.projectKey, row.fleetMilestoneBeanId, row.createdByTaskBeanId, row.spawnedBeanId, row.recordedAt)
+}
+
+/** All provenance entries for a fleet (which beans each task spawned). */
+export function listProvenance(db: Database.Database, projectKey: string, milestoneId: string): ProvenanceRow[] {
+  const rows = db
+    .prepare('SELECT * FROM bean_provenance WHERE project_key = ? AND fleet_milestone_bean_id = ? ORDER BY recorded_at')
+    .all(projectKey, milestoneId) as ProvenanceDbRow[]
+  return rows.map((r) => toProvenanceRow(r))
+}
+
+/** The task that created a given bean, if recorded. */
+export function provenanceFor(
+  db: Database.Database,
+  projectKey: string,
+  spawnedBeanId: string,
+): ProvenanceRow | undefined {
+  const r = db
+    .prepare('SELECT * FROM bean_provenance WHERE project_key = ? AND spawned_bean_id = ?')
+    .get(projectKey, spawnedBeanId) as ProvenanceDbRow | undefined
+  return r ? toProvenanceRow(r) : undefined
+}
