@@ -4,35 +4,48 @@ import {type GitFn, mergeBranch, mergeMilestoneToPrimary} from '../../src/dispat
 
 describe('dispatch/merge', () => {
   describe('mergeBranch', () => {
-    it('returns conflict:false on a clean merge', () => {
-      // eslint-disable-next-line unicorn/consistent-function-scoping -- test-local mock
-      const git: GitFn = () => {}
-
-      const result = mergeBranch({cwd: '/repo', source: 'epic-branch', target: 'ms/hordr-ms1'}, {git})
-      expect(result.conflict).to.be.false
-    })
-
-    it('returns conflict:true when git merge fails', () => {
-      // eslint-disable-next-line unicorn/consistent-function-scoping -- test-local mock
-      const git: GitFn = () => {
-        throw new Error('CONFLICT (content): Merge conflict in src/foo.ts')
-      }
-
-      const result = mergeBranch({cwd: '/repo', source: 'epic-branch', target: 'ms/hordr-ms1'}, {git})
-      expect(result.conflict).to.be.true
-      expect(result.message).to.match(/CONFLICT/)
-    })
-
-    it('calls checkout target then merge --no-ff source', () => {
+    it('returns conflict:false on a clean merge (stash + checkout + merge + restore)', () => {
       const calls: string[][] = []
       const git: GitFn = (args) => {
         calls.push(args)
       }
 
-      mergeBranch({cwd: '/repo', source: 'ms/ms1/epic-1', target: 'ms/ms1'}, {git})
+      const result = mergeBranch({cwd: '/repo', source: 'epic-branch', target: 'ms/hordr-ms1'}, {git})
 
-      expect(calls[0]).to.deep.equal(['checkout', 'ms/ms1'])
-      expect(calls[1]).to.deep.equal(['merge', '--no-ff', 'ms/ms1/epic-1'])
+      expect(result.conflict).to.be.false
+      // stash, checkout, merge, checkout -, stash pop
+      expect(calls[0]![0]).to.equal('stash')
+      expect(calls[1]).to.deep.equal(['checkout', 'ms/hordr-ms1'])
+      expect(calls[2]).to.deep.equal(['merge', '--no-ff', 'epic-branch'])
+      expect(calls[3]![0]).to.equal('checkout')
+      expect(calls[4]![0]).to.equal('stash')
+    })
+
+    it('returns conflict:true when git merge fails', () => {
+      const calls: string[][] = []
+      const git: GitFn = (args) => {
+        calls.push(args)
+        if (args[0] === 'merge') throw new Error('CONFLICT (content): Merge conflict in src/foo.ts')
+      }
+
+      const result = mergeBranch({cwd: '/repo', source: 'epic-branch', target: 'ms/hordr-ms1'}, {git})
+
+      expect(result.conflict).to.be.true
+      expect(result.message).to.match(/CONFLICT/)
+      // Should attempt merge --abort and restore
+      expect(calls.some((c) => c[0] === 'merge' && c[1] === '--abort')).to.be.true
+    })
+
+    it('returns conflict:true when checkout fails', () => {
+      // eslint-disable-next-line unicorn/consistent-function-scoping -- test-local mock
+      const git: GitFn = (args) => {
+        if (args[0] === 'checkout' && args[1] !== '-') throw new Error('error: Your local changes would be overwritten')
+      }
+
+      const result = mergeBranch({cwd: '/repo', source: 'x', target: 'y'}, {git})
+
+      expect(result.conflict).to.be.true
+      expect(result.message).to.match(/checkout/)
     })
 
     it('uses the provided cwd for all git operations', () => {
@@ -56,8 +69,8 @@ describe('dispatch/merge', () => {
       const result = mergeMilestoneToPrimary({cwd: '/repo', milestoneId: 'hordr-nh1h', primaryBranch: 'develop'}, {git})
 
       expect(result.conflict).to.be.false
-      expect(calls[0]).to.deep.equal(['checkout', 'develop'])
-      expect(calls[1]).to.deep.equal(['merge', '--no-ff', 'ms/hordr-nh1h'])
+      expect(calls.some((c) => c[0] === 'checkout' && c[1] === 'develop')).to.be.true
+      expect(calls.some((c) => c[0] === 'merge' && c[1] === '--no-ff' && c[2] === 'ms/hordr-nh1h')).to.be.true
     })
   })
 })
