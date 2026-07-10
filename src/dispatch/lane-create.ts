@@ -32,9 +32,15 @@ export interface CreateLaneResult {
   worktreePath: string
 }
 
-/** The epic worktree branch: ms/<milestone-id>/<epic-id>. */
+/**
+ * The epic worktree branch: lanes/<milestone-id>/<epic-id>.
+ * Uses a 'lanes/' prefix to avoid git ref namespace collision —
+ * ms/<id> is a file in refs/heads/, so ms/<id>/<epic-id> can't exist
+ * (can't have a file and directory with the same name).
+ */
 export function laneBranchName(msBranch: string, epicId: string): string {
-  return `${msBranch}/${epicId}`
+  const msId = msBranch.replace(/^ms\//, '')
+  return `lanes/${msId}/${epicId}`
 }
 
 /**
