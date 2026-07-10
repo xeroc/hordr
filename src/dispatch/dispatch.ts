@@ -101,11 +101,11 @@ function flattenDescendants(node: RawBean): DispatchableBean[] {
 
 // --- I/O: query beans ---
 
-/** Fetch the milestone's descendant tree and flatten to a list. */
-function fetchDescendants(milestoneId: string, cwd?: string): DispatchableBean[] {
-  // Fixed-depth nesting (3 levels: milestone → epic → task). Deeper trees
-  // need more levels; a recursive-descent beans query would be cleaner.
-  const query = `{ bean(id: "${milestoneId}") { children { id title type assigned priority children { id title type assigned priority children { id title type assigned priority } } } } }`
+/** Fetch the subtree and flatten to a list. */
+function fetchDescendants(rootBeanId: string, cwd?: string): DispatchableBean[] {
+  // assigned is a frontmatter convention, not a GraphQL field — resolved later
+  // via getBean when dispatching. Only id/title/type/priority are needed here.
+  const query = `{ bean(id: "${rootBeanId}") { children { id title type priority children { id title type priority children { id title type priority } } } } }`
   const raw = _shell(['query', '--json', query], {cwd})
   const data = JSON.parse(raw) as {bean?: RawBean}
   return data.bean ? flattenDescendants(data.bean) : []
