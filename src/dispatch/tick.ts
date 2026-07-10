@@ -80,11 +80,13 @@ export function tick(db: Database.Database, depsFactory: TickDepsFactory): TickR
       lanesCreated++
     }
 
-    // 2. advance each active lane by one step
+    // 2. advance each active lane by one step.
+    // Per-lane deps: beans queries must read from the lane's worktree (where
+    // the agent marks beans completed), not the fleet's main-repo directory.
     const lanes = listLanes(db, fleet.projectKey, fleet.milestoneBeanId)
     for (const lane of lanes) {
       if (lane.status !== 'active') continue
-      advanced += advanceActiveLane(db, fleet, lane, deps)
+      advanced += advanceActiveLane(db, fleet, lane, depsFactory(lane.worktreePath))
     }
   }
 
