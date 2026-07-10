@@ -60,10 +60,20 @@ export function advanceLane(opts: AdvanceLaneOpts, deps: AdvanceLaneDeps): Advan
     projectKey: opts.fleet.projectKey,
   }
 
-  // --- idle: dispatch the next task ---
+  // --- idle: dispatch the next task, or merge if epic is done ---
   if (!opts.lane.currentTaskBeanId) {
     const dispatchable = deps.fetchDispatchable(opts.lane.epicBeanId)
-    if (dispatchable.length === 0) return {action: 'idle'}
+    if (dispatchable.length === 0) {
+      // No more tasks to dispatch. If the epic is completed, merge it into
+      // the milestone branch. This handles the case where the last task
+      // completed on a previous tick (or a daemon restart) and the lane
+      // went idle before the merge could run.
+      if (deps.epicStatus(opts.lane.epicBeanId) === 'completed') {
+        return mergeEpicLane(opts, deps, loc)
+      }
+
+      return {action: 'idle'}
+    }
 
     const outcome = dispatchNext(
       {epicId: opts.lane.epicBeanId, paneId: opts.lane.paneId ?? '', worktreePath: opts.lane.worktreePath},
@@ -104,23 +114,32 @@ export function advanceLane(opts: AdvanceLaneOpts, deps: AdvanceLaneDeps): Advan
 
   // did the epic complete? → merge lane into ms/<id>, tear down, go done
   if (deps.epicStatus(opts.lane.epicBeanId) === 'completed') {
-    const result = deps.mergeBranch({
-      cwd: opts.fleet.cwd,
-      source: opts.lane.branch,
-      target: opts.fleet.msBranch,
-    })
-    if (result.conflict) {
-      deps.updateLaneStatus(loc, 'conflict')
-      return {action: 'blocked', taskId}
-    }
-
-    deps.removeWorktree(opts.lane.branch)
-    deps.setLaneCurrentTask(loc, null)
-    deps.updateLaneStatus(loc, 'done')
-    return {action: 'epic-completed', taskId}
+    return mergeEpicLane(opts, deps, loc, taskId)
   }
 
   // task done but epic still has work → free the lane for the next dispatch
   deps.setLaneCurrentTask(loc, null)
   return {action: 'wait', taskId}
+}
+
+/**
+ * Merge an epic's lane into the milestone integration branch, tear down the
+ * worktree, and mark the lane done. Shared by the idle-merge and active-merge
+ * paths. On conflict: lane flips to 'conflict', worktree kept for human.
+ */
+function mergeEpicLane(opts: AdvanceLaneOpts, deps: AdvanceLaneDeps, loc: LaneLoc, taskId?: string): AdvanceLaneResult {
+  const result = deps.mergeBranch({
+    cwd: opts.fleet.cwd,
+    source: opts.lane.branch,
+    target: opts.fleet.msBranch,
+  })
+  if (result.conflict) {
+    deps.updateLaneStatus(loc, 'conflict')
+    return {action: 'blocked', taskId}
+  }
+
+  deps.removeWorktree(opts.lane.branch)
+  deps.setLaneCurrentTask(loc, null)
+  deps.updateLaneStatus(loc, 'done')
+  return {action: 'epic-completed', taskId}
 }
