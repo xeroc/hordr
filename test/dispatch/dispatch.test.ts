@@ -73,22 +73,26 @@ describe('dispatch/dispatch', () => {
       expect(pickDispatchable(all, all).map((b) => b.id)).to.deep.equal(['b', 'd', 'e', 'a', 'c'])
     })
 
-    it('excludes epic/milestone beans — task, bug, and feature are executable', () => {
+    it('excludes epic/milestone + features-with-children; dispatches leaf features, tasks, bugs', () => {
       const descendants = [
         bean('task-1', 'normal', undefined, 'task'),
-        bean('feat-1', 'normal', undefined, 'feature'),
+        bean('feat-leaf', 'normal', undefined, 'feature'),
+        bean('feat-container', 'normal', undefined, 'feature'),
         bean('epic-1', 'normal', undefined, 'epic'),
         bean('bug-1', 'normal', undefined, 'bug'),
       ]
       const ready = [
         bean('task-1', 'normal', undefined, 'task'),
-        bean('feat-1', 'normal', undefined, 'feature'),
+        bean('feat-leaf', 'normal', undefined, 'feature'),
+        bean('feat-container', 'normal', undefined, 'feature'),
         bean('epic-1', 'normal', undefined, 'epic'),
         bean('bug-1', 'normal', undefined, 'bug'),
       ]
+      // feat-container has children → it's a container, not dispatchable
+      const containerIds = new Set(['feat-container'])
 
-      const result = pickDispatchable(descendants, ready)
-      expect(result.map((b) => b.id)).to.deep.equal(['bug-1', 'feat-1', 'task-1'])
+      const result = pickDispatchable(descendants, ready, containerIds)
+      expect(result.map((b) => b.id)).to.deep.equal(['bug-1', 'feat-leaf', 'task-1'])
     })
   })
 

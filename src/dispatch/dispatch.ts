@@ -63,10 +63,25 @@ function byPriorityThenId(a: DispatchableBean, b: DispatchableBean): number {
 
 // --- pure logic ---
 
-/** Intersection of descendants ∩ ready ∩ executable types, sorted by priority then id. */
-export function pickDispatchable(descendants: DispatchableBean[], ready: DispatchableBean[]): DispatchableBean[] {
+/**
+ * Intersection of descendants ∩ ready ∩ executable, sorted by priority then id.
+ *  Features with children are containers — excluded from dispatch.
+ */
+export function pickDispatchable(
+  descendants: DispatchableBean[],
+  ready: DispatchableBean[],
+  containerIds?: Set<string>,
+): DispatchableBean[] {
   const descendantIds = new Set(descendants.map((d) => d.id))
-  return ready.filter((r) => descendantIds.has(r.id) && EXECUTABLE_TYPES.has(r.type)).sort(byPriorityThenId)
+  return ready
+    .filter((r) => {
+      if (!descendantIds.has(r.id)) return false
+      if (!EXECUTABLE_TYPES.has(r.type)) return false
+      // Features with children are containers, not work items
+      if (r.type === 'feature' && containerIds?.has(r.id)) return false
+      return true
+    })
+    .sort(byPriorityThenId)
 }
 
 // --- tree flattening ---
@@ -80,10 +95,12 @@ interface RawBean {
   type?: string
 }
 
-/** Recursively flatten a bean tree into a list of all descendant ids. */
-function flattenDescendants(node: RawBean): DispatchableBean[] {
+/** Recursively flatten a bean tree. Collects IDs of beans that have children (containers). */
+function flattenDescendants(node: RawBean, containerIds: Set<string>): DispatchableBean[] {
   const result: DispatchableBean[] = []
   for (const child of node.children ?? []) {
+    const hasChildren = (child.children?.length ?? 0) > 0
+    if (hasChildren) containerIds.add(child.id)
     result.push(
       {
         assigned: child.assigned,
@@ -92,7 +109,7 @@ function flattenDescendants(node: RawBean): DispatchableBean[] {
         title: child.title ?? '',
         type: child.type ?? 'task',
       },
-      ...flattenDescendants(child),
+      ...flattenDescendants(child, containerIds),
     )
   }
 
@@ -101,14 +118,18 @@ function flattenDescendants(node: RawBean): DispatchableBean[] {
 
 // --- I/O: query beans ---
 
-/** Fetch the subtree and flatten to a list. */
-function fetchDescendants(rootBeanId: string, cwd?: string): DispatchableBean[] {
-  // assigned is a frontmatter convention, not a GraphQL field — resolved later
-  // via getBean when dispatching. Only id/title/type/priority are needed here.
+/** Fetch the subtree and flatten to a list. Returns descendants + container IDs. */
+function fetchDescendants(
+  rootBeanId: string,
+  cwd?: string,
+): {containerIds: Set<string>; descendants: DispatchableBean[]} {
   const query = `{ bean(id: "${rootBeanId}") { children { id title type priority children { id title type priority children { id title type priority } } } } }`
   const raw = _shell(['query', '--json', query], {cwd})
   const data = JSON.parse(raw) as {bean?: RawBean}
-  return data.bean ? flattenDescendants(data.bean) : []
+  if (!data.bean) return {containerIds: new Set(), descendants: []}
+  const containerIds = new Set<string>()
+  const descendants = flattenDescendants(data.bean, containerIds)
+  return {containerIds, descendants}
 }
 
 interface DraftBean {
@@ -199,9 +220,9 @@ function fetchReady(cwd?: string): DispatchableBean[] {
 
 // --- public API ---
 
-/** Get the sorted list of dispatchable task beans under a subtree root (epic or milestone). */
+/** Get the sorted list of dispatchable beans under a subtree root (epic or milestone). */
 export function getDispatchable(rootBeanId: string, opts?: {cwd?: string}): DispatchableBean[] {
-  const descendants = fetchDescendants(rootBeanId, opts?.cwd)
+  const {containerIds, descendants} = fetchDescendants(rootBeanId, opts?.cwd)
   const ready = fetchReady(opts?.cwd)
-  return pickDispatchable(descendants, ready)
+  return pickDispatchable(descendants, ready, containerIds)
 }
