@@ -12,11 +12,15 @@ export function milestoneBranchName(milestoneId: string): string {
   return `ms/${milestoneId}`
 }
 
-/** Create the milestone integration branch from the primary branch. */
+/** Create the milestone integration branch from the primary branch. Idempotent. */
 export function createMilestoneBranch(
   opts: {cwd: string; milestoneId: string; primaryBranch: string},
   deps: {git: GitFn},
 ): void {
   const branch = milestoneBranchName(opts.milestoneId)
-  deps.git(['branch', branch, opts.primaryBranch], {cwd: opts.cwd})
+  try {
+    deps.git(['branch', branch, opts.primaryBranch], {cwd: opts.cwd})
+  } catch {
+    // Branch already exists — reuse it (preserves previous epic merges).
+  }
 }
