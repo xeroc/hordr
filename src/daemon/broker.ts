@@ -18,7 +18,7 @@ import {mergeBranch} from '../dispatch/merge.js'
 import {spawnInvocation} from '../dispatch/spawn.js'
 import {tick, type TickDeps, type TickDepsFactory} from '../dispatch/tick.js'
 import {createTab, paneExists} from '../herdr/pane.js'
-import {createWorktree, removeWorktreeByBranch} from '../herdr/worktree.js'
+import {createWorktree, HerdrError, openWorktree, removeWorktreeByBranch} from '../herdr/worktree.js'
 import {getGitRunner} from '../runtime.js'
 import {addRoute, type DaemonRequest, type DaemonResponse} from './server.js'
 
@@ -35,8 +35,25 @@ export function createTickDepsFactory(config: HordrConfig): TickDepsFactory {
     config,
     createPane: (opts) => createTab({cwd: opts.cwd, label: opts.label, workspaceId: opts.workspaceId}).pane_id,
     createWorktree(opts) {
-      const wt = createWorktree({base: opts.base, branch: opts.branch, cwd: opts.cwd})
-      return {path: wt.path, workspaceId: wt.workspace_id}
+      try {
+        const wt = createWorktree({base: opts.base, branch: opts.branch, cwd: opts.cwd})
+        return {path: wt.path, workspaceId: wt.workspace_id}
+      } catch (error) {
+        // Branch already exists — try opening the existing worktree
+        if (error instanceof HerdrError && /already exists/i.test(error.message)) {
+          try {
+            const wt = openWorktree({branch: opts.branch, cwd: opts.cwd})
+            return {path: wt.path, workspaceId: wt.workspace_id}
+          } catch {
+            // Worktree gone but branch remains — delete orphan and retry
+            getGitRunner()(['branch', '-D', opts.branch], {cwd: opts.cwd})
+            const wt = createWorktree({base: opts.base, branch: opts.branch, cwd: opts.cwd})
+            return {path: wt.path, workspaceId: wt.workspace_id}
+          }
+        }
+
+        throw error
+      }
     },
     epicStatus: (id) => getBean(id, {cwd}).status as string,
     fetchAncestry: (id) => fetchAncestry(id, {cwd}),
