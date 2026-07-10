@@ -16,7 +16,7 @@ import {fetchAncestry, fetchEpics, getDispatchable} from '../dispatch/dispatch.j
 import {handleDone} from '../dispatch/done.js'
 import {mergeBranch} from '../dispatch/merge.js'
 import {spawnInvocation} from '../dispatch/spawn.js'
-import {tick, type TickDeps} from '../dispatch/tick.js'
+import {tick, type TickDeps, type TickDepsFactory} from '../dispatch/tick.js'
 import {createTab, paneExists} from '../herdr/pane.js'
 import {createWorktree, removeWorktreeByBranch} from '../herdr/worktree.js'
 import {getGitRunner} from '../runtime.js'
@@ -28,9 +28,9 @@ export function tickIntervalMs(): number {
   return Number.isFinite(raw) && raw > 0 ? raw : 5000
 }
 
-/** Build the real TickDeps from the config. Composes tested modules. */
-export function createTickDeps(config: HordrConfig, cwd: string): TickDeps {
-  return {
+/** Build a per-fleet TickDeps factory from the config. Each call returns deps scoped to the given cwd. */
+export function createTickDepsFactory(config: HordrConfig): TickDepsFactory {
+  return (cwd: string): TickDeps => ({
     beanStatus: (id) => getBean(id, {cwd}).status as string | undefined,
     config,
     createPane: (opts) => createTab({cwd: opts.cwd, label: opts.label, workspaceId: opts.workspaceId}).pane_id,
@@ -45,7 +45,6 @@ export function createTickDeps(config: HordrConfig, cwd: string): TickDeps {
     fetchEpics: (milestoneId) => fetchEpics(milestoneId, {cwd}),
     hasReadyWork: (epicId) => getDispatchable(epicId, {cwd}).length > 0,
     markCompleted(id) {
-      // ADR-0011: rollup propagates status upward via `beans update -s completed`.
       markBeanCompleted(id, {cwd})
     },
     mergeBranch: (opts) =>
@@ -53,7 +52,7 @@ export function createTickDeps(config: HordrConfig, cwd: string): TickDeps {
     paneAlive: (paneId) => paneExists(paneId),
     removeWorktree: (branch) => removeWorktreeByBranch(branch, cwd),
     spawn: (opts) => spawnInvocation(opts),
-  }
+  })
 }
 
 export interface BrokerHandle {
@@ -67,19 +66,19 @@ export interface BrokerHandle {
  */
 export function startBroker(opts: {
   db: Database.Database
-  deps: TickDeps
+  depsFactory: TickDepsFactory
   intervalMs?: number
-  tickFn?: (db: Database.Database, deps: TickDeps) => void
+  tickFn?: (db: Database.Database, depsFactory: TickDepsFactory) => void
 }): BrokerHandle {
   const run =
     opts.tickFn ??
-    ((db, deps) => {
-      tick(db, deps)
+    ((db, factory) => {
+      tick(db, factory)
     })
   const intervalMs = opts.intervalMs ?? tickIntervalMs()
   const timer = setInterval(() => {
     try {
-      run(opts.db, opts.deps)
+      run(opts.db, opts.depsFactory)
     } catch (error) {
       // ponytail: a tick must not kill the daemon — log and carry on.
 
@@ -100,9 +99,9 @@ export function doneRouteHandler(verifyCompleted: (taskId: string) => boolean) {
  */
 export function wireDaemon(opts: {
   db: Database.Database
-  deps: TickDeps
+  depsFactory: TickDepsFactory
   intervalMs?: number
-  tickFn?: (db: Database.Database, deps: TickDeps) => void
+  tickFn?: (db: Database.Database, depsFactory: TickDepsFactory) => void
   verifyCompleted: (taskId: string) => boolean
 }): BrokerHandle {
   addRoute('POST', '/done', doneRouteHandler(opts.verifyCompleted))

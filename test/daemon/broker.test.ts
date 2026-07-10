@@ -4,7 +4,7 @@ import {expect} from 'chai'
 import type {HordrConfig} from '../../src/config/schema.js'
 
 import {_resetShell as _resetBeansShell, _setShellForTesting as _setBeansShell} from '../../src/beans/client.js'
-import {createTickDeps, doneRouteHandler, startBroker, tickIntervalMs} from '../../src/daemon/broker.js'
+import {createTickDepsFactory, doneRouteHandler, startBroker, tickIntervalMs} from '../../src/daemon/broker.js'
 import {applySchema, openDb} from '../../src/storage/db.js'
 
 describe('daemon/broker', () => {
@@ -39,7 +39,7 @@ describe('daemon/broker', () => {
       let calls = 0
       const broker = startBroker({
         db,
-        deps: {} as never,
+        depsFactory: (() => ({})) as never,
         intervalMs: 10,
         tickFn() {
           calls++
@@ -70,7 +70,7 @@ describe('daemon/broker', () => {
       let throwNext = true
       const broker = startBroker({
         db,
-        deps: {} as never,
+        depsFactory: (() => ({})) as never,
         intervalMs: 5,
         tickFn() {
           if (throwNext) {
@@ -116,7 +116,7 @@ describe('daemon/broker', () => {
     })
   })
 
-  describe('createTickDeps.markCompleted', () => {
+  describe('createTickDepsFactory.markCompleted', () => {
     let beansCalls: string[][]
 
     beforeEach(() => {
@@ -137,7 +137,7 @@ describe('daemon/broker', () => {
         primary_branch: 'develop',
         worktree_branch_prefix: 'bean/',
       }
-      const deps = createTickDeps(config, '/repo')
+      const deps = createTickDepsFactory(config)('/repo')
       deps.markCompleted('hordr-1001')
       const updateCall = beansCalls.find((a) => a[0] === 'update')
       expect(updateCall).to.deep.equal(['update', 'hordr-1001', '-s', 'completed'])

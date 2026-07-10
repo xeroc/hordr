@@ -2,7 +2,7 @@ import {Command, Flags} from '@oclif/core'
 
 import {getBean} from '../beans/client.js'
 import {loadConfig} from '../config/loader.js'
-import {type BrokerHandle, createTickDeps, wireDaemon} from '../daemon/broker.js'
+import {type BrokerHandle, createTickDepsFactory, wireDaemon} from '../daemon/broker.js'
 import {installSignalHandlers, startServer} from '../daemon/server.js'
 import {socketPath} from '../daemon/socket.js'
 import {openFleetDb} from '../storage/db.js'
@@ -26,13 +26,13 @@ export default class Daemon extends Command {
     const config = loadConfig()
     const cwd = process.cwd()
     const db = openFleetDb()
-    const deps = createTickDeps(config, cwd)
+    const depsFactory = createTickDepsFactory(config)
 
     const server = await startServer({path: sock})
     installSignalHandlers(server)
     const broker: BrokerHandle = wireDaemon({
       db,
-      deps,
+      depsFactory,
       verifyCompleted: (taskId) => getBean(taskId, {cwd}).status === 'completed',
     })
     installBrokerShutdown(broker)

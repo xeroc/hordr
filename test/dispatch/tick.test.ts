@@ -37,7 +37,7 @@ describe('dispatch/tick', () => {
     const db = freshDb()
     const spawnCalls: string[] = []
 
-    tick(db, {
+    tick(db, () => ({
       beanStatus: () => 'todo',
       config,
       createPane: () => 'w1:p1',
@@ -55,7 +55,7 @@ describe('dispatch/tick', () => {
       spawn(opts) {
         spawnCalls.push(opts.prompt)
       },
-    })
+    }))
 
     // lane created
     const lanes = listLanes(db, PK, MS)
@@ -72,7 +72,8 @@ describe('dispatch/tick', () => {
   it('does not re-create a lane that already exists (scan skips it)', () => {
     const db = freshDb()
     let wtCalls = 0
-    const deps = {
+
+    const factory = () => ({
       beanStatus: () => 'todo',
       config,
       createPane: () => 'p',
@@ -91,10 +92,10 @@ describe('dispatch/tick', () => {
       paneAlive: () => true,
       removeWorktree() {},
       spawn() {},
-    }
+    })
 
-    tick(db, deps as never)
-    tick(db, deps as never) // second tick: epic-a already has a lane
+    tick(db, factory as never)
+    tick(db, factory as never) // second tick: epic-a already has a lane
 
     expect(wtCalls).to.equal(1) // worktree created only once
     expect(listLanes(db, PK, MS)).to.have.length(1)
@@ -118,7 +119,7 @@ describe('dispatch/tick', () => {
     updateLaneStatus(db, {epicId: 'epic-a', milestoneId: MS, projectKey: PK}, 'conflict')
 
     let spawnCalls = 0
-    tick(db, {
+    tick(db, () => ({
       beanStatus: () => 'todo',
       config,
       createPane: () => 'p',
@@ -136,7 +137,7 @@ describe('dispatch/tick', () => {
       spawn() {
         spawnCalls++
       },
-    })
+    }))
 
     // conflict lane not advanced
     expect(spawnCalls).to.equal(0)
@@ -149,7 +150,7 @@ describe('dispatch/tick', () => {
     db.prepare('UPDATE fleets SET status = ? WHERE milestone_bean_id = ?').run('finishable', MS)
 
     let wtCalls = 0
-    tick(db, {
+    tick(db, () => ({
       beanStatus: () => 'todo',
       config,
       createPane: () => 'p',
@@ -168,9 +169,39 @@ describe('dispatch/tick', () => {
       paneAlive: () => true,
       removeWorktree() {},
       spawn() {},
-    })
+    }))
 
     expect(wtCalls).to.equal(0)
+    db.close()
+  })
+
+  it('uses per-fleet cwd (factory called with fleet worktreePath)', () => {
+    const db = freshDb()
+    const seenCwds: string[] = []
+
+    tick(db, (cwd) => {
+      seenCwds.push(cwd)
+      return {
+        beanStatus: () => 'todo',
+        config,
+        createPane: () => 'p',
+        createWorktree: () => ({path: '/wt', workspaceId: 'w'}),
+        epicStatus: () => 'todo',
+        fetchAncestry: () => [],
+        fetchBean: (id: string) => ({assigned: 'implementer', body: 'b', id, type: 'task'}) as never,
+        fetchDispatchable: () => [],
+        fetchEpics: () => [],
+        hasReadyWork: () => false,
+        markCompleted() {},
+        mergeBranch: () => ({conflict: false}),
+        paneAlive: () => true,
+        removeWorktree() {},
+        spawn() {},
+      }
+    })
+
+    // factory called with the fleet's worktreePath ('/repo' from freshDb)
+    expect(seenCwds).to.include('/repo')
     db.close()
   })
 })

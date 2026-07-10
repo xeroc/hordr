@@ -44,17 +44,22 @@ export interface TickDeps {
   spawn: (opts: {harness: string; paneId: string; prompt: string}) => void
 }
 
+export type TickDepsFactory = (cwd: string) => TickDeps
+
 export interface TickResult {
   advanced: number
   lanesCreated: number
 }
 
 /** One broker pass. Safe to call repeatedly on an interval. */
-export function tick(db: Database.Database, deps: TickDeps): TickResult {
+export function tick(db: Database.Database, depsFactory: TickDepsFactory): TickResult {
   let lanesCreated = 0
   let advanced = 0
 
   for (const fleet of listFleets(db, {status: 'active'})) {
+    // Per-fleet deps: beans queries scoped to the fleet's project directory.
+    const deps = depsFactory(fleet.worktreePath)
+
     // 1. scan: create lanes for newly-unblocked epics
     const existingLaneEpicIds = new Set(listLanes(db, fleet.projectKey, fleet.milestoneBeanId).map((l) => l.epicBeanId))
     const newLanes = scanForNewLanes(fleet.milestoneBeanId, {
