@@ -28,26 +28,27 @@ export function tickIntervalMs(): number {
   return Number.isFinite(raw) && raw > 0 ? raw : 5000
 }
 
-/** Build a per-fleet TickDeps factory from the config. Each call returns deps scoped to the given cwd. */
-export function createTickDepsFactory(config: HordrConfig): TickDepsFactory {
-  return (cwd: string): TickDeps => ({
-    beanStatus: (id) => getBean(id, {cwd}).status as string | undefined,
+/** Build a per-fleet TickDeps factory from the config. Each call returns deps
+ * scoped to the given beansCwd (for beans queries). Herdr operations always
+ * use the mainRepoCwd (the repo parent workspace), because herdr refuses to
+ * create/open worktrees from inside a linked worktree. */
+export function createTickDepsFactory(config: HordrConfig, mainRepoCwd: string): TickDepsFactory {
+  return (beansCwd: string): TickDeps => ({
+    beanStatus: (id) => getBean(id, {cwd: beansCwd}).status as string | undefined,
     config,
     createPane: (opts) => createTab({cwd: opts.cwd, label: opts.label, workspaceId: opts.workspaceId}).pane_id,
     createWorktree(opts) {
       try {
-        const wt = createWorktree({base: opts.base, branch: opts.branch, cwd: opts.cwd})
+        const wt = createWorktree({base: opts.base, branch: opts.branch, cwd: mainRepoCwd})
         return {path: wt.path, workspaceId: wt.workspace_id}
       } catch (error) {
-        // Branch already exists — try opening the existing worktree
         if (error instanceof HerdrError && /already exists/i.test(error.message)) {
           try {
-            const wt = openWorktree({branch: opts.branch, cwd: opts.cwd})
+            const wt = openWorktree({branch: opts.branch, cwd: mainRepoCwd})
             return {path: wt.path, workspaceId: wt.workspace_id}
           } catch {
-            // Worktree gone but branch remains — delete orphan and retry
-            getGitRunner()(['branch', '-D', opts.branch], {cwd: opts.cwd})
-            const wt = createWorktree({base: opts.base, branch: opts.branch, cwd: opts.cwd})
+            getGitRunner()(['branch', '-D', opts.branch], {cwd: mainRepoCwd})
+            const wt = createWorktree({base: opts.base, branch: opts.branch, cwd: mainRepoCwd})
             return {path: wt.path, workspaceId: wt.workspace_id}
           }
         }
@@ -55,19 +56,19 @@ export function createTickDepsFactory(config: HordrConfig): TickDepsFactory {
         throw error
       }
     },
-    epicStatus: (id) => getBean(id, {cwd}).status as string,
-    fetchAncestry: (id) => fetchAncestry(id, {cwd}),
-    fetchBean: (id) => getBean(id, {cwd}),
-    fetchDispatchable: (epicId) => getDispatchable(epicId, {cwd}),
-    fetchEpics: (milestoneId) => fetchEpics(milestoneId, {cwd}),
-    hasReadyWork: (epicId) => getDispatchable(epicId, {cwd}).length > 0,
+    epicStatus: (id) => getBean(id, {cwd: beansCwd}).status as string,
+    fetchAncestry: (id) => fetchAncestry(id, {cwd: beansCwd}),
+    fetchBean: (id) => getBean(id, {cwd: beansCwd}),
+    fetchDispatchable: (epicId) => getDispatchable(epicId, {cwd: beansCwd}),
+    fetchEpics: (milestoneId) => fetchEpics(milestoneId, {cwd: beansCwd}),
+    hasReadyWork: (epicId) => getDispatchable(epicId, {cwd: beansCwd}).length > 0,
     markCompleted(id) {
-      markBeanCompleted(id, {cwd})
+      markBeanCompleted(id, {cwd: beansCwd})
     },
     mergeBranch: (opts) =>
       mergeBranch({cwd: opts.cwd, source: opts.source, target: opts.target}, {git: getGitRunner()}),
     paneAlive: (paneId) => paneExists(paneId),
-    removeWorktree: (branch) => removeWorktreeByBranch(branch, cwd),
+    removeWorktree: (branch) => removeWorktreeByBranch(branch, mainRepoCwd),
     spawn: (opts) => spawnInvocation(opts),
   })
 }
