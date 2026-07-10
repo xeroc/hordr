@@ -5,6 +5,7 @@
  * simple. Mirrors the seam pattern in `src/beans/client.ts`.
  */
 import {execFileSync} from 'node:child_process'
+import path from 'node:path'
 
 const HERDR_BIN = process.env.HERDR_BIN_PATH ?? 'herdr'
 
@@ -191,9 +192,23 @@ export function removeWorktree(opts: WorktreeRemoveOpts): void {
  * fleet abort --force and the broker's epic-merge teardown.
  */
 export function removeWorktreeByBranch(branch: string, cwd: string): void {
+  // herdr worktree open/remove must run from the repo parent workspace, not
+  // from inside a linked worktree. Resolve the main repo from any cwd.
+  let mainRepo = cwd
+  try {
+    const gitCommonDir = execFileSync('git', ['rev-parse', '--git-common-dir'], {
+      cwd,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim()
+    mainRepo = path.dirname(gitCommonDir)
+  } catch {
+    // If git fails, fall back to the given cwd
+  }
+
   let workspaceId: string | undefined
   try {
-    const result = openWorktree({branch, cwd})
+    const result = openWorktree({branch, cwd: mainRepo})
     workspaceId = result.workspace_id
   } catch (error) {
     if (!(error instanceof HerdrError) || !/worktree_not_found/.test(error.message)) throw error
