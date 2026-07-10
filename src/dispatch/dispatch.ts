@@ -38,7 +38,7 @@ export interface DispatchableBean {
 }
 
 /** Only task and bug beans are executable — features, epics, milestones are containers. */
-const EXECUTABLE_TYPES = new Set(['bug', 'task'])
+const EXECUTABLE_TYPES = new Set(['bug', 'feature', 'task'])
 
 // --- priority ordering ---
 

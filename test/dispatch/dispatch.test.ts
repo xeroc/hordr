@@ -73,7 +73,7 @@ describe('dispatch/dispatch', () => {
       expect(pickDispatchable(all, all).map((b) => b.id)).to.deep.equal(['b', 'd', 'e', 'a', 'c'])
     })
 
-    it('excludes feature/epic/milestone beans — only task and bug are executable', () => {
+    it('excludes epic/milestone beans — task, bug, and feature are executable', () => {
       const descendants = [
         bean('task-1', 'normal', undefined, 'task'),
         bean('feat-1', 'normal', undefined, 'feature'),
@@ -88,7 +88,7 @@ describe('dispatch/dispatch', () => {
       ]
 
       const result = pickDispatchable(descendants, ready)
-      expect(result.map((b) => b.id)).to.deep.equal(['bug-1', 'task-1'])
+      expect(result.map((b) => b.id)).to.deep.equal(['bug-1', 'feat-1', 'task-1'])
     })
   })
 
