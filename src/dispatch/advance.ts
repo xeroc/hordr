@@ -93,12 +93,14 @@ export function advanceLane(opts: AdvanceLaneOpts, deps: AdvanceLaneDeps): Advan
   }
 
   // proceed: bean completed → roll up the ancestry.
-  // Two passes: the first may complete a feature whose epic subtree is now
-  // fully done, but the epic's flag was computed before the feature write.
-  // The second pass re-queries and sees the feature completed.
+  // Loop until stable: each pass may complete an ancestor whose parent's
+  // subtree then becomes fully done. Re-queries see the fresh status.
+  // Terminates when a pass marks nothing (all ancestors done or blocked).
   const taskId = opts.lane.currentTaskBeanId
-  rollup(taskId, {fetchAncestry: deps.fetchAncestry, markCompleted: deps.markCompleted})
-  rollup(taskId, {fetchAncestry: deps.fetchAncestry, markCompleted: deps.markCompleted})
+  for (;;) {
+    const marked = rollup(taskId, {fetchAncestry: deps.fetchAncestry, markCompleted: deps.markCompleted})
+    if (marked.length === 0) break
+  }
 
   // did the epic complete? → merge lane into ms/<id>, tear down, go done
   if (deps.epicStatus(opts.lane.epicBeanId) === 'completed') {
