@@ -65,10 +65,13 @@ export function advanceLane(opts: AdvanceLaneOpts, deps: AdvanceLaneDeps): Advan
     const dispatchable = deps.fetchDispatchable(opts.lane.epicBeanId)
     if (dispatchable.length === 0) {
       // No more tasks to dispatch. If the epic is completed, merge it into
-      // the milestone branch. This handles the case where the last task
-      // completed on a previous tick (or a daemon restart) and the lane
-      // went idle before the merge could run.
-      if (deps.epicStatus(opts.lane.epicBeanId) === 'completed') {
+      // the milestone branch.
+      const epicStat = deps.epicStatus(opts.lane.epicBeanId)
+      console.error(`[advance] lane ${opts.lane.epicBeanId}: idle, no dispatchable, epic status=${epicStat}`)
+      if (epicStat === 'completed') {
+        console.error(
+          `[advance] lane ${opts.lane.epicBeanId}: epic completed → merge ${opts.lane.branch} into ${opts.fleet.msBranch}`,
+        )
         return mergeEpicLane(opts, deps, loc)
       }
 
@@ -87,6 +90,7 @@ export function advanceLane(opts: AdvanceLaneOpts, deps: AdvanceLaneDeps): Advan
     if (!outcome.dispatched) return {action: 'idle'}
 
     deps.setLaneCurrentTask(loc, outcome.beanId)
+    console.error(`[advance] lane ${opts.lane.epicBeanId}: dispatched task ${outcome.beanId} (role=${outcome.role})`)
     return {action: 'dispatched', taskId: outcome.beanId}
   }
 
@@ -98,22 +102,26 @@ export function advanceLane(opts: AdvanceLaneOpts, deps: AdvanceLaneDeps): Advan
 
   if (heal.action === 'wait') return {action: 'wait'}
   if (heal.action === 'blocked') {
+    console.error(
+      `[advance] lane ${opts.lane.epicBeanId}: task ${opts.lane.currentTaskBeanId} blocked (${heal.reason})`,
+    )
     deps.updateLaneStatus(loc, 'conflict')
     return {action: 'blocked', taskId: opts.lane.currentTaskBeanId}
   }
 
   // proceed: bean completed → roll up the ancestry.
-  // Loop until stable: each pass may complete an ancestor whose parent's
-  // subtree then becomes fully done. Re-queries see the fresh status.
-  // Terminates when a pass marks nothing (all ancestors done or blocked).
+  console.error(`[advance] lane ${opts.lane.epicBeanId}: task ${opts.lane.currentTaskBeanId} completed → rolling up`)
   const taskId = opts.lane.currentTaskBeanId
   for (;;) {
     const marked = rollup(taskId, {fetchAncestry: deps.fetchAncestry, markCompleted: deps.markCompleted})
     if (marked.length === 0) break
+    console.error(`[advance] lane ${opts.lane.epicBeanId}: rollup marked ${marked.join(', ')}`)
   }
 
   // did the epic complete? → merge lane into ms/<id>, tear down, go done
-  if (deps.epicStatus(opts.lane.epicBeanId) === 'completed') {
+  const epicStat = deps.epicStatus(opts.lane.epicBeanId)
+  console.error(`[advance] lane ${opts.lane.epicBeanId}: post-rollup epic status=${epicStat}`)
+  if (epicStat === 'completed') {
     return mergeEpicLane(opts, deps, loc, taskId)
   }
 
@@ -128,16 +136,21 @@ export function advanceLane(opts: AdvanceLaneOpts, deps: AdvanceLaneDeps): Advan
  * paths. On conflict: lane flips to 'conflict', worktree kept for human.
  */
 function mergeEpicLane(opts: AdvanceLaneOpts, deps: AdvanceLaneDeps, loc: LaneLoc, taskId?: string): AdvanceLaneResult {
+  console.error(
+    `[advance] lane ${opts.lane.epicBeanId}: merging ${opts.lane.branch} → ${opts.fleet.msBranch} (cwd=${opts.fleet.cwd})`,
+  )
   const result = deps.mergeBranch({
     cwd: opts.fleet.cwd,
     source: opts.lane.branch,
     target: opts.fleet.msBranch,
   })
   if (result.conflict) {
+    console.error(`[advance] lane ${opts.lane.epicBeanId}: MERGE CONFLICT — needs human resolution`)
     deps.updateLaneStatus(loc, 'conflict')
     return {action: 'blocked', taskId}
   }
 
+  console.error(`[advance] lane ${opts.lane.epicBeanId}: merged OK, removing worktree, lane → done`)
   deps.removeWorktree(opts.lane.branch)
   deps.setLaneCurrentTask(loc, null)
   deps.updateLaneStatus(loc, 'done')

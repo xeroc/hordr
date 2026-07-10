@@ -69,6 +69,7 @@ export function tick(db: Database.Database, depsFactory: TickDepsFactory): TickR
     })
 
     for (const epic of newLanes) {
+      console.error(`[tick] creating lane for epic ${epic.id} (${epic.title}) in fleet ${fleet.milestoneBeanId}`)
       createLaneForEpic(
         {
           cwd: fleet.worktreePath,
@@ -85,7 +86,17 @@ export function tick(db: Database.Database, depsFactory: TickDepsFactory): TickR
     // the agent marks beans completed), not the fleet's main-repo directory.
     const lanes = listLanes(db, fleet.projectKey, fleet.milestoneBeanId)
     for (const lane of lanes) {
-      if (lane.status !== 'active') continue
+      if (lane.status !== 'active') {
+        console.error(`[tick] lane ${lane.epicBeanId}: status=${lane.status} (skip)`)
+        continue
+      }
+
+      console.error(
+        `[tick] lane ${lane.epicBeanId}: status=active` +
+          ` currentTask=${lane.currentTaskBeanId ?? '(none)'}` +
+          ` wt=${lane.worktreePath}` +
+          ` branch=${lane.branch}`,
+      )
       advanced += advanceActiveLane(db, fleet, lane, depsFactory(lane.worktreePath))
     }
   }
