@@ -30,7 +30,7 @@ function lane(overrides: Partial<LaneRow> = {}): LaneRow {
 }
 
 interface DepsState {
-  ancestry: Array<{descendantsAllCompleted: boolean; id: string}>
+  ancestry: Array<{descendantsAllCompleted: boolean; id: string; status: string}>
   bean: Record<string, {assigned?: string; body: string; id: string; type: string}>
   currentTask: null | string
   dispatchable: Array<{id: string; priority?: string; type?: string}>
@@ -61,6 +61,8 @@ function depsFor(state: DepsState): AdvanceLaneDeps {
         : [],
     markCompleted(id) {
       state.markedCompleted.push(id)
+      const entry = state.ancestry.find((a) => a.id === id)
+      if (entry) entry.status = 'completed'
     },
     mergeBranch(opts) {
       state.merged.push(opts)
@@ -137,7 +139,7 @@ describe('dispatch/advance advanceLane', () => {
 
   it('proceed + epic NOT yet completed → rollup, free lane (currentTask cleared)', () => {
     const state = freshState({
-      ancestry: [{descendantsAllCompleted: false, id: 'epic-a'}],
+      ancestry: [{descendantsAllCompleted: false, id: 'epic-a', status: 'todo'}],
       currentTask: 'task-1',
       epicStatus: 'todo',
     })
@@ -151,7 +153,7 @@ describe('dispatch/advance advanceLane', () => {
 
   it('proceed + epic completed → merge lane into ms, remove worktree, lane done', () => {
     const state = freshState({
-      ancestry: [{descendantsAllCompleted: true, id: 'epic-a'}],
+      ancestry: [{descendantsAllCompleted: true, id: 'epic-a', status: 'todo'}],
       currentTask: 'task-1',
       epicStatus: 'completed',
     })
@@ -167,7 +169,7 @@ describe('dispatch/advance advanceLane', () => {
 
   it('proceed + epic completed + merge conflict → lane conflict, worktree kept', () => {
     const state = freshState({
-      ancestry: [{descendantsAllCompleted: true, id: 'epic-a'}],
+      ancestry: [{descendantsAllCompleted: true, id: 'epic-a', status: 'todo'}],
       currentTask: 'task-1',
       epicStatus: 'completed',
       mergeConflict: true,

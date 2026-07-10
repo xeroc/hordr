@@ -32,6 +32,7 @@ export function isMilestoneComplete(
 export interface AncestorInfo {
   descendantsAllCompleted: boolean
   id: string
+  status: string
 }
 
 export interface RollupDeps {
@@ -50,6 +51,7 @@ export function rollup(taskId: string, deps: RollupDeps): string[] {
   const marked: string[] = []
 
   for (const ancestor of ancestors) {
+    if (ancestor.status === 'completed') continue
     if (!ancestor.descendantsAllCompleted) break
     deps.markCompleted(ancestor.id)
     marked.push(ancestor.id)

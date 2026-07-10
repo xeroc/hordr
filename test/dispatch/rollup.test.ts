@@ -3,7 +3,7 @@ import {expect} from 'chai'
 import {areAllEpicsCompleted, isMilestoneComplete, rollup} from '../../src/dispatch/rollup.js'
 
 // Each ancestor node: id + whether all its descendants are completed.
-const ancestor = (id: string, done: boolean) => ({descendantsAllCompleted: done, id})
+const ancestor = (id: string, done: boolean) => ({descendantsAllCompleted: done, id, status: 'todo'})
 
 describe('dispatch/rollup', () => {
   it('marks all ancestors completed when every ancestor subtree is done', () => {

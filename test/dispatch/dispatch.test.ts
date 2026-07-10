@@ -279,8 +279,8 @@ describe('dispatch/dispatch', () => {
       })
       const ancestry = fetchAncestry('task-1')
       expect(ancestry).to.deep.equal([
-        {descendantsAllCompleted: true, id: 'feat-1'}, // both tasks done
-        {descendantsAllCompleted: false, id: 'epic-1'}, // feat-2 still todo
+        {descendantsAllCompleted: true, id: 'feat-1', status: 'todo'}, // both tasks done
+        {descendantsAllCompleted: false, id: 'epic-1', status: 'todo'}, // feat-2 still todo
       ])
     })
 
@@ -304,7 +304,7 @@ describe('dispatch/dispatch', () => {
 
         throw new Error(`unexpected: ${args.join(' ')}`)
       })
-      expect(fetchAncestry('task-1')).to.deep.equal([{descendantsAllCompleted: false, id: 'epic-1'}])
+      expect(fetchAncestry('task-1')).to.deep.equal([{descendantsAllCompleted: false, id: 'epic-1', status: 'todo'}])
     })
   })
 })

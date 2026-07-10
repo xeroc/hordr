@@ -27,7 +27,7 @@ export interface AdvanceLaneDeps {
   beanStatus: (taskId: string) => string | undefined
   epicStatus: (epicId: string) => string
   // rollup
-  fetchAncestry: (taskId: string) => Array<{descendantsAllCompleted: boolean; id: string}>
+  fetchAncestry: (taskId: string) => Array<{descendantsAllCompleted: boolean; id: string; status: string}>
   fetchBean: (id: string) => BeanRecord
   // dispatch step
   fetchDispatchable: (epicId: string) => DispatchableBean[]
@@ -92,8 +92,12 @@ export function advanceLane(opts: AdvanceLaneOpts, deps: AdvanceLaneDeps): Advan
     return {action: 'blocked', taskId: opts.lane.currentTaskBeanId}
   }
 
-  // proceed: bean completed → roll up the ancestry
+  // proceed: bean completed → roll up the ancestry.
+  // Two passes: the first may complete a feature whose epic subtree is now
+  // fully done, but the epic's flag was computed before the feature write.
+  // The second pass re-queries and sees the feature completed.
   const taskId = opts.lane.currentTaskBeanId
+  rollup(taskId, {fetchAncestry: deps.fetchAncestry, markCompleted: deps.markCompleted})
   rollup(taskId, {fetchAncestry: deps.fetchAncestry, markCompleted: deps.markCompleted})
 
   // did the epic complete? → merge lane into ms/<id>, tear down, go done

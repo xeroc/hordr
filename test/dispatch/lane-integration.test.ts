@@ -70,7 +70,7 @@ describe('dispatch (lane flow integration)', () => {
 
     // --- 5. Rollup: walk ancestry, mark epic completed ---
     const marked = rollup('task-1', {
-      fetchAncestry: () => [{descendantsAllCompleted: true, id: 'epic-1'}],
+      fetchAncestry: () => [{descendantsAllCompleted: true, id: 'epic-1', status: 'todo'}],
       markCompleted() {},
     })
     expect(marked).to.deep.equal(['epic-1'])

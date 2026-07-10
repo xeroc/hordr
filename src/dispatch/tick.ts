@@ -30,7 +30,7 @@ export interface TickDeps {
   // createLane I/O
   createWorktree: (opts: {base: string; branch: string; cwd: string}) => {path?: string; workspaceId: string}
   epicStatus: (epicId: string) => string
-  fetchAncestry: (taskId: string) => Array<{descendantsAllCompleted: boolean; id: string}>
+  fetchAncestry: (taskId: string) => Array<{descendantsAllCompleted: boolean; id: string; status: string}>
   fetchBean: (id: string) => BeanRecord
   // advanceLane I/O
   fetchDispatchable: (epicId: string) => DispatchableBean[]

@@ -172,17 +172,17 @@ interface AncestorNode {
 export function fetchAncestry(
   taskId: string,
   opts?: {cwd?: string},
-): Array<{descendantsAllCompleted: boolean; id: string}> {
+): Array<{descendantsAllCompleted: boolean; id: string; status: string}> {
   const query = `{ bean(id: "${taskId}") { parent { id type status children { id status } parent { id type status children { id status } } } } }`
   const raw = _shell(['query', '--json', query], {cwd: opts?.cwd})
   const data = JSON.parse(raw) as {bean?: {parent?: AncestorNode}}
 
-  const result: Array<{descendantsAllCompleted: boolean; id: string}> = []
+  const result: Array<{descendantsAllCompleted: boolean; id: string; status: string}> = []
   let node = data.bean?.parent
   while (node) {
     const children = node.children ?? []
     const allDone = children.length > 0 && children.every((c) => c.status === 'completed')
-    result.push({descendantsAllCompleted: allDone, id: node.id})
+    result.push({descendantsAllCompleted: allDone, id: node.id, status: node.status})
     if (node.type === 'epic') break // stop at epic — milestone-level is fleet finish's job
     node = node.parent
   }
