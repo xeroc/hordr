@@ -61,7 +61,19 @@ export function tick(db: Database.Database, depsFactory: TickDepsFactory): TickR
     const deps = depsFactory(fleet.worktreePath)
 
     // 1. scan: create lanes for newly-unblocked epics
-    const existingLaneEpicIds = new Set(listLanes(db, fleet.projectKey, fleet.milestoneBeanId).map((l) => l.epicBeanId))
+    const allLanes = listLanes(db, fleet.projectKey, fleet.milestoneBeanId)
+    const existingLaneEpicIds = new Set(allLanes.map((l) => l.epicBeanId))
+    const allEpics = deps.fetchEpics(fleet.milestoneBeanId)
+    console.error(
+      `[tick] fleet ${fleet.milestoneBeanId}: ${allEpics.length} epics, ${existingLaneEpicIds.size} lanes (wt=${fleet.worktreePath})`,
+    )
+
+    for (const epic of allEpics) {
+      const hasLane = existingLaneEpicIds.has(epic.id)
+      const ready = hasLane ? '(has lane)' : deps.hasReadyWork(epic.id) ? 'ready' : 'not ready'
+      console.error(`[tick]   epic ${epic.id}: ${ready} — ${epic.title}`)
+    }
+
     const newLanes = scanForNewLanes(fleet.milestoneBeanId, {
       fetchEpics: deps.fetchEpics,
       hasReadyWork: deps.hasReadyWork,
