@@ -11,7 +11,7 @@ describe('dispatch/lane-create createLaneForEpic', () => {
     let added: LaneRow | undefined
 
     const res = createLaneForEpic(
-      {cwd: '/repo', epic: {id: 'epic-1'}, fleet: {milestoneBeanId: 'ms1', msBranch: 'ms/ms1', projectKey: 'pk1'}},
+      {cwd: '/repo', epic: {id: 'epic-1'}, fleet: {milestoneBeanId: 'ms1', msBranch: 'ms1', projectKey: 'pk1'}},
       {
         addLane(row) {
           added = row
@@ -29,12 +29,12 @@ describe('dispatch/lane-create createLaneForEpic', () => {
 
     // worktree branched from the milestone integration branch
     expect(wtCalls).to.have.length(1)
-    expect(wtCalls[0]).to.deep.equal({base: 'ms/ms1', branch: 'lanes/ms1/epic-1', cwd: '/repo'})
+    expect(wtCalls[0]).to.deep.equal({base: 'ms1', branch: 'epic-1', cwd: '/repo'})
     // pane created in the worktree
     expect(paneCalls).to.deep.equal([{cwd: '/wt/epic-1', label: 'hordr:epic-1', workspaceId: 'w1'}])
     // lane row persisted active
     expect(added).to.include({
-      branch: 'lanes/ms1/epic-1',
+      branch: 'epic-1',
       currentTaskBeanId: null,
       epicBeanId: 'epic-1',
       fleetMilestoneBeanId: 'ms1',
@@ -43,12 +43,12 @@ describe('dispatch/lane-create createLaneForEpic', () => {
       status: 'active',
       worktreePath: '/wt/epic-1',
     })
-    expect(res).to.deep.equal({branch: 'lanes/ms1/epic-1', paneId: 'w1:p1', worktreePath: '/wt/epic-1'})
+    expect(res).to.deep.equal({branch: 'epic-1', paneId: 'w1:p1', worktreePath: '/wt/epic-1'})
   })
 
   it('falls back to workspaceId as worktreePath when path is absent', () => {
     const res = createLaneForEpic(
-      {cwd: '/repo', epic: {id: 'epic-2'}, fleet: {milestoneBeanId: 'ms1', msBranch: 'ms/ms1', projectKey: 'pk1'}},
+      {cwd: '/repo', epic: {id: 'epic-2'}, fleet: {milestoneBeanId: 'ms1', msBranch: 'ms1', projectKey: 'pk1'}},
       {
         addLane() {},
         createPane: () => 'p',
@@ -59,6 +59,6 @@ describe('dispatch/lane-create createLaneForEpic', () => {
   })
 
   it('laneBranchName composes ms/<ms-id>/<epic-id>', () => {
-    expect(laneBranchName('ms/hordr-ms1', 'epic-a')).to.equal('lanes/hordr-ms1/epic-a')
+    expect(laneBranchName('hordr-ms1', 'epic-a')).to.equal('epic-a')
   })
 })

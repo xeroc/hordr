@@ -158,7 +158,7 @@ export function finishFleet(
     {git: deps.git},
   )
   if (result.conflict) {
-    throw new FleetError(`merge of ms/${milestoneId} into ${opts.primaryBranch} conflicted — resolve manually`)
+    throw new FleetError(`merge of ${milestoneId} into ${opts.primaryBranch} conflicted — resolve manually`)
   }
 
   deleteLanes(db, opts.projectKey, milestoneId)

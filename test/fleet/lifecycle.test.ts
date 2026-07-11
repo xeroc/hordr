@@ -83,13 +83,13 @@ describe('fleet/lifecycle', () => {
       expect(fetched).to.deep.equal([MS])
       // ms branch created from primary
       expect(gitCalls).to.have.length(1)
-      expect(gitCalls[0]!.args).to.deep.equal(['branch', `ms/${MS}`, PRIMARY])
+      expect(gitCalls[0]!.args).to.deep.equal(['branch', MS, PRIMARY])
       expect(gitCalls[0]!.cwd).to.equal('/repo')
       // fleet row registered active
       const fleet = getFleet(db, PK, MS)
       expect(fleet?.status).to.equal('active')
-      expect(fleet?.branch).to.equal(`ms/${MS}`)
-      expect(res).to.deep.equal({branch: `ms/${MS}`, daemonStarted: true})
+      expect(fleet?.branch).to.equal(MS)
+      expect(res).to.deep.equal({branch: MS, daemonStarted: true})
     })
 
     it('refuses when the bean is not a milestone', async () => {
@@ -111,7 +111,7 @@ describe('fleet/lifecycle', () => {
       // seed a prior active fleet row
       const {registerFleet} = await import('../../src/storage/fleets.js')
       registerFleet(db, {
-        branch: `ms/${MS}`,
+        branch: MS,
         createdAt: '2026-01-01T00:00:00Z',
         milestoneBeanId: MS,
         projectKey: PK,
@@ -140,7 +140,7 @@ describe('fleet/lifecycle', () => {
       applySchema(db)
       ensureProject(db, {beansPath: '/b', companyPath: null, configPath: '/c', projectKey: PK})
       registerFleet(db, {
-        branch: `ms/${MS}`,
+        branch: MS,
         createdAt: NOW,
         milestoneBeanId: MS,
         projectKey: PK,
@@ -155,7 +155,7 @@ describe('fleet/lifecycle', () => {
 
     it('returns the fleet + its lanes', () => {
       addLane(db, {
-        branch: 'ms/hordr-ms1/epic-a',
+        branch: 'epic-a',
         createdAt: NOW,
         currentTaskBeanId: 'task-1',
         epicBeanId: 'epic-a',
@@ -168,7 +168,7 @@ describe('fleet/lifecycle', () => {
       })
 
       const snap = describeFleet(db, PK, MS)
-      expect(snap.fleet.branch).to.equal(`ms/${MS}`)
+      expect(snap.fleet.branch).to.equal(MS)
       expect(snap.lanes).to.have.length(1)
       expect(snap.lanes[0]!.epicBeanId).to.equal('epic-a')
       expect(snap.lanes[0]!.currentTaskBeanId).to.equal('task-1')
@@ -203,7 +203,7 @@ describe('fleet/lifecycle', () => {
       applySchema(db)
       ensureProject(db, {beansPath: '/b', companyPath: null, configPath: '/c', projectKey: PK})
       registerFleet(db, {
-        branch: `ms/${MS}`,
+        branch: MS,
         createdAt: NOW,
         milestoneBeanId: MS,
         projectKey: PK,
@@ -241,7 +241,7 @@ describe('fleet/lifecycle', () => {
     it('merges ms/<id> into primary and deletes rows when milestone + epics complete', () => {
       finishFleet(db, MS, {cwd: '/repo', primaryBranch: PRIMARY, projectKey: PK}, deps())
 
-      expect(gitCalls.some((c) => c.args[0] === "merge" && c.args.includes("ms/hordr-ms1"))).to.be.true
+      expect(gitCalls.some((c) => c.args[0] === "merge" && c.args.includes("hordr-ms1"))).to.be.true
       // merge now stashes first — check by content not position
 
       expect(getFleet(db, PK, MS)).to.be.undefined
@@ -295,7 +295,7 @@ describe('fleet/lifecycle', () => {
       applySchema(db)
       ensureProject(db, {beansPath: '/b', companyPath: null, configPath: '/c', projectKey: PK})
       registerFleet(db, {
-        branch: `ms/${MS}`,
+        branch: MS,
         createdAt: NOW,
         milestoneBeanId: MS,
         projectKey: PK,
@@ -360,7 +360,7 @@ describe('fleet/lifecycle', () => {
 
       expect(res.worktreesRemoved).to.equal(1)
       expect(removedBranches).to.deep.equal(['ms/x/epic-a'])
-      expect(gitCalls).to.deep.equal([['branch', '-D', `ms/${MS}`]])
+      expect(gitCalls).to.deep.equal([['branch', '-D', MS]])
       expect(getFleet(db, PK, MS)).to.be.undefined
     })
 

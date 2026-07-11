@@ -105,5 +105,5 @@ export function mergeMilestoneToPrimary(
   opts: {cwd: string; milestoneId: string; primaryBranch: string},
   deps: {git: GitFn},
 ): MergeResult {
-  return mergeBranch({cwd: opts.cwd, ff: false, source: `ms/${opts.milestoneId}`, target: opts.primaryBranch}, deps)
+  return mergeBranch({cwd: opts.cwd, ff: false, source: opts.milestoneId, target: opts.primaryBranch}, deps)
 }

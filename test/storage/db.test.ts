@@ -166,7 +166,7 @@ describe('storage/db', () => {
         "INSERT INTO projects (project_key, config_path, beans_path, registered_at) VALUES ('pk1', '/c', '/b', '2026-01-01T00:00:00Z')",
       ).run()
       db.prepare(
-        "INSERT INTO fleets (project_key, milestone_bean_id, worktree_path, branch, status, created_at) VALUES ('pk1', 'hordr-9999', '/wt', 'ms/hordr-9999', 'active', '2026-01-01T00:00:00Z')",
+        "INSERT INTO fleets (project_key, milestone_bean_id, worktree_path, branch, status, created_at) VALUES ('pk1', 'hordr-9999', '/wt', 'hordr-9999', 'active', '2026-01-01T00:00:00Z')",
       ).run()
       db.prepare(
         "INSERT INTO lanes (project_key, fleet_milestone_bean_id, epic_bean_id, worktree_path, branch, status, created_at) VALUES ('pk1', 'hordr-9999', 'epic-1', '/wt1', 'ms/x/epic-1', 'active', '2026-01-01T00:00:00Z')",
@@ -194,7 +194,7 @@ describe('storage/db', () => {
         "INSERT INTO projects (project_key, config_path, beans_path, registered_at) VALUES ('pk1', '/c', '/b', '2026-01-01T00:00:00Z')",
       ).run()
       db.prepare(
-        "INSERT INTO fleets (project_key, milestone_bean_id, worktree_path, branch, status, created_at) VALUES ('pk1', 'hordr-9999', '/wt', 'ms/hordr-9999', 'active', '2026-01-01T00:00:00Z')",
+        "INSERT INTO fleets (project_key, milestone_bean_id, worktree_path, branch, status, created_at) VALUES ('pk1', 'hordr-9999', '/wt', 'hordr-9999', 'active', '2026-01-01T00:00:00Z')",
       ).run()
       db.prepare(
         "INSERT INTO bean_provenance (project_key, fleet_milestone_bean_id, created_by_task_bean_id, spawned_bean_id, recorded_at) VALUES ('pk1', 'hordr-9999', 'task-A', 'spawn-1', '2026-01-01T00:00:00Z')",

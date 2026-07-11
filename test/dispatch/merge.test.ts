@@ -10,7 +10,7 @@ describe('dispatch/merge', () => {
         calls.push(args)
       }
 
-      const result = mergeBranch({cwd: '/repo', source: 'epic-branch', target: 'ms/hordr-ms1'}, {git})
+      const result = mergeBranch({cwd: '/repo', source: 'epic-branch', target: 'hordr-ms1'}, {git})
 
       expect(result.conflict).to.be.false
       // Just a merge — no stash, no checkout, no --no-ff (fast-forward allowed)
@@ -27,7 +27,7 @@ describe('dispatch/merge', () => {
         }
       }
 
-      const result = mergeBranch({cwd: '/repo', source: 'epic-branch', target: 'ms/hordr-ms1'}, {git})
+      const result = mergeBranch({cwd: '/repo', source: 'epic-branch', target: 'hordr-ms1'}, {git})
 
       expect(result.conflict).to.be.true
       expect(result.message).to.match(/CONFLICT/)
@@ -68,8 +68,8 @@ describe('dispatch/merge', () => {
 
       mergeMilestoneToPrimary({cwd: '/repo', milestoneId: 'hordr-nh1h', primaryBranch: 'develop'}, {git})
 
-      // mergeBranch is called with source ms/hordr-nh1h
-      expect(calls.some((c) => c[0] === 'merge' && c.includes('ms/hordr-nh1h'))).to.be.true
+      // mergeBranch is called with source hordr-nh1h
+      expect(calls.some((c) => c[0] === 'merge' && c.includes('hordr-nh1h'))).to.be.true
     })
   })
 })

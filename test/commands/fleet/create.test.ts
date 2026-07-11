@@ -121,10 +121,10 @@ describe('commands/fleet/create', () => {
     const res = await invoke(['hordr-ms1'])
 
     expect(res.error, res.error?.message).to.be.undefined
-    expect(res.stdout).to.match(/fleet hordr-ms1 created on ms\/hordr-ms1/)
+    expect(res.stdout).to.match(/fleet hordr-ms1 created on hordr-ms1/)
 
     expect(gitCalls).to.have.length(1)
-    expect(gitCalls[0]!.args).to.deep.equal(['branch', 'ms/hordr-ms1', 'develop'])
+    expect(gitCalls[0]!.args).to.deep.equal(['branch', 'hordr-ms1', 'develop'])
     expect(daemonCalls).to.equal(1)
 
     const db = openFleetDb()
@@ -134,7 +134,7 @@ describe('commands/fleet/create', () => {
         status: string
       }
       expect(row.status).to.equal('active')
-      expect(row.branch).to.equal('ms/hordr-ms1')
+      expect(row.branch).to.equal('hordr-ms1')
     } finally {
       db.close()
     }
@@ -151,7 +151,7 @@ describe('commands/fleet/create', () => {
       projectKey: string
     }
     expect(parsed).to.deep.equal({
-      branch: 'ms/hordr-ms1',
+      branch: 'hordr-ms1',
       daemonStarted: true,
       milestone: 'hordr-ms1',
       projectKey: 'pk-test',
@@ -172,7 +172,7 @@ describe('commands/fleet/create', () => {
     const res = await invoke(['hordr-ms1', '--base', 'main'])
 
     expect(res.error, res.error?.message).to.be.undefined
-    expect(gitCalls[0]!.args).to.deep.equal(['branch', 'ms/hordr-ms1', 'main'])
+    expect(gitCalls[0]!.args).to.deep.equal(['branch', 'hordr-ms1', 'main'])
   })
 
   it('errors when milestone id is missing', async () => {

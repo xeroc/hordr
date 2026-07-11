@@ -106,7 +106,7 @@ describe('dispatch/tick', () => {
     const db = freshDb()
     // seed a conflict lane directly
     addLane(db, {
-      branch: 'ms/ms1/epic-a',
+      branch: 'ms1/epic-a',
       createdAt: NOW,
       currentTaskBeanId: 'task-1',
       epicBeanId: 'epic-a',

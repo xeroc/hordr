@@ -12,11 +12,11 @@ const config: HordrConfig = {
   worktree_branch_prefix: 'bean/',
 }
 
-const FLEET = {cwd: '/repo', milestoneBeanId: 'ms1', msBranch: 'ms/ms1', projectKey: 'pk1'}
+const FLEET = {cwd: '/repo', milestoneBeanId: 'ms1', msBranch: 'ms1', projectKey: 'pk1'}
 
 function lane(overrides: Partial<LaneRow> = {}): LaneRow {
   return {
-    branch: 'ms/ms1/epic-a',
+    branch: 'ms1/epic-a',
     createdAt: '2026-01-01T00:00:00Z',
     currentTaskBeanId: null,
     epicBeanId: 'epic-a',
@@ -164,8 +164,8 @@ describe('dispatch/advance advanceLane', () => {
 
     expect(res.action).to.equal('epic-completed')
     expect(state.markedCompleted).to.deep.equal(['epic-a'])
-    expect(state.merged).to.deep.equal([{cwd: '/repo', source: 'ms/ms1/epic-a', target: 'ms/ms1'}])
-    expect(state.removed).to.deep.equal(['ms/ms1/epic-a'])
+    expect(state.merged).to.deep.equal([{cwd: '/repo', source: 'ms1/epic-a', target: 'ms1'}])
+    expect(state.removed).to.deep.equal(['ms1/epic-a'])
     expect(state.status).to.equal('done')
     expect(state.currentTask).to.equal(null)
   })

@@ -2,8 +2,8 @@
  * Lane bootstrap (ADR-0014).
  *
  * createLaneForEpic: when the tick scanner finds an unblocked epic with no
- * lane, create its worktree (branched FROM the milestone integration branch
- * ms/<id>, so it auto-inherits earlier epics' merged code), create a stable
+ * lane, create its worktree (branched FROM the milestone integration branch,
+ * so it auto-inherits earlier epics' merged code), create a stable
  * pane, and write the lane row (status=active). Pure: git/herdr/SQLite are
  * injected.
  */
@@ -32,15 +32,9 @@ export interface CreateLaneResult {
   worktreePath: string
 }
 
-/**
- * The epic worktree branch: lanes/<milestone-id>/<epic-id>.
- * Uses a 'lanes/' prefix to avoid git ref namespace collision —
- * ms/<id> is a file in refs/heads/, so ms/<id>/<epic-id> can't exist
- * (can't have a file and directory with the same name).
- */
-export function laneBranchName(msBranch: string, epicId: string): string {
-  const msId = msBranch.replace(/^ms\//, '')
-  return `lanes/${msId}/${epicId}`
+/** The epic worktree branch: same as the epic bean id. */
+export function laneBranchName(_msBranch: string, epicId: string): string {
+  return epicId
 }
 
 /**

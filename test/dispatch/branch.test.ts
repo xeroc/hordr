@@ -6,7 +6,7 @@ import {createMilestoneBranch, type GitFn, milestoneBranchName} from '../../src/
 describe('dispatch/branch', () => {
   describe('milestoneBranchName', () => {
     it('produces ms/<milestone-id>', () => {
-      expect(milestoneBranchName('hordr-nh1h')).to.equal('ms/hordr-nh1h')
+      expect(milestoneBranchName('hordr-nh1h')).to.equal('hordr-nh1h')
     })
   })
 
@@ -20,7 +20,7 @@ describe('dispatch/branch', () => {
       createMilestoneBranch({cwd: '/repo', milestoneId: 'hordr-nh1h', primaryBranch: 'develop'}, {git})
 
       expect(calls).to.have.length(1)
-      expect(calls[0]!.args).to.deep.equal(['branch', 'ms/hordr-nh1h', 'develop'])
+      expect(calls[0]!.args).to.deep.equal(['branch', 'hordr-nh1h', 'develop'])
       expect(calls[0]!.cwd).to.equal('/repo')
     })
 
@@ -32,7 +32,7 @@ describe('dispatch/branch', () => {
 
       createMilestoneBranch({cwd: '.', milestoneId: 'hordr-1234', primaryBranch: 'main'}, {git})
 
-      expect(calls[0]).to.deep.equal(['branch', 'ms/hordr-1234', 'main'])
+      expect(calls[0]).to.deep.equal(['branch', 'hordr-1234', 'main'])
     })
   })
 })

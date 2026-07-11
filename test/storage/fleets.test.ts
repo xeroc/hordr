@@ -30,7 +30,7 @@ function freshDb(): Database.Database {
 
 function seedFleet(db: Database.Database): void {
   registerFleet(db, {
-    branch: 'ms/hordr-ms1',
+    branch: 'hordr-ms1',
     createdAt: NOW,
     milestoneBeanId: MS,
     projectKey: PK,
@@ -62,7 +62,7 @@ describe('storage/fleets', () => {
   describe('fleet', () => {
     it('registerFleet + getFleet round-trips', () => {
       registerFleet(db, {
-        branch: 'ms/hordr-ms1',
+        branch: 'hordr-ms1',
         createdAt: NOW,
         milestoneBeanId: MS,
         projectKey: PK,
@@ -71,7 +71,7 @@ describe('storage/fleets', () => {
       })
       const got = getFleet(db, PK, MS)
       expect(got).to.deep.equal({
-        branch: 'ms/hordr-ms1',
+        branch: 'hordr-ms1',
         createdAt: NOW,
         milestoneBeanId: MS,
         projectKey: PK,
@@ -86,7 +86,7 @@ describe('storage/fleets', () => {
 
     it('registerFleet rejects duplicate (composite PK)', () => {
       registerFleet(db, {
-        branch: 'ms/hordr-ms1',
+        branch: 'hordr-ms1',
         createdAt: NOW,
         milestoneBeanId: MS,
         projectKey: PK,
@@ -107,7 +107,7 @@ describe('storage/fleets', () => {
 
     it('deleteFleet removes the row', () => {
       registerFleet(db, {
-        branch: 'ms/hordr-ms1',
+        branch: 'hordr-ms1',
         createdAt: NOW,
         milestoneBeanId: MS,
         projectKey: PK,
@@ -123,7 +123,7 @@ describe('storage/fleets', () => {
     it('addLane + listLanes round-trips, ordered by created_at', () => {
       seedFleet(db)
       addLane(db, {
-        branch: 'ms/hordr-ms1/epic-a',
+        branch: 'epic-a',
         createdAt: NOW,
         currentTaskBeanId: null,
         epicBeanId: 'epic-a',
@@ -135,7 +135,7 @@ describe('storage/fleets', () => {
       worktreePath: '/wt/epic-a',
       })
       addLane(db, {
-        branch: 'ms/hordr-ms1/epic-b',
+        branch: 'epic-b',
         createdAt: '2026-07-09T00:00:01Z',
         currentTaskBeanId: 'task-1',
         epicBeanId: 'epic-b',
