@@ -13,16 +13,16 @@ describe('dispatch/merge', () => {
       const result = mergeBranch({cwd: '/repo', source: 'epic-branch', target: 'ms/hordr-ms1'}, {git})
 
       expect(result.conflict).to.be.false
-      // Just a merge — no stash, no checkout
+      // Just a merge — no stash, no checkout, no --no-ff (fast-forward allowed)
       expect(calls).to.have.length(1)
-      expect(calls[0]).to.deep.equal(['merge', '--no-ff', 'epic-branch'])
+      expect(calls[0]).to.deep.equal(['merge', 'epic-branch'])
     })
 
     it('returns conflict:true when merge fails', () => {
       const calls: string[][] = []
       const git: GitFn = (args) => {
         calls.push(args)
-        if (args[0] === 'merge' && args.includes('--no-ff')) {
+        if (args[0] === 'merge' && args[1] !== '--abort') {
           throw new Error('CONFLICT (content): Merge conflict in src/foo.ts')
         }
       }

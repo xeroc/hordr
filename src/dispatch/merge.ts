@@ -21,27 +21,33 @@ export interface MergeResult {
 
 export interface MergeOpts {
   cwd: string
+  ff?: boolean
   source: string
   target: string
 }
 
 /**
  * Merge source into target. If already on the target branch, just merge.
- *  Otherwise stash → checkout target → merge → checkout back → pop.
+ * Otherwise stash → checkout target → merge → checkout back → pop.
+ *
+ * `ff` controls --no-ff: true (default) allows fast-forward; false forces
+ * a merge commit. Epic→ms merges use ff (let git fast-forward when possible).
+ * Milestone→primary merges force --no-ff (mark the milestone as a discrete event).
  */
 export function mergeBranch(opts: MergeOpts, deps: {git: GitFn}): MergeResult {
+  const mergeArgs = ['merge']
+  if (opts.ff === false) mergeArgs.push('--no-ff')
+  mergeArgs.push(opts.source)
+
   // Already on target? Just merge — no stash, no checkout.
-  // The ms worktree is always on ms/<id>, so epic merges are a simple git merge.
   try {
-    deps.git(['merge', '--no-ff', opts.source], {cwd: opts.cwd})
+    deps.git(mergeArgs, {cwd: opts.cwd})
     return {conflict: false}
   } catch {
-    // The merge might have failed because we're on the wrong branch,
-    // or because of an actual merge conflict. Try the full checkout+merge path.
     try {
       deps.git(['merge', '--abort'], {cwd: opts.cwd})
     } catch {
-      // No merge in progress — the failure was "already up to date" or wrong branch
+      // No merge in progress
     }
 
     // Full path: stash → checkout → merge → restore
@@ -59,7 +65,7 @@ export function mergeBranch(opts: MergeOpts, deps: {git: GitFn}): MergeResult {
     }
 
     try {
-      deps.git(['merge', '--no-ff', opts.source], {cwd: opts.cwd})
+      deps.git(mergeArgs, {cwd: opts.cwd})
     } catch (error_) {
       try {
         deps.git(['merge', '--abort'], {cwd: opts.cwd})
@@ -91,10 +97,13 @@ function tryRestore(deps: {git: GitFn}, cwd: string): void {
   }
 }
 
-/** Merge the milestone integration branch back to primary (fleet finish). */
+/**
+ * Merge the milestone integration branch back to primary (fleet finish).
+ *  Uses --no-ff: the milestone is a discrete event worth a merge commit on primary.
+ */
 export function mergeMilestoneToPrimary(
   opts: {cwd: string; milestoneId: string; primaryBranch: string},
   deps: {git: GitFn},
 ): MergeResult {
-  return mergeBranch({cwd: opts.cwd, source: `ms/${opts.milestoneId}`, target: opts.primaryBranch}, deps)
+  return mergeBranch({cwd: opts.cwd, ff: false, source: `ms/${opts.milestoneId}`, target: opts.primaryBranch}, deps)
 }
