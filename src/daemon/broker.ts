@@ -28,10 +28,12 @@ export function tickIntervalMs(): number {
   return Number.isFinite(raw) && raw > 0 ? raw : 5000
 }
 
-/** Build a per-fleet TickDeps factory from the config. Each call returns deps
+/**
+ * Build a per-fleet TickDeps factory from the config. Each call returns deps
  * scoped to the given beansCwd (for beans queries). Herdr operations always
  * use the mainRepoCwd (the repo parent workspace), because herdr refuses to
- * create/open worktrees from inside a linked worktree. */
+ * create/open worktrees from inside a linked worktree.
+ */
 export function createTickDepsFactory(config: HordrConfig, mainRepoCwd: string): TickDepsFactory {
   return (beansCwd: string): TickDeps => ({
     beanStatus: (id) => getBean(id, {cwd: beansCwd}).status as string | undefined,

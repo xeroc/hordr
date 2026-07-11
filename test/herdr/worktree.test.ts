@@ -139,7 +139,7 @@ describe('herdr/worktree', () => {
   it('removeWorktree succeeds on happy path (AC #3)', () => {
     responder = () => REMOVE_JSON
     removeWorktree({workspaceId: 'wP'})
-    expect(calls[0].args).to.deep.equal(['worktree', 'remove', '--workspace', 'wP', '--json'])
+    expect(calls[0].args).to.deep.equal(['worktree', 'remove', '--workspace', 'wP', '--force', '--json'])
   })
 
   it('removeWorktree adds --force when opts.force=true', () => {

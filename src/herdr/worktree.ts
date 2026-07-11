@@ -180,8 +180,9 @@ export function removeWorktree(opts: WorktreeRemoveOpts): void {
 
   assertHerdrOnPath()
 
-  const args = ['worktree', 'remove', '--workspace', opts.workspaceId, '--json']
-  if (opts.force) args.push('--force')
+  // Lane worktrees often have uncommitted rollup writes (beans update -s completed).
+  // Force-remove — the status changes are ephemeral; the committed code is what matters.
+  const args = ['worktree', 'remove', '--workspace', opts.workspaceId, '--force', '--json']
 
   runHerdr(args)
 }
