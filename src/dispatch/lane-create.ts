@@ -66,6 +66,7 @@ export function createLaneForEpic(opts: CreateLaneOpts, deps: CreateLaneDeps): C
     paneId,
     projectKey: opts.fleet.projectKey,
     status: 'active',
+    workspaceId: wt.workspaceId,
     worktreePath,
   })
 

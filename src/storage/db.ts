@@ -43,6 +43,13 @@ export function openFleetDb(dbPath?: string): Database.Database {
   if (p !== ':memory:') mkdirSync(path.dirname(p), {recursive: true})
   const db = openDb(p)
   applySchema(db)
+  // Migrate older DBs: add workspace_id column to lanes if missing
+  try {
+    db.prepare('SELECT workspace_id FROM lanes LIMIT 0').all()
+  } catch {
+    db.exec('ALTER TABLE lanes ADD COLUMN workspace_id TEXT')
+  }
+
   return db
 }
 
@@ -87,6 +94,7 @@ CREATE TABLE IF NOT EXISTS lanes (
   fleet_milestone_bean_id TEXT NOT NULL,
   epic_bean_id            TEXT NOT NULL,
   worktree_path           TEXT NOT NULL,
+  workspace_id            TEXT,
   branch                  TEXT NOT NULL,
   pane_id                 TEXT,
   status                  TEXT NOT NULL,

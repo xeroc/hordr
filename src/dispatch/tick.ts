@@ -18,7 +18,7 @@ import type {DispatchableBean} from './dispatch.js'
 import type {MergeResult} from './merge.js'
 import type {EpicInfo} from './scan.js'
 
-import {addLane, listFleets, listLanes, setLaneCurrentTask, updateLaneStatus} from '../storage/fleets.js'
+import {addLane, listFleets, listLanes, setLaneCurrentTask, setLanePane, updateLaneStatus} from '../storage/fleets.js'
 import {advanceLane} from './advance.js'
 import {createLaneForEpic} from './lane-create.js'
 import {scanForNewLanes} from './scan.js'
@@ -136,6 +136,7 @@ function advanceActiveLane(
     },
     {
       beanStatus: deps.beanStatus,
+      createPane: deps.createPane,
       epicStatus: deps.epicStatus,
       fetchAncestry: deps.fetchAncestry,
       fetchBean: deps.fetchBean,
@@ -145,6 +146,7 @@ function advanceActiveLane(
       paneAlive: deps.paneAlive,
       removeWorktree: deps.removeWorktree,
       setLaneCurrentTask: (l, taskId) => setLaneCurrentTask(db, l, taskId),
+      setLanePane: (l, paneId) => setLanePane(db, l, paneId),
       spawn: deps.spawn,
       updateLaneStatus: (l, status) => updateLaneStatus(db, l, status),
     },

@@ -91,6 +91,7 @@ export interface LaneRow {
   paneId: null | string
   projectKey: string
   status: string
+  workspaceId: null | string
   worktreePath: string
 }
 
@@ -103,6 +104,7 @@ interface LaneDbRow {
   pane_id: null | string
   project_key: string
   status: string
+  workspace_id: null | string
   worktree_path: string
 }
 
@@ -116,19 +118,21 @@ function toLaneRow(r: LaneDbRow): LaneRow {
     paneId: r.pane_id,
     projectKey: r.project_key,
     status: r.status,
+    workspaceId: r.workspace_id,
     worktreePath: r.worktree_path,
   }
 }
 
 export function addLane(db: Database.Database, row: LaneRow): void {
   db.prepare(
-    `INSERT INTO lanes (project_key, fleet_milestone_bean_id, epic_bean_id, worktree_path, branch, pane_id, status, current_task_bean_id, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO lanes (project_key, fleet_milestone_bean_id, epic_bean_id, worktree_path, workspace_id, branch, pane_id, status, current_task_bean_id, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     row.projectKey,
     row.fleetMilestoneBeanId,
     row.epicBeanId,
     row.worktreePath,
+    row.workspaceId,
     row.branch,
     row.paneId,
     row.status,

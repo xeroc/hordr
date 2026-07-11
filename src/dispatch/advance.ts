@@ -25,6 +25,7 @@ export type LaneAction = 'blocked' | 'dispatched' | 'epic-completed' | 'idle' | 
 export interface AdvanceLaneDeps {
   // heal step
   beanStatus: (taskId: string) => string | undefined
+  createPane: (opts: {cwd: string; label: string; workspaceId: string}) => string
   epicStatus: (epicId: string) => string
   // rollup
   fetchAncestry: (taskId: string) => Array<{descendantsAllCompleted: boolean; id: string; status: string}>
@@ -37,6 +38,7 @@ export interface AdvanceLaneDeps {
   paneAlive: (paneId: string) => boolean
   removeWorktree: (branch: string) => void
   setLaneCurrentTask: (loc: LaneLoc, taskId: null | string) => void
+  setLanePane: (loc: LaneLoc, paneId: string) => void
   spawn: (opts: {harness: string; paneId: string; prompt: string}) => void
   updateLaneStatus: (loc: LaneLoc, status: string) => void
 }
@@ -78,13 +80,25 @@ export function advanceLane(opts: AdvanceLaneOpts, deps: AdvanceLaneDeps): Advan
       return {action: 'idle'}
     }
 
+    // Pane might be gone (agent closed it, crash). Recreate if needed.
+    let paneId = opts.lane.paneId ?? ''
+    if (!paneId || !deps.paneAlive(paneId)) {
+      paneId = deps.createPane({
+        cwd: opts.lane.worktreePath,
+        label: `hordr:${opts.lane.epicBeanId}`,
+        workspaceId: opts.lane.workspaceId ?? '',
+      })
+      deps.setLanePane(loc, paneId)
+      console.error(`[advance] lane ${opts.lane.epicBeanId}: respawned pane ${paneId}`)
+    }
+
     const outcome = dispatchNext(
-      {epicId: opts.lane.epicBeanId, paneId: opts.lane.paneId ?? '', worktreePath: opts.lane.worktreePath},
+      {epicId: opts.lane.epicBeanId, paneId, worktreePath: opts.lane.worktreePath},
       opts.config,
       {
         fetchBean: deps.fetchBean,
         fetchDispatchable: () => dispatchable,
-        spawn: (harness, prompt) => deps.spawn({harness, paneId: opts.lane.paneId ?? '', prompt}),
+        spawn: (harness, prompt) => deps.spawn({harness, paneId, prompt}),
       },
     )
     if (!outcome.dispatched) return {action: 'idle'}

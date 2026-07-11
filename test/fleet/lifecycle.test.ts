@@ -163,7 +163,8 @@ describe('fleet/lifecycle', () => {
         paneId: 'w1:p1',
         projectKey: PK,
         status: 'active',
-        worktreePath: '/wt/epic-a',
+        workspaceId: null,
+      worktreePath: '/wt/epic-a',
       })
 
       const snap = describeFleet(db, PK, MS)
@@ -310,7 +311,8 @@ describe('fleet/lifecycle', () => {
         paneId: null,
         projectKey: PK,
         status: 'active',
-        worktreePath: '/wt/epic-a',
+        workspaceId: null,
+      worktreePath: '/wt/epic-a',
       })
       gitCalls = []
       removedBranches = []

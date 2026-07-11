@@ -24,6 +24,7 @@ function lane(overrides: Partial<LaneRow> = {}): LaneRow {
     paneId: 'w1:p1',
     projectKey: 'pk1',
     status: 'active',
+    workspaceId: 'w1',
     worktreePath: '/wt/epic-a',
     ...overrides,
   }
@@ -46,6 +47,7 @@ interface DepsState {
 function depsFor(state: DepsState): AdvanceLaneDeps {
   return {
     beanStatus: (id) => (id === state.currentTask ? 'completed' : 'in-progress'),
+    createPane: () => 'w1:p1',
     epicStatus: () => state.epicStatus,
     fetchAncestry: () => state.ancestry,
     fetchBean: (id) => ({assigned: 'implementer', body: 'b', id, type: 'task'}) as never,
@@ -75,6 +77,7 @@ function depsFor(state: DepsState): AdvanceLaneDeps {
     setLaneCurrentTask(_loc, taskId) {
       state.currentTask = taskId
     },
+    setLanePane() {},
     spawn(opts) {
       state.spawnCalled.push(opts.prompt)
     },

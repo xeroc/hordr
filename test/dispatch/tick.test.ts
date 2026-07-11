@@ -114,6 +114,7 @@ describe('dispatch/tick', () => {
       paneId: 'w1:p1',
       projectKey: PK,
       status: 'active',
+      workspaceId: 'w1',
       worktreePath: '/wt/epic-a',
     })
     updateLaneStatus(db, {epicId: 'epic-a', milestoneId: MS, projectKey: PK}, 'conflict')

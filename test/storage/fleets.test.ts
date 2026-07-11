@@ -131,7 +131,8 @@ describe('storage/fleets', () => {
         paneId: null,
         projectKey: PK,
         status: 'active',
-        worktreePath: '/wt/epic-a',
+        workspaceId: null,
+      worktreePath: '/wt/epic-a',
       })
       addLane(db, {
         branch: 'ms/hordr-ms1/epic-b',
@@ -142,7 +143,8 @@ describe('storage/fleets', () => {
         paneId: 'w1:p1',
         projectKey: PK,
         status: 'pending',
-        worktreePath: '/wt/epic-b',
+        workspaceId: null,
+      worktreePath: '/wt/epic-b',
       })
 
       const lanes = listLanes(db, PK, MS)
@@ -164,6 +166,7 @@ describe('storage/fleets', () => {
         paneId: null,
         projectKey: PK,
         status: 'active',
+        workspaceId: null,
         worktreePath: '/wt',
       })
       deleteLanes(db, PK, MS)
@@ -181,6 +184,7 @@ describe('storage/fleets', () => {
         paneId: null,
         projectKey: PK,
         status: 'active',
+        workspaceId: null,
         worktreePath: '/wt',
       })
       updateLaneStatus(db, {epicId: 'epic-a', milestoneId: MS, projectKey: PK}, 'merging')
@@ -198,6 +202,7 @@ describe('storage/fleets', () => {
         paneId: null,
         projectKey: PK,
         status: 'active',
+        workspaceId: null,
         worktreePath: '/wt',
       })
       setLanePane(db, {epicId: 'epic-a', milestoneId: MS, projectKey: PK}, 'w1:p1')
