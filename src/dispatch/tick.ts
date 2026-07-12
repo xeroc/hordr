@@ -18,6 +18,7 @@ import type {DispatchableBean} from './dispatch.js'
 import type {MergeResult} from './merge.js'
 import type {EpicInfo} from './scan.js'
 
+import {logger} from "../logger.js"
 import {addLane, listFleets, listLanes, setLaneCurrentTask, setLanePane, updateLaneStatus} from '../storage/fleets.js'
 import {advanceLane} from './advance.js'
 import {createLaneForEpic} from './lane-create.js'
@@ -65,14 +66,14 @@ export function tick(db: Database.Database, depsFactory: TickDepsFactory): TickR
     const allLanes = listLanes(db, fleet.projectKey, fleet.milestoneBeanId)
     const existingLaneEpicIds = new Set(allLanes.map((l) => l.epicBeanId))
     const allEpics = deps.fetchEpics(fleet.milestoneBeanId)
-    console.error(
-      `[tick] fleet ${fleet.milestoneBeanId}: ${allEpics.length} epics, ${existingLaneEpicIds.size} lanes (wt=${fleet.worktreePath})`,
+    logger.debug(
+      `fleet ${fleet.milestoneBeanId}: ${allEpics.length} epics, ${existingLaneEpicIds.size} lanes (wt=${fleet.worktreePath})`,
     )
 
     for (const epic of allEpics) {
       const hasLane = existingLaneEpicIds.has(epic.id)
       const ready = hasLane ? '(has lane)' : deps.hasReadyWork(epic.id) ? 'ready' : 'not ready'
-      console.error(`[tick]   epic ${epic.id}: ${ready} — ${epic.title}`)
+      logger.debug(`  epic ${epic.id}: ${ready} — ${epic.title}`)
     }
 
     const newLanes = scanForNewLanes(fleet.milestoneBeanId, {
@@ -82,7 +83,7 @@ export function tick(db: Database.Database, depsFactory: TickDepsFactory): TickR
     })
 
     for (const epic of newLanes) {
-      console.error(`[tick] creating lane for epic ${epic.id} (${epic.title}) in fleet ${fleet.milestoneBeanId}`)
+      logger.info(`creating lane for epic ${epic.id} (${epic.title}) in fleet ${fleet.milestoneBeanId}`)
       createLaneForEpic(
         {
           cwd: fleet.worktreePath,
@@ -100,12 +101,12 @@ export function tick(db: Database.Database, depsFactory: TickDepsFactory): TickR
     const lanes = listLanes(db, fleet.projectKey, fleet.milestoneBeanId)
     for (const lane of lanes) {
       if (lane.status !== 'active') {
-        console.error(`[tick] lane ${lane.epicBeanId}: status=${lane.status} (skip)`)
+        logger.debug(`lane ${lane.epicBeanId}: status=${lane.status} (skip)`)
         continue
       }
 
-      console.error(
-        `[tick] lane ${lane.epicBeanId}: status=active` +
+      logger.debug(
+        `lane ${lane.epicBeanId}: status=active` +
           ` currentTask=${lane.currentTaskBeanId ?? '(none)'}` +
           ` wt=${lane.worktreePath}` +
           ` branch=${lane.branch}`,

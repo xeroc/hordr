@@ -19,6 +19,7 @@ import {spawnInvocation} from '../dispatch/spawn.js'
 import {tick, type TickDeps, type TickDepsFactory} from '../dispatch/tick.js'
 import {createTab, paneExists} from '../herdr/pane.js'
 import {createWorktree, HerdrError, openWorktree, removeWorktreeByBranch} from '../herdr/worktree.js'
+import {logger} from "../logger.js"
 import {getGitRunner} from '../runtime.js'
 import {addRoute, type DaemonRequest, type DaemonResponse} from './server.js'
 
@@ -106,7 +107,7 @@ export function startBroker(opts: {
     } catch (error) {
       // ponytail: a tick must not kill the daemon — log and carry on.
 
-      console.error('[hordr] tick failed:', (error as Error).message)
+      logger.error('tick failed:', (error as Error).message)
     }
   }, intervalMs)
   return {stop: () => clearInterval(timer)}
