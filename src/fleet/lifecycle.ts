@@ -11,7 +11,7 @@ import type Database from 'better-sqlite3'
 
 import type {BeanRecord} from '../beans/client.js'
 
-import {createMilestoneBranch, type GitFn, milestoneBranchName} from '../dispatch/branch.js'
+import {type GitFn, milestoneBranchName} from '../dispatch/branch.js'
 import {mergeMilestoneToPrimary} from '../dispatch/merge.js'
 import {areAllEpicsCompleted, isMilestoneComplete} from '../dispatch/rollup.js'
 import {
@@ -79,12 +79,11 @@ export async function createFleet(
   }
 
   const branch = milestoneBranchName(milestoneId)
-  createMilestoneBranch({cwd: opts.cwd, milestoneId, primaryBranch: opts.primaryBranch}, {git: deps.git})
 
-  // Create a dedicated worktree for the ms branch. This is where the daemon
-  // reads bean state (completed epics, ready tasks) and where epic branches
-  // merge into. The main repo stays untouched on whatever the human has checked out.
-  const msWt = deps.createWorktree({base: branch, branch: `${branch}-wt`, cwd: opts.cwd})
+  // Create the ms branch + worktree in one shot: herdr worktree create
+  // --branch <milestoneId> --base <primary>. The worktree IS on the milestone
+  // branch — epic merges land here, the scanner reads from here.
+  const msWt = deps.createWorktree({base: opts.primaryBranch, branch, cwd: opts.cwd})
 
   registerFleet(db, {
     branch,
@@ -214,15 +213,14 @@ export function abortFleet(
     // Remove the ms worktree too
     if (fleet.worktreePath) {
       try {
-        deps.removeWorktree(`${fleet.branch}-wt`)
+        deps.removeWorktree(fleet.branch)
       } catch {
         // ms worktree may already be gone
       }
     }
 
-    // Discard the milestone integration branch + its worktree branch
+    // Discard the milestone integration branch
     deps.git(['branch', '-D', fleet.branch], {cwd: opts.cwd})
-    deps.git(['branch', '-D', `${fleet.branch}-wt`], {cwd: opts.cwd})
   }
 
   deleteLanes(db, opts.projectKey, milestoneId)

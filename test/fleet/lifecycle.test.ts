@@ -82,10 +82,8 @@ describe('fleet/lifecycle', () => {
       const res = await run(milestoneBean())
 
       expect(fetched).to.deep.equal([MS])
-      // ms branch created from primary
-      expect(gitCalls).to.have.length(1)
-      expect(gitCalls[0]!.args).to.deep.equal(['branch', MS, PRIMARY])
-      expect(gitCalls[0]!.cwd).to.equal('/repo')
+      // no git calls — herdr worktree create handles branch + worktree
+      expect(gitCalls).to.have.length(0)
       // fleet row registered active
       const fleet = getFleet(db, PK, MS)
       expect(fleet?.status).to.equal('active')
@@ -360,11 +358,8 @@ describe('fleet/lifecycle', () => {
       )
 
       expect(res.worktreesRemoved).to.equal(1)
-      expect(removedBranches).to.deep.equal(['ms/x/epic-a', `${MS}-wt`])
-      expect(gitCalls).to.deep.equal([
-        ['branch', '-D', MS],
-        ['branch', '-D', `${MS}-wt`],
-      ])
+      expect(removedBranches).to.deep.equal(['ms/x/epic-a', MS])
+      expect(gitCalls).to.deep.equal([['branch', '-D', MS]])
       expect(getFleet(db, PK, MS)).to.be.undefined
     })
 

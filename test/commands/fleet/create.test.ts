@@ -132,8 +132,7 @@ describe('commands/fleet/create', () => {
     expect(res.error, res.error?.message).to.be.undefined
     expect(res.stdout).to.match(/fleet hordr-ms1 created on hordr-ms1/)
 
-    expect(gitCalls).to.have.length(1)
-    expect(gitCalls[0]!.args).to.deep.equal(['branch', 'hordr-ms1', 'develop'])
+    expect(gitCalls).to.have.length(0) // no git calls — herdr creates branch + worktree
     expect(daemonCalls).to.equal(1)
 
     const db = openFleetDb()
@@ -181,7 +180,8 @@ describe('commands/fleet/create', () => {
     const res = await invoke(['hordr-ms1', '--base', 'main'])
 
     expect(res.error, res.error?.message).to.be.undefined
-    expect(gitCalls[0]!.args).to.deep.equal(['branch', 'hordr-ms1', 'main'])
+    // No git calls — herdr creates branch + worktree from the base ref
+    expect(gitCalls).to.have.length(0)
   })
 
   it('errors when milestone id is missing', async () => {

@@ -156,10 +156,7 @@ describe('commands/fleet/abort', () => {
     expect(wtCalls.filter((c) => c[1] === 'remove')).to.have.length(2)
     expect(wtCalls.find((c) => c[1] === 'remove')).to.include.members(['--workspace', 'wLane'])
     // ms branch force-deleted
-    expect(gitCalls).to.deep.equal([
-      ['branch', '-D', MS],
-      ['branch', '-D', `${MS}-wt`],
-    ])
+    expect(gitCalls).to.deep.equal([['branch', '-D', MS]])
   })
 
   it('--force tolerates an already-gone worktree', async () => {
@@ -170,10 +167,7 @@ describe('commands/fleet/abort', () => {
     expect(res.error, res.error?.message).to.be.undefined
     // open failed (gone) → no remove call, but ms branch still deleted + rows removed
     expect(wtCalls.filter((c) => c[1] === 'remove')).to.have.length(0)
-    expect(gitCalls).to.deep.equal([
-      ['branch', '-D', MS],
-      ['branch', '-D', `${MS}-wt`],
-    ])
+    expect(gitCalls).to.deep.equal([['branch', '-D', MS]])
   })
 
   it('refuses when no fleet exists', async () => {
