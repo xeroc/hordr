@@ -37,6 +37,10 @@ export function tickIntervalMs(): number {
 export function createTickDepsFactory(config: HordrConfig, mainRepoCwd: string): TickDepsFactory {
   return (beansCwd: string): TickDeps => ({
     beanStatus: (id) => getBean(id, {cwd: beansCwd}).status as string | undefined,
+    commitBeans(worktreePath) {
+      getGitRunner()(['add', 'apps/docs/beans/'], {cwd: worktreePath})
+      getGitRunner()(['commit', '-m', 'chore(beans): rollup status changes'], {cwd: worktreePath})
+    },
     config,
     createPane: (opts) => createTab({cwd: opts.cwd, label: opts.label, workspaceId: opts.workspaceId}).pane_id,
     createWorktree(opts) {

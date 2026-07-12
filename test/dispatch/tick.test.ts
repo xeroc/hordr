@@ -38,7 +38,8 @@ describe('dispatch/tick', () => {
     const spawnCalls: string[] = []
 
     tick(db, () => ({
-      beanStatus: () => 'todo',
+      beanStatus: () => "todo",
+      commitBeans() {},
       config,
       createPane: () => 'w1:p1',
       createWorktree: () => ({path: '/wt/epic-a', workspaceId: 'w1'}),
@@ -74,7 +75,8 @@ describe('dispatch/tick', () => {
     let wtCalls = 0
 
     const factory = () => ({
-      beanStatus: () => 'todo',
+      beanStatus: () => "todo",
+      commitBeans() {},
       config,
       createPane: () => 'p',
       createWorktree() {
@@ -121,7 +123,8 @@ describe('dispatch/tick', () => {
 
     let spawnCalls = 0
     tick(db, () => ({
-      beanStatus: () => 'todo',
+      beanStatus: () => "todo",
+      commitBeans() {},
       config,
       createPane: () => 'p',
       createWorktree: () => ({path: '/wt', workspaceId: 'w'}),
@@ -152,7 +155,8 @@ describe('dispatch/tick', () => {
 
     let wtCalls = 0
     tick(db, () => ({
-      beanStatus: () => 'todo',
+      beanStatus: () => "todo",
+      commitBeans() {},
       config,
       createPane: () => 'p',
       createWorktree() {
@@ -183,7 +187,8 @@ describe('dispatch/tick', () => {
     tick(db, (cwd) => {
       seenCwds.push(cwd)
       return {
-        beanStatus: () => 'todo',
+        beanStatus: () => "todo",
+      commitBeans() {},
         config,
         createPane: () => 'p',
         createWorktree: () => ({path: '/wt', workspaceId: 'w'}),

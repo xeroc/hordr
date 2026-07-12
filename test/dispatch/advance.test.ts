@@ -47,6 +47,7 @@ interface DepsState {
 function depsFor(state: DepsState): AdvanceLaneDeps {
   return {
     beanStatus: (id) => (id === state.currentTask ? 'completed' : 'in-progress'),
+    commitBeans() {},
     createPane: () => 'w1:p1',
     epicStatus: () => state.epicStatus,
     fetchAncestry: () => state.ancestry,

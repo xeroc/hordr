@@ -25,6 +25,7 @@ import {scanForNewLanes} from './scan.js'
 
 export interface TickDeps {
   beanStatus: (taskId: string) => string | undefined
+  commitBeans: (worktreePath: string) => void
   config: HordrConfig
   createPane: (opts: {cwd: string; label: string; workspaceId: string}) => string
   // createLane I/O
@@ -136,6 +137,7 @@ function advanceActiveLane(
     },
     {
       beanStatus: deps.beanStatus,
+      commitBeans: deps.commitBeans,
       createPane: deps.createPane,
       epicStatus: deps.epicStatus,
       fetchAncestry: deps.fetchAncestry,

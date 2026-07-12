@@ -25,6 +25,7 @@ export type LaneAction = 'blocked' | 'dispatched' | 'epic-completed' | 'idle' | 
 export interface AdvanceLaneDeps {
   // heal step
   beanStatus: (taskId: string) => string | undefined
+  commitBeans: (worktreePath: string) => void
   createPane: (opts: {cwd: string; label: string; workspaceId: string}) => string
   epicStatus: (epicId: string) => string
   // rollup
@@ -126,10 +127,18 @@ export function advanceLane(opts: AdvanceLaneOpts, deps: AdvanceLaneDeps): Advan
   // proceed: bean completed → roll up the ancestry.
   console.error(`[advance] lane ${opts.lane.epicBeanId}: task ${opts.lane.currentTaskBeanId} completed → rolling up`)
   const taskId = opts.lane.currentTaskBeanId
+  let didMark = false
   for (;;) {
     const marked = rollup(taskId, {fetchAncestry: deps.fetchAncestry, markCompleted: deps.markCompleted})
     if (marked.length === 0) break
+    didMark = true
     console.error(`[advance] lane ${opts.lane.epicBeanId}: rollup marked ${marked.join(', ')}`)
+  }
+
+  // Commit the rollup's .beans changes so they survive the lane→ms merge.
+  // Without this, `beans update -s completed` writes are uncommitted and lost.
+  if (didMark) {
+    deps.commitBeans(opts.lane.worktreePath)
   }
 
   // did the epic complete? → merge lane into ms/<id>, tear down, go done
