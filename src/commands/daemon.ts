@@ -1,4 +1,5 @@
 import {Command, Flags} from '@oclif/core'
+import {spawn} from 'node:child_process'
 
 import {getBean} from '../beans/client.js'
 import {loadConfig} from '../config/loader.js'
@@ -10,21 +11,23 @@ import {openFleetDb} from '../storage/db.js'
 
 /**
  * The hordr daemon: a unix-socket server (health + /done) plus the broker tick
- * loop that drives every active fleet. Run until SIGTERM/SIGINT. `fleet create`
- * lazy-starts this (detached, logs suppressed); run with --foreground to see
- * logs in the terminal.
+ * loop that drives every active fleet.
+ *
+ * Default: detaches into background (releases the shell). The actual daemon
+ * runs as a spawned child with --foreground --log-level error.
+ * --foreground: stays in the terminal with visible logs.
  */
 export default class Daemon extends Command {
   static description = 'Run the hordr daemon (broker tick loop + /done route).'
   static examples = [
-    '<%= config.bin %> daemon --foreground',
+    '<%= config.bin %> daemon                    # background, releases shell',
+    '<%= config.bin %> daemon --foreground       # foreground with logs',
     '<%= config.bin %> daemon --foreground --log-level debug',
-    'HORDR_TICK_MS=2000 <%= config.bin %> daemon --foreground',
   ]
   static flags = {
     foreground: Flags.boolean({
       default: false,
-      description: 'Stay in foreground with visible logs (default: detached, logs suppressed)',
+      description: 'Stay in foreground with visible logs',
     }),
     'log-level': Flags.string({
       default: 'info',
@@ -36,10 +39,22 @@ export default class Daemon extends Command {
 
   async run(): Promise<void> {
     const {flags} = await this.parse(Daemon)
-    const sock = flags.socket ?? socketPath()
 
-    // Silent when detached (fleet create auto-start); visible when --foreground
-    configureLogger({level: flags['log-level'], silent: !flags.foreground})
+    // Without --foreground: spawn a detached child and exit immediately.
+    if (!flags.foreground) {
+      const child = spawn(process.argv[1]!, ['daemon', '--foreground', '--log-level', 'error'], {
+        detached: true,
+        env: {...process.env},
+        stdio: 'ignore',
+      })
+      child.unref()
+      this.log(`hordr daemon started in background (pid ${child.pid})`)
+      return
+    }
+
+    // Foreground mode: stay in the terminal with logs.
+    const sock = flags.socket ?? socketPath()
+    configureLogger({level: flags['log-level'], silent: false})
 
     logger.info(`hordr daemon starting (log level: ${flags['log-level']})`)
 
