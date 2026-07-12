@@ -4,6 +4,7 @@ import {getBean} from '../../beans/client.js'
 import {loadConfig} from '../../config/loader.js'
 import {ensureDaemon} from '../../daemon/ensure.js'
 import {createFleet} from '../../fleet/lifecycle.js'
+import {createWorktree} from '../../herdr/worktree.js'
 import {getGitRunner} from '../../runtime.js'
 import {openFleetDb} from '../../storage/db.js'
 import {resolveProjectKeyOrMock} from '../../storage/project.js'
@@ -52,6 +53,10 @@ export default class FleetCreate extends Command {
           },
         },
         {
+          createWorktree(opts) {
+            const wt = createWorktree({base: opts.base, branch: opts.branch, cwd: opts.cwd})
+            return {path: wt.path ?? wt.workspace_id, workspaceId: wt.workspace_id}
+          },
           ensureDaemon,
           fetchBean: (id) => getBean(id),
           git: getGitRunner(),

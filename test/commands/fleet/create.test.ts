@@ -9,6 +9,7 @@ import path from 'node:path'
 import {_resetShell as _resetBeansShell, _setShellForTesting as _setBeansShell} from '../../../src/beans/client.js'
 import FleetCreate from '../../../src/commands/fleet/create.js'
 import {_setEnsureDaemonForTesting} from '../../../src/daemon/ensure.js'
+import {_resetShell as _resetWtShell, _setShellForTesting as _setWtShell} from '../../../src/herdr/worktree.js'
 import {_resetGitRunner, _setGitRunnerForTesting, type GitRunner} from '../../../src/runtime.js'
 import {openFleetDb} from '../../../src/storage/db.js'
 import {_setProjectKeyResolverForTesting} from '../../../src/storage/project.js'
@@ -104,6 +105,13 @@ describe('commands/fleet/create', () => {
       return {started: true}
     })
     _setBeansShell(() => JSON.stringify({...MILESTONE_BEAN, type: beanType}))
+    _setWtShell((args) => {
+      if (args[0] === 'worktree' && args[1] === 'create') {
+        return JSON.stringify({result: {workspace: {workspace_id: 'w-ms'}, worktree: {path: configDir + '/ms-wt'}}})
+      }
+
+      return '{}'
+    })
   })
 
   afterEach(() => {
@@ -115,6 +123,7 @@ describe('commands/fleet/create', () => {
     _setProjectKeyResolverForTesting(null)
     _setEnsureDaemonForTesting(null)
     _resetBeansShell()
+    _resetWtShell()
   })
 
   it('creates ms branch, registers fleet, ensures daemon', async () => {

@@ -40,6 +40,8 @@ export interface ProjectInfo {
 }
 
 export interface CreateFleetDeps {
+  /** Create a herdr worktree for the ms branch; return its path. */
+  createWorktree: (opts: {base: string; branch: string; cwd: string}) => {path: string; workspaceId: string}
   ensureDaemon: () => Promise<{started: boolean}>
   fetchBean: (id: string) => BeanRecord
   git: GitFn
@@ -79,15 +81,18 @@ export async function createFleet(
   const branch = milestoneBranchName(milestoneId)
   createMilestoneBranch({cwd: opts.cwd, milestoneId, primaryBranch: opts.primaryBranch}, {git: deps.git})
 
+  // Create a dedicated worktree for the ms branch. This is where the daemon
+  // reads bean state (completed epics, ready tasks) and where epic branches
+  // merge into. The main repo stays untouched on whatever the human has checked out.
+  const msWt = deps.createWorktree({base: branch, branch: `${branch}-wt`, cwd: opts.cwd})
+
   registerFleet(db, {
     branch,
     createdAt: new Date().toISOString(),
     milestoneBeanId: milestoneId,
     projectKey: opts.project.projectKey,
     status: 'active',
-    // ponytail: the fleet has no worktree of its own in the per-epic model;
-    // the ms/<id> branch lives in the main repo. Epics own the worktrees.
-    worktreePath: opts.cwd,
+    worktreePath: msWt.path,
   })
 
   const daemon = await deps.ensureDaemon()
@@ -206,8 +211,18 @@ export function abortFleet(
       worktreesRemoved++
     }
 
-    // Discard the milestone integration branch (-D: unmerged work is intentional).
+    // Remove the ms worktree too
+    if (fleet.worktreePath) {
+      try {
+        deps.removeWorktree(`${fleet.branch}-wt`)
+      } catch {
+        // ms worktree may already be gone
+      }
+    }
+
+    // Discard the milestone integration branch + its worktree branch
     deps.git(['branch', '-D', fleet.branch], {cwd: opts.cwd})
+    deps.git(['branch', '-D', `${fleet.branch}-wt`], {cwd: opts.cwd})
   }
 
   deleteLanes(db, opts.projectKey, milestoneId)

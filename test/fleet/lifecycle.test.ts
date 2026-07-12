@@ -64,6 +64,7 @@ describe('fleet/lifecycle', () => {
           project: {beansPath: '/b', companyPath: null, configPath: '/c', projectKey: PK},
         },
         {
+          createWorktree: (opts) => ({path: `/wt/${opts.branch}`, workspaceId: 'w-ms'}),
           ensureDaemon: async () => ({started: daemonStarted}),
           fetchBean(id) {
             fetched.push(id)
@@ -164,7 +165,7 @@ describe('fleet/lifecycle', () => {
         projectKey: PK,
         status: 'active',
         workspaceId: null,
-      worktreePath: '/wt/epic-a',
+        worktreePath: '/wt/epic-a',
       })
 
       const snap = describeFleet(db, PK, MS)
@@ -241,7 +242,7 @@ describe('fleet/lifecycle', () => {
     it('merges ms/<id> into primary and deletes rows when milestone + epics complete', () => {
       finishFleet(db, MS, {cwd: '/repo', primaryBranch: PRIMARY, projectKey: PK}, deps())
 
-      expect(gitCalls.some((c) => c.args[0] === "merge" && c.args.includes("hordr-ms1"))).to.be.true
+      expect(gitCalls.some((c) => c.args[0] === 'merge' && c.args.includes('hordr-ms1'))).to.be.true
       // merge now stashes first — check by content not position
 
       expect(getFleet(db, PK, MS)).to.be.undefined
@@ -312,7 +313,7 @@ describe('fleet/lifecycle', () => {
         projectKey: PK,
         status: 'active',
         workspaceId: null,
-      worktreePath: '/wt/epic-a',
+        worktreePath: '/wt/epic-a',
       })
       gitCalls = []
       removedBranches = []
@@ -359,8 +360,11 @@ describe('fleet/lifecycle', () => {
       )
 
       expect(res.worktreesRemoved).to.equal(1)
-      expect(removedBranches).to.deep.equal(['ms/x/epic-a'])
-      expect(gitCalls).to.deep.equal([['branch', '-D', MS]])
+      expect(removedBranches).to.deep.equal(['ms/x/epic-a', `${MS}-wt`])
+      expect(gitCalls).to.deep.equal([
+        ['branch', '-D', MS],
+        ['branch', '-D', `${MS}-wt`],
+      ])
       expect(getFleet(db, PK, MS)).to.be.undefined
     })
 

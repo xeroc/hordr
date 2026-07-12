@@ -67,7 +67,7 @@ function seedFleetWithLane(dbFile: string): void {
     )
     db.prepare(
       'INSERT INTO fleets (project_key, milestone_bean_id, worktree_path, branch, status, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-    ).run(PK, MS, '/repo', `ms/${MS}`, 'active', '2026-01-01T00:00:00Z')
+    ).run(PK, MS, '/repo', MS, 'active', '2026-01-01T00:00:00Z')
     db.prepare(
       `INSERT INTO lanes (project_key, fleet_milestone_bean_id, epic_bean_id, worktree_path, branch, pane_id, status, current_task_bean_id, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -153,10 +153,13 @@ describe('commands/fleet/abort', () => {
 
     expect(res.error, res.error?.message).to.be.undefined
     // open (resolve workspace) + remove
-    expect(wtCalls.filter((c) => c[1] === 'remove')).to.have.length(1)
+    expect(wtCalls.filter((c) => c[1] === 'remove')).to.have.length(2)
     expect(wtCalls.find((c) => c[1] === 'remove')).to.include.members(['--workspace', 'wLane'])
     // ms branch force-deleted
-    expect(gitCalls).to.deep.equal([['branch', '-D', `ms/${MS}`]])
+    expect(gitCalls).to.deep.equal([
+      ['branch', '-D', MS],
+      ['branch', '-D', `${MS}-wt`],
+    ])
   })
 
   it('--force tolerates an already-gone worktree', async () => {
@@ -167,7 +170,10 @@ describe('commands/fleet/abort', () => {
     expect(res.error, res.error?.message).to.be.undefined
     // open failed (gone) → no remove call, but ms branch still deleted + rows removed
     expect(wtCalls.filter((c) => c[1] === 'remove')).to.have.length(0)
-    expect(gitCalls).to.deep.equal([['branch', '-D', `ms/${MS}`]])
+    expect(gitCalls).to.deep.equal([
+      ['branch', '-D', MS],
+      ['branch', '-D', `${MS}-wt`],
+    ])
   })
 
   it('refuses when no fleet exists', async () => {
