@@ -109,8 +109,9 @@ export function startBroker(opts: {
       run(opts.db, opts.depsFactory)
     } catch (error) {
       // ponytail: a tick must not kill the daemon — log and carry on.
-
-      logger.error('tick failed:', (error as Error).message)
+      const msg = error instanceof Error ? error.message : String(error)
+      const stack = error instanceof Error ? error.stack : ''
+      logger.error(`tick failed: ${msg}${stack ? `\n${stack}` : ''}`)
     }
   }, intervalMs)
   return {stop: () => clearInterval(timer)}
