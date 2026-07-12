@@ -21,8 +21,7 @@ const LOG_FORMAT = winston.format.combine(
 
 export const logger = winston.createLogger({
   level: 'info',
-  silent: true,
-  transports: [new winston.transports.Console({format: LOG_FORMAT})],
+  transports: [new winston.transports.Console({format: LOG_FORMAT, silent: true})],
 })
 
 /** Configure the logger from the daemon command. */
