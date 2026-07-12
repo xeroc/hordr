@@ -7,11 +7,23 @@
  */
 import {execFileSync} from 'node:child_process'
 
+// --- binary path resolution (same pattern as beans/client.ts) ---
+const BEANS_BIN = (() => {
+  try {
+    return execFileSync('sh', ['-c', 'command -v beans'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim()
+  } catch {
+    return 'beans'
+  }
+})()
+
 // --- test seam ---
 export type ShellFn = (args: string[], opts?: {cwd?: string}) => string
 
 const defaultShell: ShellFn = (args, opts) =>
-  execFileSync('beans', args, {
+  execFileSync(BEANS_BIN, args, {
     cwd: opts?.cwd,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
