@@ -56,6 +56,7 @@ describe('dispatch/tick', () => {
       spawn(opts) {
         spawnCalls.push(opts.prompt)
       },
+      worktreeExists: () => true,
     }))
 
     // lane created
@@ -94,6 +95,7 @@ describe('dispatch/tick', () => {
       paneAlive: () => true,
       removeWorktree() {},
       spawn() {},
+      worktreeExists: () => true,
     })
 
     tick(db, factory as never)
@@ -141,6 +143,7 @@ describe('dispatch/tick', () => {
       spawn() {
         spawnCalls++
       },
+      worktreeExists: () => true,
     }))
 
     // conflict lane not advanced
@@ -174,6 +177,7 @@ describe('dispatch/tick', () => {
       paneAlive: () => true,
       removeWorktree() {},
       spawn() {},
+      worktreeExists: () => true,
     }))
 
     expect(wtCalls).to.equal(0)
@@ -189,7 +193,7 @@ describe('dispatch/tick', () => {
       return {
         beanStatus: () => "todo",
       commitBeans() {},
-        config,
+      config,
         createPane: () => 'p',
         createWorktree: () => ({path: '/wt', workspaceId: 'w'}),
         epicStatus: () => 'todo',
@@ -203,6 +207,7 @@ describe('dispatch/tick', () => {
         paneAlive: () => true,
         removeWorktree() {},
         spawn() {},
+        worktreeExists: () => true,
       }
     })
 

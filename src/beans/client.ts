@@ -8,7 +8,16 @@
 import {execFileSync} from 'node:child_process'
 import {z} from 'zod'
 
-const BEAN_BIN = 'beans'
+const BEAN_BIN = (() => {
+  try {
+    return execFileSync('sh', ['-c', 'command -v beans'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim()
+  } catch {
+    return 'beans' // fallback — assertBeansOnPath() will surface the error
+  }
+})()
 
 const RAW_BEAN_SCHEMA = z
   .object({

@@ -178,6 +178,19 @@ export function setLaneCurrentTask(db: Database.Database, loc: LaneLoc, taskId: 
   ).run(taskId, loc.projectKey, loc.milestoneId, loc.epicId)
 }
 
+export function setLaneWorktree(
+  db: Database.Database,
+  loc: LaneLoc,
+  worktreePath: string,
+  workspaceId: string,
+  paneId: string,
+): void {
+  db.prepare(
+    `UPDATE lanes SET worktree_path = ?, workspace_id = ?, pane_id = ?, current_task_bean_id = NULL
+     WHERE project_key = ? AND fleet_milestone_bean_id = ? AND epic_bean_id = ?`,
+  ).run(worktreePath, workspaceId, paneId, loc.projectKey, loc.milestoneId, loc.epicId)
+}
+
 // --- provenance (ADR-0013) ---
 
 export interface ProvenanceRow {

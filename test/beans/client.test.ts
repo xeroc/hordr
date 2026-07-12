@@ -106,7 +106,7 @@ describe('beans/client', () => {
     responder = () => '' // beans update returns nothing on success
     markBeanCompleted('hordr-1001', {cwd: '/wt/hordr-1001'})
     expect(calls).to.have.length(1)
-    expect(calls[0]!.cmd).to.equal('beans')
+    expect(calls[0]!.cmd).to.match(/beans$/)
     expect(calls[0]!.args).to.deep.equal(['update', 'hordr-1001', '-s', 'completed'])
     expect(calls[0]!.opts.cwd).to.equal('/wt/hordr-1001')
   })

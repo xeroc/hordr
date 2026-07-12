@@ -9,6 +9,8 @@
  */
 import type Database from 'better-sqlite3'
 
+import {existsSync} from 'node:fs'
+
 import type {HordrConfig} from '../config/schema.js'
 
 import {getBean, markBeanCompleted} from '../beans/client.js'
@@ -19,7 +21,7 @@ import {spawnInvocation} from '../dispatch/spawn.js'
 import {tick, type TickDeps, type TickDepsFactory} from '../dispatch/tick.js'
 import {createTab, paneExists} from '../herdr/pane.js'
 import {createWorktree, HerdrError, openWorktree, removeWorktreeByBranch} from '../herdr/worktree.js'
-import {logger} from "../logger.js"
+import {logger} from '../logger.js'
 import {getGitRunner} from '../runtime.js'
 import {addRoute, type DaemonRequest, type DaemonResponse} from './server.js'
 
@@ -77,6 +79,7 @@ export function createTickDepsFactory(config: HordrConfig, mainRepoCwd: string):
     paneAlive: (paneId) => paneExists(paneId),
     removeWorktree: (branch) => removeWorktreeByBranch(branch, mainRepoCwd),
     spawn: (opts) => spawnInvocation(opts),
+    worktreeExists: (p) => existsSync(p),
   })
 }
 

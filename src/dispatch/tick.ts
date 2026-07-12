@@ -1,3 +1,5 @@
+import type Database from 'better-sqlite3'
+
 /**
  * The broker tick (ADR-0010, ADR-0012, ADR-0014).
  *
@@ -9,8 +11,6 @@
  * Lanes not in 'active' status (pending/merging/conflict/done) are skipped —
  * conflict lanes wait for a human, done lanes are finished.
  */
-import type Database from 'better-sqlite3'
-
 import type {BeanRecord} from '../beans/client.js'
 import type {HordrConfig} from '../config/schema.js'
 import type {LaneRow} from '../storage/fleets.js'
@@ -18,8 +18,16 @@ import type {DispatchableBean} from './dispatch.js'
 import type {MergeResult} from './merge.js'
 import type {EpicInfo} from './scan.js'
 
-import {logger} from "../logger.js"
-import {addLane, listFleets, listLanes, setLaneCurrentTask, setLanePane, updateLaneStatus} from '../storage/fleets.js'
+import {logger} from '../logger.js'
+import {
+  addLane,
+  listFleets,
+  listLanes,
+  setLaneCurrentTask,
+  setLanePane,
+  setLaneWorktree,
+  updateLaneStatus,
+} from '../storage/fleets.js'
 import {advanceLane} from './advance.js'
 import {createLaneForEpic} from './lane-create.js'
 import {scanForNewLanes} from './scan.js'
@@ -44,6 +52,7 @@ export interface TickDeps {
   paneAlive: (paneId: string) => boolean
   removeWorktree: (branch: string) => void
   spawn: (opts: {harness: string; paneId: string; prompt: string}) => void
+  worktreeExists: (path: string) => boolean
 }
 
 export type TickDepsFactory = (cwd: string) => TickDeps
@@ -96,8 +105,6 @@ export function tick(db: Database.Database, depsFactory: TickDepsFactory): TickR
     }
 
     // 2. advance each active lane by one step.
-    // Per-lane deps: beans queries must read from the lane's worktree (where
-    // the agent marks beans completed), not the fleet's main-repo directory.
     const lanes = listLanes(db, fleet.projectKey, fleet.milestoneBeanId)
     for (const lane of lanes) {
       if (lane.status !== 'active') {
@@ -111,7 +118,46 @@ export function tick(db: Database.Database, depsFactory: TickDepsFactory): TickR
           ` wt=${lane.worktreePath}` +
           ` branch=${lane.branch}`,
       )
-      advanced += advanceActiveLane(db, fleet, lane, depsFactory(lane.worktreePath))
+
+      // Recovery: if the worktree is gone (user deleted it, crash, etc.),
+      // check the epic status and either mark done or recreate.
+      if (!deps.worktreeExists(lane.worktreePath)) {
+        const loc = {epicId: lane.epicBeanId, milestoneId: fleet.milestoneBeanId, projectKey: fleet.projectKey}
+        const fleetDeps = depsFactory(fleet.worktreePath)
+        const epicStat = fleetDeps.epicStatus(lane.epicBeanId)
+
+        if (epicStat === 'completed') {
+          logger.info(`lane ${lane.epicBeanId}: worktree gone, epic completed → mark done`)
+          setLaneCurrentTask(db, loc, null)
+          updateLaneStatus(db, loc, 'done')
+          continue
+        }
+
+        // Epic not completed — recreate the worktree from the ms branch
+        logger.info(`lane ${lane.epicBeanId}: worktree gone, recreating from ${fleet.branch}`)
+        try {
+          const wt = deps.createWorktree({base: fleet.branch, branch: lane.branch, cwd: fleet.worktreePath})
+          const wtPath = wt.path ?? wt.workspaceId
+          const paneId = deps.createPane({
+            cwd: wtPath,
+            label: `hordr:${lane.epicBeanId}`,
+            workspaceId: wt.workspaceId,
+          })
+          setLaneWorktree(db, loc, wtPath, wt.workspaceId, paneId)
+          logger.info(`lane ${lane.epicBeanId}: worktree recreated at ${wtPath}, pane=${paneId}`)
+        } catch (error) {
+          logger.warn(`lane ${lane.epicBeanId}: worktree recreation failed: ${(error as Error).message}`)
+        }
+
+        continue // next tick will dispatch into the fresh worktree
+      }
+
+      // Normal advance — per-lane try/catch so one bad lane doesn't kill the tick
+      try {
+        advanced += advanceActiveLane(db, fleet, lane, depsFactory(lane.worktreePath))
+      } catch (error) {
+        logger.warn(`lane ${lane.epicBeanId}: advance failed: ${(error as Error).message}`)
+      }
     }
   }
 
