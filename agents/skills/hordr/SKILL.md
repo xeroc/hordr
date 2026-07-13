@@ -39,6 +39,35 @@ milestone            ← one per release / main topic
 
 Wire parents: `--parent <id>`. Wire dependencies: `--blocked-by <id>`.
 
+### Fleet dispatch needs epic + task layers — leaf features under a milestone stall
+
+The daemon's lane scanner (`scanForNewLanes`) treats each **direct child of
+the milestone** as a lane candidate and calls `hasReadyWork(childId)`, which
+checks for dispatchable **descendants** under it. A leaf node is never its own
+descendant, so:
+
+- **milestone → feature(leaf)** stalls forever — the feature has no task
+  children, so `getDispatchable` returns `[]`, `hasReadyWork` is false, no lane
+  is created, the daemon logs "not ready" every tick and does nothing.
+- **milestone → epic → task** works — the epic is the lane root, tasks are
+  dispatched as descendants within it.
+- **milestone → epic → feature(leaf)** also works — a childless feature IS
+  executable (`feature` is in `EXECUTABLE_TYPES`), it just has to be a
+  _descendant_ of the lane epic, not a direct child of the milestone.
+
+**Rule:** every milestone under fleet dispatch MUST have at least one epic
+child, and that epic MUST have at least one task or leaf-feature descendant.
+If you're planning a milestone and its work items are small (one commit each),
+wrap them in a single epic rather than hanging them directly off the milestone.
+
+Reparent a misstructured milestone in one pass:
+
+```bash
+EPIC=$(beans create --json "Implementation" -t epic --parent MS_ID -s todo \
+       | jq -r .bean.id)
+for id in <child-ids...>; do beans update "$id" --parent "$EPIC"; done
+```
+
 ## Roles and the assigned: convention
 
 Every task carries `assigned: <role>` in its YAML frontmatter. Default roles:
