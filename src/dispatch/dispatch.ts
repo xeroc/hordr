@@ -211,6 +211,36 @@ export function fetchAncestry(
   return result
 }
 
+interface ChainNode {
+  body?: string
+  id: string
+  parent?: ChainNode
+  title?: string
+  type?: string
+}
+
+/**
+ * Full ancestor chain (root→leaf) with body+title+type for prompt context.
+ * Walks parent links as deep as they go; returns [] for a parentless bean.
+ */
+export function fetchAncestorChain(
+  beanId: string,
+  opts?: {cwd?: string},
+): Array<{body: string; id: string; title: string; type: string}> {
+  const query = `{ bean(id: "${beanId}") { parent { id title type body parent { id title type body parent { id title type body parent { id title type body } } } } } }`
+  const raw = _shell(['query', '--json', query], {cwd: opts?.cwd})
+  const data = JSON.parse(raw) as {bean?: {parent?: ChainNode}}
+
+  const chain: Array<{body: string; id: string; title: string; type: string}> = []
+  let node = data.bean?.parent
+  while (node) {
+    chain.push({body: node.body ?? '', id: node.id, title: node.title ?? '', type: node.type ?? ''})
+    node = node.parent
+  }
+
+  return chain.reverse() // root→leaf
+}
+
 /** Fetch the globally-ready beans (readiness is beans' job). */
 function fetchReady(cwd?: string): DispatchableBean[] {
   const raw = _shell(['list', '--ready', '--json'], {cwd})

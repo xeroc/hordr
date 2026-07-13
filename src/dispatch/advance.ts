@@ -29,10 +29,11 @@ export interface AdvanceLaneDeps {
   commitBeans: (worktreePath: string) => void
   createPane: (opts: {cwd: string; label: string; workspaceId: string}) => string
   epicStatus: (epicId: string) => string
+  // dispatch step
+  fetchAncestorChain: (id: string) => Array<{body: string; id: string; title: string; type: string}>
   // rollup
   fetchAncestry: (taskId: string) => Array<{descendantsAllCompleted: boolean; id: string; status: string}>
   fetchBean: (id: string) => BeanRecord
-  // dispatch step
   fetchDispatchable: (epicId: string) => DispatchableBean[]
   markCompleted: (beanId: string) => void
   // epic-complete
@@ -121,6 +122,7 @@ export function advanceLane(opts: AdvanceLaneOpts, deps: AdvanceLaneDeps): Advan
       {epicId: opts.lane.epicBeanId, paneId, worktreePath: opts.lane.worktreePath},
       opts.config,
       {
+        fetchAncestorChain: deps.fetchAncestorChain,
         fetchBean: deps.fetchBean,
         fetchDispatchable: () => dispatchable,
         spawn: (harness, prompt) => deps.spawn({harness, paneId, prompt}),

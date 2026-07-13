@@ -9,6 +9,10 @@ import {
   type ShellOptions,
 } from '../../src/beans/client.js'
 import {
+  _resetShell as _resetDispatchShell,
+  _setShellForTesting as _setDispatchShell,
+} from '../../src/dispatch/dispatch.js'
+import {
   _resetWhich,
   _setWhichForTesting,
   buildPrompt,
@@ -100,12 +104,14 @@ describe('harness/launcher', () => {
     _setPaneShell(mockPane)
     _setBeansShell(mockBeans)
     _setBeansPresentForTesting(true)
+    _setDispatchShell(() => JSON.stringify({bean: {parent: null}}))
   })
 
   afterEach(() => {
     _resetPaneShell()
     _resetWhich()
     _resetBeansShell()
+    _resetDispatchShell()
     _setBeansPresentForTesting(true)
   })
 
@@ -138,6 +144,17 @@ describe('harness/launcher', () => {
       expect(prompt).to.not.contain('curl')
       expect(prompt).to.not.contain('--unix-socket')
       expect(prompt).to.not.contain('/complete')
+    })
+
+    it('renders ancestor chain as context when provided', () => {
+      const prompt = buildPrompt('implementer', makeConfig(), 'task-1', 'Task body', [
+        {body: 'Epic body', id: 'ep-1', title: 'My Epic', type: 'epic'},
+      ])
+      expect(prompt).to.contain('Epic body')
+      expect(prompt).to.contain('My Epic')
+      expect(prompt).to.contain('Task body')
+      // Ancestor before leaf
+      expect(prompt.indexOf('Epic body')).to.be.lessThan(prompt.indexOf('Task body'))
     })
   })
 

@@ -50,6 +50,7 @@ describe('dispatch/loop', () => {
 
     let spawned: undefined | {harness: string; prompt: string}
     const result = dispatchNext(ctx, config, {
+      fetchAncestorChain: () => [],
       fetchBean(id) {
         const d = dispatchable.find((b) => b.id === id)!
         return mockBean(id, d.assigned!, `Body of ${id}`)
@@ -71,6 +72,7 @@ describe('dispatch/loop', () => {
 
   it('returns dispatched=false when no tasks are dispatchable', () => {
     const result = dispatchNext(ctx, config, {
+      fetchAncestorChain: () => [],
       fetchBean: () => mockBean('x', 'implementer', ''),
       fetchDispatchable: () => [],
       spawn() {
@@ -84,11 +86,34 @@ describe('dispatch/loop', () => {
   it('includes the bean body in the prompt (agent gets the full brief)', () => {
     const body = '## Requirement\n\nImplement the frobnicator.\n\n## AC\n\n- It frobs.'
     const result = dispatchNext(ctx, config, {
+      fetchAncestorChain: () => [],
       fetchBean: () => mockBean('hordr-0001', 'implementer', body),
-      fetchDispatchable: () => [{assigned: 'implementer', id: 'hordr-0001', priority: 'normal', title: 'T1', type: 'task'}],
+      fetchDispatchable: () => [
+        {assigned: 'implementer', id: 'hordr-0001', priority: 'normal', title: 'T1', type: 'task'},
+      ],
       spawn() {},
     })
 
     expect(result.dispatched).to.be.true
+  })
+
+  it('passes ancestor chain into the prompt as context', () => {
+    let spawned: undefined | {harness: string; prompt: string}
+    dispatchNext(ctx, config, {
+      fetchAncestorChain: () => [{body: 'Epic body text', id: 'ep-1', title: 'My Epic', type: 'epic'}],
+      fetchBean: () => mockBean('hordr-0001', 'implementer', 'Task body'),
+      fetchDispatchable: () => [
+        {assigned: 'implementer', id: 'hordr-0001', priority: 'normal', title: 'T1', type: 'task'},
+      ],
+      spawn(_h, prompt) {
+        spawned = {harness: _h, prompt}
+      },
+    })
+
+    expect(spawned!.prompt).to.contain('Epic body text')
+    expect(spawned!.prompt).to.contain('My Epic')
+    expect(spawned!.prompt).to.contain('Task body')
+    // Ancestor appears before leaf
+    expect(spawned!.prompt.indexOf('Epic body text')).to.be.lessThan(spawned!.prompt.indexOf('Task body'))
   })
 })

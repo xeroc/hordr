@@ -40,7 +40,7 @@ import {
   setLaneWorktree,
   updateLaneStatus,
 } from '../storage/fleets.js'
-import {fetchAncestry, fetchEpics, getDispatchable} from './dispatch.js'
+import {fetchAncestorChain, fetchAncestry, fetchEpics, getDispatchable} from './dispatch.js'
 import {checkInvocation} from './heal.js'
 import {createLaneForEpic} from './lane-create.js'
 import {dispatchNext} from './loop.js'
@@ -217,6 +217,7 @@ export function createFleetEngine(config: HordrConfig, mainRepoCwd: string): Fle
       }
 
       const outcome = dispatchNext({epicId: lane.epicBeanId, paneId, worktreePath: lane.worktreePath}, config, {
+        fetchAncestorChain: (id) => fetchAncestorChain(id, {cwd: beansCwd}),
         fetchBean: (id) => getBean(id, {cwd: beansCwd}),
         fetchDispatchable: () => dispatchable,
         spawn: (harness, prompt) => spawnInvocation({harness, paneId, prompt}),

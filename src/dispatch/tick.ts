@@ -41,9 +41,10 @@ export interface TickDeps {
   // createLane I/O
   createWorktree: (opts: {base: string; branch: string; cwd: string}) => {path?: string; workspaceId: string}
   epicStatus: (epicId: string) => string
+  // advanceLane I/O
+  fetchAncestorChain: (id: string) => Array<{body: string; id: string; title: string; type: string}>
   fetchAncestry: (taskId: string) => Array<{descendantsAllCompleted: boolean; id: string; status: string}>
   fetchBean: (id: string) => BeanRecord
-  // advanceLane I/O
   fetchChildStatuses: (beanId: string) => Array<{id: string; status: string}>
   fetchDispatchable: (epicId: string) => DispatchableBean[]
   // scan
@@ -218,6 +219,7 @@ function advanceActiveLane(
       commitBeans: deps.commitBeans,
       createPane: deps.createPane,
       epicStatus: deps.epicStatus,
+      fetchAncestorChain: deps.fetchAncestorChain,
       fetchAncestry: deps.fetchAncestry,
       fetchBean: deps.fetchBean,
       fetchDispatchable: deps.fetchDispatchable,

@@ -10,6 +10,7 @@ import { execFileSync } from 'node:child_process'
 import { getBody } from '../beans/client.js'
 import { loadConfig } from '../config/loader.js'
 import { type HordrConfig } from '../config/schema.js'
+import { fetchAncestorChain } from '../dispatch/dispatch.js'
 import { createTab, paneLabel as makePaneLabel, runInPane } from '../herdr/pane.js'
 
 export class HarnessError extends Error {
@@ -54,17 +55,27 @@ export function resolveHarness(role: string, config: HordrConfig): string {
 }
 
 /**
- * Build the prompt: persona text + bean body (raw). The agent reads the
- * bean content directly and interprets it.
+ * Build the prompt: persona text + ancestor context + bean body (raw). The
+ * agent reads the ancestor beans for context and implements the leaf bean.
  */
-export function buildPrompt(role: string, config: HordrConfig, beanId: string, beanBody: string): string {
+export function buildPrompt(
+  role: string,
+  config: HordrConfig,
+  beanId: string,
+  beanBody: string,
+  ancestors?: Array<{ body: string; id: string; title: string; type: string }>,
+): string {
   const persona = config.agents[role]?.persona
   if (!persona) throw new HarnessError(`no agent configured for role '${role}'`)
+  const contextSection =
+    (ancestors ?? []).length > 0
+      ? `\n---\n\n# Context — Ancestor Beans (READ ONLY: for context only, do NOT implement these)\n\n${ancestors!.map((a) => `## ${a.type}: ${a.title} (${a.id})\n\n${a.body}`).join('\n\n')}\n`
+      : ''
   return `${persona}
-
+${contextSection}
 ---
 
-# Bean ${beanId}
+# CURRENT BEAN: ${beanId}
 
 ${beanBody}
 `
@@ -80,7 +91,8 @@ export function launchAgent(opts: { beanId: string; cwd: string; role: string; w
   const config = loadConfig()
   const harness = resolveHarness(opts.role, config)
   const body = getBody(opts.beanId)
-  const prompt = buildPrompt(opts.role, config, opts.beanId, body)
+  const ancestors = fetchAncestorChain(opts.beanId)
+  const prompt = buildPrompt(opts.role, config, opts.beanId, body, ancestors)
 
   const label = makePaneLabel(opts.beanId, opts.role)
   const pane = createTab({ cwd: opts.cwd, label, workspaceId: opts.workspaceId })

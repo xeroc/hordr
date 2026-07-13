@@ -21,6 +21,7 @@ export interface LaneContext {
 }
 
 export interface DispatchDeps {
+  fetchAncestorChain: (id: string) => Array<{body: string; id: string; title: string; type: string}>
   fetchBean: (id: string) => BeanRecord
   fetchDispatchable: () => DispatchableBean[]
   spawn: (harness: string, prompt: string) => void
@@ -39,8 +40,9 @@ export function dispatchNext(ctx: LaneContext, config: HordrConfig, deps: Dispat
 
   const next = dispatchable[0]!
   const bean = deps.fetchBean(next.id)
+  const ancestors = deps.fetchAncestorChain(next.id)
   const {harness, persona, role} = resolveRole(bean, config)
-  const prompt = buildInvocationPrompt({beanBody: bean.body, beanId: next.id, persona})
+  const prompt = buildInvocationPrompt({ancestors, beanBody: bean.body, beanId: next.id, persona})
   deps.spawn(harness, prompt)
 
   return {beanId: next.id, dispatched: true, role}
