@@ -1,11 +1,11 @@
 ---
 # hordr-s725
 title: Delete 6 shallow modules (deletion test passes)
-status: todo
+status: completed
 type: epic
 priority: high
 created_at: 2026-07-13T06:36:33Z
-updated_at: 2026-07-13T06:36:33Z
+updated_at: 2026-07-13T08:19:30Z
 parent: hordr-sjue
 ---
 
