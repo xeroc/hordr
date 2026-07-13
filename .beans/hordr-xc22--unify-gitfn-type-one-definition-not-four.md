@@ -1,11 +1,11 @@
 ---
 # hordr-xc22
 title: Unify GitFn type — one definition, not four
-status: todo
+status: completed
 type: epic
 priority: normal
 created_at: 2026-07-13T06:36:34Z
-updated_at: 2026-07-13T06:36:34Z
+updated_at: 2026-07-13T07:44:23Z
 parent: hordr-sjue
 ---
 
