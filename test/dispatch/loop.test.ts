@@ -55,6 +55,7 @@ describe('dispatch/loop', () => {
         const d = dispatchable.find((b) => b.id === id)!
         return mockBean(id, d.assigned!, `Body of ${id}`)
       },
+      fetchDependencyStatus: () => ({blockers: [], parentBlockers: [], siblings: []}),
       fetchDispatchable: () => dispatchable,
       spawn(harness, prompt) {
         spawned = {harness, prompt}
@@ -74,6 +75,7 @@ describe('dispatch/loop', () => {
     const result = dispatchNext(ctx, config, {
       fetchAncestorChain: () => [],
       fetchBean: () => mockBean('x', 'implementer', ''),
+      fetchDependencyStatus: () => ({blockers: [], parentBlockers: [], siblings: []}),
       fetchDispatchable: () => [],
       spawn() {
         throw new Error('should not spawn')
@@ -88,6 +90,7 @@ describe('dispatch/loop', () => {
     const result = dispatchNext(ctx, config, {
       fetchAncestorChain: () => [],
       fetchBean: () => mockBean('hordr-0001', 'implementer', body),
+      fetchDependencyStatus: () => ({blockers: [], parentBlockers: [], siblings: []}),
       fetchDispatchable: () => [
         {assigned: 'implementer', id: 'hordr-0001', priority: 'normal', title: 'T1', type: 'task'},
       ],
@@ -102,6 +105,7 @@ describe('dispatch/loop', () => {
     dispatchNext(ctx, config, {
       fetchAncestorChain: () => [{body: 'Epic body text', id: 'ep-1', title: 'My Epic', type: 'epic'}],
       fetchBean: () => mockBean('hordr-0001', 'implementer', 'Task body'),
+      fetchDependencyStatus: () => ({blockers: [], parentBlockers: [], siblings: []}),
       fetchDispatchable: () => [
         {assigned: 'implementer', id: 'hordr-0001', priority: 'normal', title: 'T1', type: 'task'},
       ],

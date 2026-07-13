@@ -41,7 +41,7 @@ import {
   setLaneWorktree,
   updateLaneStatus,
 } from '../storage/fleets.js'
-import {fetchAncestorChain, fetchAncestry, fetchEpics, getDispatchable} from './dispatch.js'
+import {fetchAncestorChain, fetchAncestry, fetchDependencyStatus, fetchEpics, getDispatchable} from './dispatch.js'
 import {checkInvocation} from './heal.js'
 import {createLaneForEpic} from './lane-create.js'
 import {dispatchNext} from './loop.js'
@@ -221,6 +221,7 @@ export function createFleetEngine(config: HordrConfig): FleetEngine {
       const outcome = dispatchNext({epicId: lane.epicBeanId, paneId, worktreePath: lane.worktreePath}, config, {
         fetchAncestorChain: (id) => fetchAncestorChain(id, {cwd: beansCwd}),
         fetchBean: (id) => getBean(id, {cwd: beansCwd}),
+        fetchDependencyStatus: (id) => fetchDependencyStatus(id, {cwd: beansCwd}),
         fetchDispatchable: () => dispatchable,
         spawn: (harness, prompt) => spawnInvocation({harness, paneId, prompt}),
       })
@@ -242,7 +243,11 @@ export function createFleetEngine(config: HordrConfig): FleetEngine {
 
     if (heal.action === 'wait') return {action: 'wait'}
     if (heal.action === 'blocked') {
-      logger.debug(`lane ${lane.epicBeanId}: task ${lane.currentTaskBeanId} blocked (${heal.reason})`)
+      logger.warn(
+        `lane ${lane.epicBeanId}: CONFLICT — task ${lane.currentTaskBeanId} ${heal.reason}.` +
+          ` The agent may have crashed or stopped without calling 'hordr done' or 'hordr blocked'.` +
+          ` Lane is now paused. To retry: ensure the task is ready, then run 'hordr fleet reset' or manually set the lane back to active.`,
+      )
       updateLaneStatus(db, loc, 'conflict')
       return {action: 'blocked', taskId: lane.currentTaskBeanId}
     }
@@ -286,12 +291,15 @@ export function createFleetEngine(config: HordrConfig): FleetEngine {
 
       for (const epic of allEpics) {
         const hasLane = existingLaneEpicIds.has(epic.id)
-        const ready = hasLane
-          ? '(has lane)'
+        const laneInfo = hasLane
+          ? (() => {
+              const lane = allLanes.find((l) => l.epicBeanId === epic.id)
+              return `lane=${lane?.status ?? '?'} task=${lane?.currentTaskBeanId ?? '(idle)'}`
+            })()
           : getDispatchable(epic.id, {cwd: fleet.worktreePath}).length > 0
-            ? 'ready'
+            ? 'ready (no lane yet)'
             : 'not ready'
-        logger.debug(`  epic ${epic.id}: ${ready} — ${epic.title}`)
+        logger.debug(`  epic ${epic.id}: ${laneInfo} — ${epic.title}`)
       }
 
       const newLanes = scanForNewLanes(fleet.milestoneBeanId, {

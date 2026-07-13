@@ -16,7 +16,7 @@ import type {LaneLoc, LaneRow} from '../storage/fleets.js'
 import type {MergeResult} from './merge.js'
 
 import {logger} from '../logger.js'
-import {type DispatchableBean} from './dispatch.js'
+import {type DependencyStatus, type DispatchableBean} from './dispatch.js'
 import {checkInvocation} from './heal.js'
 import {dispatchNext} from './loop.js'
 import {rollup} from './rollup.js'
@@ -34,6 +34,7 @@ export interface AdvanceLaneDeps {
   // rollup
   fetchAncestry: (taskId: string) => Array<{descendantsAllCompleted: boolean; id: string; status: string}>
   fetchBean: (id: string) => BeanRecord
+  fetchDependencyStatus: (id: string) => DependencyStatus
   fetchDispatchable: (epicId: string) => DispatchableBean[]
   markCompleted: (beanId: string) => void
   // epic-complete
@@ -124,6 +125,7 @@ export function advanceLane(opts: AdvanceLaneOpts, deps: AdvanceLaneDeps): Advan
       {
         fetchAncestorChain: deps.fetchAncestorChain,
         fetchBean: deps.fetchBean,
+        fetchDependencyStatus: deps.fetchDependencyStatus,
         fetchDispatchable: () => dispatchable,
         spawn: (harness, prompt) => deps.spawn({harness, paneId, prompt}),
       },

@@ -8,6 +8,7 @@ import {socketPath} from '../daemon/socket.js'
 import {createFleetEngine} from '../dispatch/engine.js'
 import {configureLogger, logger} from '../logger.js'
 import {openFleetDb} from '../storage/db.js'
+import {findLaneByTask, setLaneCurrentTask} from '../storage/fleets.js'
 
 /**
  * The hordr daemon: a unix-socket server (health + /done) plus the broker tick
@@ -67,6 +68,14 @@ export default class Daemon extends Command {
     const broker: BrokerHandle = wireDaemon({
       db,
       engine,
+      releaseTask(taskId) {
+        const lane = findLaneByTask(db, taskId)
+        if (!lane) return false
+        const loc = {epicId: lane.epicBeanId, milestoneId: lane.fleetMilestoneBeanId, projectKey: lane.projectKey}
+        setLaneCurrentTask(db, loc, null)
+        logger.info(`lane ${lane.epicBeanId}: task ${taskId} released (agent reported blocked) — lane stays active`)
+        return true
+      },
       verifyCompleted() {
         // /done is a notification, not a gate. Always accept — the self-heal
         // poll on the next tick does the real verification and rollup.
@@ -78,7 +87,7 @@ export default class Daemon extends Command {
     installBrokerShutdown(broker)
 
     logger.info(`listening on ${server.path}`)
-    logger.info(`routes: GET /health, POST /done`)
+    logger.info(`routes: GET /health, POST /done, POST /blocked`)
     logger.info(`broker tick: every ${process.env.HORDR_TICK_MS ?? '5000'}ms`)
 
     // ponytail: keep the process alive waiting for signal.

@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3'
 
+import {handleBlocked} from '../dispatch/blocked.js'
 import {handleDone} from '../dispatch/done.js'
 import {type FleetEngine} from '../dispatch/engine.js'
 import {logger} from '../logger.js'
@@ -41,6 +42,11 @@ export function startBroker(opts: {
   return {stop: () => clearInterval(timer)}
 }
 
+/** POST /blocked route: release the lane so the daemon can dispatch other work. */
+export function blockedRouteHandler(releaseTask: (taskId: string) => boolean) {
+  return (req: DaemonRequest): DaemonResponse => handleBlocked(req.body, {releaseTask})
+}
+
 /** POST /done route: verify the task is completed, return the handler response. */
 export function doneRouteHandler(verifyCompleted: (taskId: string) => boolean) {
   return (req: DaemonRequest): DaemonResponse => handleDone(req.body, {verifyCompleted})
@@ -54,9 +60,11 @@ export function wireDaemon(opts: {
   db: Database.Database
   engine: FleetEngine
   intervalMs?: number
+  releaseTask: (taskId: string) => boolean
   tickFn?: (db: Database.Database, engine: FleetEngine) => void
   verifyCompleted: (taskId: string) => boolean
 }): BrokerHandle {
+  addRoute('POST', '/blocked', blockedRouteHandler(opts.releaseTask))
   addRoute('POST', '/done', doneRouteHandler(opts.verifyCompleted))
   return startBroker(opts)
 }

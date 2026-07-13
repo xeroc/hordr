@@ -14,7 +14,7 @@ import type Database from 'better-sqlite3'
 import type {BeanRecord} from '../beans/client.js'
 import type {HordrConfig} from '../config/schema.js'
 import type {LaneRow} from '../storage/fleets.js'
-import type {DispatchableBean} from './dispatch.js'
+import type {DependencyStatus, DispatchableBean} from './dispatch.js'
 import type {MergeResult} from './merge.js'
 import type {EpicInfo} from './scan.js'
 
@@ -46,6 +46,7 @@ export interface TickDeps {
   fetchAncestry: (taskId: string) => Array<{descendantsAllCompleted: boolean; id: string; status: string}>
   fetchBean: (id: string) => BeanRecord
   fetchChildStatuses: (beanId: string) => Array<{id: string; status: string}>
+  fetchDependencyStatus: (id: string) => DependencyStatus
   fetchDispatchable: (epicId: string) => DispatchableBean[]
   // scan
   fetchEpics: (milestoneId: string) => EpicInfo[]
@@ -222,6 +223,7 @@ function advanceActiveLane(
       fetchAncestorChain: deps.fetchAncestorChain,
       fetchAncestry: deps.fetchAncestry,
       fetchBean: deps.fetchBean,
+      fetchDependencyStatus: deps.fetchDependencyStatus,
       fetchDispatchable: deps.fetchDispatchable,
       markCompleted: deps.markCompleted,
       mergeBranch: deps.mergeBranch,

@@ -248,6 +248,37 @@ function fetchReady(cwd?: string): DispatchableBean[] {
   return data
 }
 
+// --- dependency status ---
+
+export interface DependencyStatus {
+  blockers: Array<{id: string; status: string; title: string}>
+  parentBlockers: Array<{id: string; status: string; title: string}>
+  siblings: Array<{id: string; status: string; title: string; type: string}>
+}
+
+interface DepRow {
+  blockedBy?: Array<{id: string; status: string; title: string}>
+  children?: Array<{id: string; status: string; title: string; type: string}>
+  parent?: null | {
+    blockedBy?: Array<{id: string; status: string; title: string}>
+    children?: Array<{id: string; status: string; title: string; type: string}>
+    id: string
+  }
+}
+
+export function fetchDependencyStatus(taskId: string, opts?: {cwd?: string}): DependencyStatus {
+  const query = `{ bean(id: "${taskId}") { blockedBy { id title status } parent { id blockedBy { id title status } children { id title status type } } } }`
+  const raw = _shell(['query', '--json', query], {cwd: opts?.cwd})
+  const {bean} = JSON.parse(raw) as {bean?: DepRow}
+
+  const blockers = bean?.blockedBy ?? []
+  const {parent} = bean ?? {}
+  const parentBlockers = parent?.blockedBy ?? []
+  const siblings = (parent?.children ?? []).filter((c) => c.id !== taskId)
+
+  return {blockers, parentBlockers, siblings}
+}
+
 // --- public API ---
 
 /** Get the sorted list of dispatchable beans under a subtree root (epic or milestone). */

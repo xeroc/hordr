@@ -176,6 +176,7 @@ export function createTestFleetEngine(opts: {behavior?: MockBehavior; config: Ho
       fetchAncestry,
       fetchBean,
       fetchChildStatuses: (beanId: string) => data.childStatuses?.[beanId] ?? [],
+      fetchDependencyStatus: () => ({blockers: [], parentBlockers: [], siblings: []}),
       fetchDispatchable,
       fetchEpics: () => data.epics ?? [],
       // An epic has ready work if it appears in the dispatchable map (even with
@@ -200,6 +201,7 @@ export function createTestFleetEngine(opts: {behavior?: MockBehavior; config: Ho
     fetchAncestorChain: () => [],
     fetchAncestry,
     fetchBean,
+    fetchDependencyStatus: () => ({blockers: [], parentBlockers: [], siblings: []}),
     fetchDispatchable,
     markCompleted,
     mergeBranch,

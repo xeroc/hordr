@@ -9,7 +9,7 @@
  */
 import type {BeanRecord} from '../beans/client.js'
 import type {HordrConfig} from '../config/schema.js'
-import type {DispatchableBean} from './dispatch.js'
+import type {DependencyStatus, DispatchableBean} from './dispatch.js'
 
 import {resolveRole} from './role.js'
 import {buildInvocationPrompt} from './spawn.js'
@@ -23,6 +23,7 @@ export interface LaneContext {
 export interface DispatchDeps {
   fetchAncestorChain: (id: string) => Array<{body: string; id: string; title: string; type: string}>
   fetchBean: (id: string) => BeanRecord
+  fetchDependencyStatus: (id: string) => DependencyStatus
   fetchDispatchable: () => DispatchableBean[]
   spawn: (harness: string, prompt: string) => void
 }
@@ -41,8 +42,9 @@ export function dispatchNext(ctx: LaneContext, config: HordrConfig, deps: Dispat
   const next = dispatchable[0]!
   const bean = deps.fetchBean(next.id)
   const ancestors = deps.fetchAncestorChain(next.id)
+  const dependencies = deps.fetchDependencyStatus(next.id)
   const {harness, persona, role} = resolveRole(bean, config)
-  const prompt = buildInvocationPrompt({ancestors, beanBody: bean.body, beanId: next.id, persona})
+  const prompt = buildInvocationPrompt({ancestors, beanBody: bean.body, beanId: next.id, dependencies, persona})
   deps.spawn(harness, prompt)
 
   return {beanId: next.id, dispatched: true, role}

@@ -43,6 +43,7 @@ describe('dispatch (lane flow integration)', () => {
     const dispatchDeps: DispatchDeps = {
       fetchAncestorChain: () => [],
       fetchBean: (id) => ({assigned: 'implementer', body: `body of ${id}`, id}) as never,
+      fetchDependencyStatus: () => ({blockers: [], parentBlockers: [], siblings: []}),
       fetchDispatchable: () => [{assigned: 'implementer', id: 'task-1', priority: 'normal', title: 'T1', type: 'task'}],
       spawn() {
         spawnCalled = true
