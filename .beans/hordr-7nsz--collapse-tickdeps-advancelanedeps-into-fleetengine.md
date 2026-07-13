@@ -1,11 +1,11 @@
 ---
 # hordr-7nsz
 title: Collapse TickDeps + AdvanceLaneDeps into FleetEngine
-status: todo
+status: completed
 type: epic
 priority: critical
 created_at: 2026-07-13T06:36:33Z
-updated_at: 2026-07-13T06:36:33Z
+updated_at: 2026-07-13T09:29:17Z
 parent: hordr-sjue
 ---
 

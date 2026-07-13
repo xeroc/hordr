@@ -4,9 +4,9 @@ import {expect} from 'chai'
 
 import type {HordrConfig} from '../../src/config/schema.js'
 
-import {tick} from '../../src/dispatch/tick.js'
 import {applySchema, openDb} from '../../src/storage/db.js'
 import {addLane, ensureProject, listLanes, registerFleet, updateLaneStatus} from '../../src/storage/fleets.js'
+import {createTestFleetEngine} from '../helpers/fleet-engine.js'
 
 const PK = 'pk1'
 const MS = 'ms1'
@@ -32,85 +32,56 @@ function freshDb(): Database.Database {
   return db
 }
 
-describe('dispatch/tick', () => {
+describe('dispatch/tick (via FleetEngine.scanFleet)', () => {
   it('scans + creates a lane for an unblocked epic, then advances it (dispatch)', () => {
     const db = freshDb()
-    const spawnCalls: string[] = []
-
-    tick(db, () => ({
-      beanStatus: () => "todo",
-      commitBeans() {},
+    const {engine, records} = createTestFleetEngine({
       config,
-      createPane: () => 'w1:p1',
-      createWorktree: () => ({path: '/wt/epic-a', workspaceId: 'w1'}),
-      epicStatus: () => 'todo',
-      fetchAncestry: () => [],
-      fetchBean: (id) => ({assigned: 'implementer', body: 'b', id, type: 'task'}) as never,
-      fetchChildStatuses: () => [],
-      fetchDispatchable: () => [{assigned: 'implementer', id: 'task-1', priority: 'normal', title: 'T1', type: 'task'}],
-      fetchEpics: () => [{id: 'epic-a', title: 'Epic A'}],
-      hasReadyWork: () => true,
-      markCompleted() {},
-      mergeBranch: () => ({conflict: false}),
-      paneAlive: () => true,
-      removeWorktree() {},
-      spawn(opts) {
-        spawnCalls.push(opts.prompt)
+      data: {
+        beans: {
+          'epic-a': {status: 'todo', type: 'epic'},
+          'task-1': {assigned: 'implementer', status: 'todo', type: 'task'},
+        },
+        dispatchable: {
+          'epic-a': [{assigned: 'implementer', id: 'task-1', priority: 'normal', title: 'T1', type: 'task'}],
+        },
+        epics: [{id: 'epic-a', title: 'Epic A'}],
       },
-      worktreeExists: () => true,
-    }))
+    })
 
-    // lane created
+    engine.scanFleet(db)
+
     const lanes = listLanes(db, PK, MS)
     expect(lanes).to.have.length(1)
     expect(lanes[0]!.epicBeanId).to.equal('epic-a')
     expect(lanes[0]!.status).to.equal('active')
-    // dispatched: current task set + spawn called
     expect(lanes[0]!.currentTaskBeanId).to.equal('task-1')
-    expect(spawnCalls).to.have.length(1)
+    expect(records.spawn).to.have.length(1)
 
     db.close()
   })
 
   it('does not re-create a lane that already exists (scan skips it)', () => {
     const db = freshDb()
-    let wtCalls = 0
-
-    const factory = () => ({
-      beanStatus: () => "todo",
-      commitBeans() {},
+    const {engine, records} = createTestFleetEngine({
       config,
-      createPane: () => 'p',
-      createWorktree() {
-        wtCalls++
-        return {path: '/wt', workspaceId: 'w'}
+      data: {
+        beans: {'epic-a': {status: 'todo', type: 'epic'}},
+        dispatchable: {'epic-a': []},
+        epics: [{id: 'epic-a', title: 'A'}],
       },
-      epicStatus: () => 'todo',
-      fetchAncestry: () => [],
-      fetchBean: (id: string) => ({assigned: 'implementer', body: 'b', id, type: 'task'}) as never,
-      fetchChildStatuses: () => [],
-      fetchDispatchable: () => [],
-      fetchEpics: () => [{id: 'epic-a', title: 'A'}],
-      hasReadyWork: () => true,
-      markCompleted() {},
-      mergeBranch: () => ({conflict: false}),
-      paneAlive: () => true,
-      removeWorktree() {},
-      spawn() {},
-      worktreeExists: () => true,
     })
 
-    tick(db, factory as never)
-    tick(db, factory as never) // second tick: epic-a already has a lane
+    engine.scanFleet(db)
+    engine.scanFleet(db) // second tick: epic-a already has a lane
 
-    expect(wtCalls).to.equal(1) // worktree created only once
+    expect(records.createdWorktrees).to.have.length(1)
     expect(listLanes(db, PK, MS)).to.have.length(1)
     db.close()
   })
 
   it('skips lanes not in active status (conflict/done)', () => {
     const db = freshDb()
-    // seed a conflict lane directly
     addLane(db, {
       branch: 'ms1/epic-a',
       createdAt: NOW,
@@ -125,99 +96,36 @@ describe('dispatch/tick', () => {
     })
     updateLaneStatus(db, {epicId: 'epic-a', milestoneId: MS, projectKey: PK}, 'conflict')
 
-    let spawnCalls = 0
-    tick(db, () => ({
-      beanStatus: () => "todo",
-      commitBeans() {},
-      config,
-      createPane: () => 'p',
-      createWorktree: () => ({path: '/wt', workspaceId: 'w'}),
-      epicStatus: () => 'todo',
-      fetchAncestry: () => [],
-      fetchBean: (id: string) => ({assigned: 'implementer', body: 'b', id, type: 'task'}) as never,
-      fetchChildStatuses: () => [],
-      fetchDispatchable: () => [{assigned: 'implementer', id: 'task-9', priority: 'normal', title: 'T9', type: 'task'}],
-      fetchEpics: () => [],
-      hasReadyWork: () => true,
-      markCompleted() {},
-      mergeBranch: () => ({conflict: false}),
-      paneAlive: () => true,
-      removeWorktree() {},
-      spawn() {
-        spawnCalls++
-      },
-      worktreeExists: () => true,
-    }))
+    const {engine, records} = createTestFleetEngine({config})
 
-    // conflict lane not advanced
-    expect(spawnCalls).to.equal(0)
+    engine.scanFleet(db)
+
+    expect(records.spawn).to.have.length(0)
     db.close()
   })
 
   it('ignores fleets that are not active', () => {
     const db = freshDb()
-    // flip the fleet to a non-active status
     db.prepare('UPDATE fleets SET status = ? WHERE milestone_bean_id = ?').run('finishable', MS)
 
-    let wtCalls = 0
-    tick(db, () => ({
-      beanStatus: () => "todo",
-      commitBeans() {},
+    const {engine, records} = createTestFleetEngine({
       config,
-      createPane: () => 'p',
-      createWorktree() {
-        wtCalls++
-        return {path: '/wt', workspaceId: 'w'}
-      },
-      epicStatus: () => 'todo',
-      fetchAncestry: () => [],
-      fetchBean: (id: string) => ({assigned: 'implementer', body: 'b', id, type: 'task'}) as never,
-      fetchChildStatuses: () => [],
-      fetchDispatchable: () => [],
-      fetchEpics: () => [{id: 'epic-a', title: 'A'}],
-      hasReadyWork: () => true,
-      markCompleted() {},
-      mergeBranch: () => ({conflict: false}),
-      paneAlive: () => true,
-      removeWorktree() {},
-      spawn() {},
-      worktreeExists: () => true,
-    }))
+      data: {epics: [{id: 'epic-a', title: 'A'}]},
+    })
 
-    expect(wtCalls).to.equal(0)
+    engine.scanFleet(db)
+
+    expect(records.createdWorktrees).to.have.length(0)
     db.close()
   })
 
-  it('uses per-fleet cwd (factory called with fleet worktreePath)', () => {
+  it('uses per-fleet cwd (engine internals scoped to fleet worktreePath)', () => {
     const db = freshDb()
-    const seenCwds: string[] = []
+    const {engine, records} = createTestFleetEngine({config})
 
-    tick(db, (cwd) => {
-      seenCwds.push(cwd)
-      return {
-        beanStatus: () => "todo",
-      commitBeans() {},
-      config,
-      createPane: () => 'p',
-        createWorktree: () => ({path: '/wt', workspaceId: 'w'}),
-        epicStatus: () => 'todo',
-        fetchAncestry: () => [],
-        fetchBean: (id: string) => ({assigned: 'implementer', body: 'b', id, type: 'task'}) as never,
-        fetchChildStatuses: () => [],
-        fetchDispatchable: () => [],
-        fetchEpics: () => [],
-        hasReadyWork: () => false,
-        markCompleted() {},
-        mergeBranch: () => ({conflict: false}),
-        paneAlive: () => true,
-        removeWorktree() {},
-        spawn() {},
-        worktreeExists: () => true,
-      }
-    })
+    engine.scanFleet(db)
 
-    // factory called with the fleet's worktreePath ('/repo' from freshDb)
-    expect(seenCwds).to.include('/repo')
+    expect(records.factoryCwds).to.include('/repo')
     db.close()
   })
 })

@@ -2,9 +2,10 @@ import {Command, Flags} from '@oclif/core'
 import {spawn} from 'node:child_process'
 
 import {loadConfig} from '../config/loader.js'
-import {type BrokerHandle, createTickDepsFactory, wireDaemon} from '../daemon/broker.js'
+import {type BrokerHandle, wireDaemon} from '../daemon/broker.js'
 import {installSignalHandlers, startServer} from '../daemon/server.js'
 import {socketPath} from '../daemon/socket.js'
+import {createFleetEngine} from '../dispatch/engine.js'
 import {configureLogger, logger} from '../logger.js'
 import {openFleetDb} from '../storage/db.js'
 
@@ -59,13 +60,13 @@ export default class Daemon extends Command {
 
     const config = loadConfig()
     const db = openFleetDb()
-    const depsFactory = createTickDepsFactory(config)
+    const engine = createFleetEngine(config, process.cwd())
 
     const server = await startServer({path: sock})
     installSignalHandlers(server)
     const broker: BrokerHandle = wireDaemon({
       db,
-      depsFactory,
+      engine,
       verifyCompleted() {
         // /done is a notification, not a gate. Always accept — the self-heal
         // poll on the next tick does the real verification and rollup.

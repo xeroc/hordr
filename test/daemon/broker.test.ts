@@ -39,7 +39,7 @@ describe('daemon/broker', () => {
       let calls = 0
       const broker = startBroker({
         db,
-        depsFactory: (() => ({})) as never,
+        engine: {scanFleet: () => ({advanced: 0, lanesCreated: 0})} as never,
         intervalMs: 10,
         tickFn() {
           calls++
@@ -70,7 +70,7 @@ describe('daemon/broker', () => {
       let throwNext = true
       const broker = startBroker({
         db,
-        depsFactory: (() => ({})) as never,
+        engine: {scanFleet: () => ({advanced: 0, lanesCreated: 0})} as never,
         intervalMs: 5,
         tickFn() {
           if (throwNext) {

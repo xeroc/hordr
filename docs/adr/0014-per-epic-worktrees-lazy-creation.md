@@ -49,7 +49,6 @@ The modules built under the serialized model are reusable with a one-word scope 
 | `getDispatchable`                                      | scope param: `epicId` instead of `milestoneId`          |
 | `dispatchNext`                                         | context: `{epicId, worktreePath, paneId}`               |
 | `rollup`                                               | `fetchAncestry` dep stops at epic level (not milestone) |
-| `squashRollup`                                         | unchanged (operates within the epic worktree)           |
 | `resolveRole`, `spawnInvocation`, `handleDone`, `heal` | unchanged                                               |
 
 The real new work is in the integration layer: lane lifecycle management, the `lanes` SQLite table, N concurrent dispatch loops, and the two-level merge with conflict detection.

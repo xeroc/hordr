@@ -9,8 +9,6 @@
  */
 import type {LaneRow} from '../storage/fleets.js'
 
-import {ensureLanePane} from './pane.js'
-
 export interface CreateLaneDeps {
   /** Persist the lane row. */
   addLane: (row: LaneRow) => void
@@ -46,10 +44,11 @@ export function createLaneForEpic(opts: CreateLaneOpts, deps: CreateLaneDeps): C
   const wt = deps.createWorktree({base: opts.fleet.msBranch, branch, cwd: opts.cwd})
   const worktreePath = wt.path ?? wt.workspaceId
 
-  const {paneId} = ensureLanePane(
-    {epicId: opts.epic.id, workspaceId: wt.workspaceId, worktreePath},
-    {createPane: deps.createPane},
-  )
+  const paneId = deps.createPane({
+    cwd: worktreePath,
+    label: `hordr:${opts.epic.id}`,
+    workspaceId: wt.workspaceId,
+  })
 
   deps.addLane({
     branch,
