@@ -44,6 +44,7 @@ export interface TickDeps {
   fetchAncestry: (taskId: string) => Array<{descendantsAllCompleted: boolean; id: string; status: string}>
   fetchBean: (id: string) => BeanRecord
   // advanceLane I/O
+  fetchChildStatuses: (beanId: string) => Array<{id: string; status: string}>
   fetchDispatchable: (epicId: string) => DispatchableBean[]
   // scan
   fetchEpics: (milestoneId: string) => EpicInfo[]
@@ -173,6 +174,20 @@ export function tick(db: Database.Database, depsFactory: TickDepsFactory): TickR
         advanced += advanceActiveLane(db, fleet, lane, depsFactory(lane.worktreePath))
       } catch (error) {
         logger.warn(`lane ${lane.epicBeanId}: advance failed: ${(error as Error).message}`)
+      }
+    }
+
+    // 3. Fleet completion: if all epics are done, mark the milestone completed.
+    //    This is the step that makes `hordr fleet finish` work — without it,
+    //    the milestone bean stays 'todo' even when every epic is completed.
+    if (deps.beanStatus(fleet.milestoneBeanId) !== 'completed') {
+      const epicStatuses = deps.fetchChildStatuses(fleet.milestoneBeanId)
+      const TERMINAL = new Set(['completed', 'scrapped'])
+      const allDone = epicStatuses.length > 0 && epicStatuses.every((e) => TERMINAL.has(e.status))
+      if (allDone) {
+        logger.info(`fleet ${fleet.milestoneBeanId}: all epics done → marking milestone completed`)
+        deps.markCompleted(fleet.milestoneBeanId)
+        deps.commitBeans(fleet.worktreePath)
       }
     }
   }

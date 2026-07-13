@@ -1,18 +1,21 @@
 import {Args, Command, Flags} from '@oclif/core'
 
 import {getBean} from '../../beans/client.js'
+import {loadConfig} from '../../config/loader.js'
 import {fetchChildStatuses} from '../../dispatch/dispatch.js'
 import {finishFleet} from '../../fleet/lifecycle.js'
 import {getGitRunner} from '../../runtime.js'
 import {openFleetDb} from '../../storage/db.js'
+import {getFleet} from '../../storage/fleets.js'
 import {resolveProjectKeyOrMock} from '../../storage/project.js'
 
 /**
  * hordr fleet finish <milestone-id>
  *
- * Assert the milestone + all epics are completed, merge ms/<id> into primary
- * (--no-ff), then drop the lane + fleet rows. Refuses if incomplete. Worktrees
- * are torn down by the daemon at epic-merge time; finish only cleans the rows.
+ * Assert the milestone + all epics are completed, merge the milestone branch
+ * into primary (--no-ff), then drop the lane + fleet rows. Refuses if
+ * incomplete. Reads bean status from the fleet's ms worktree — NOT the main
+ * repo (which is on develop and has stale status).
  */
 export default class FleetFinish extends Command {
   static args = {milestone: Args.string({description: 'Milestone bean id', required: true})}
@@ -27,19 +30,29 @@ export default class FleetFinish extends Command {
     const {args, flags} = await this.parse(FleetFinish)
     const milestoneId = args.milestone
 
-    const primary = flags.base ?? 'develop'
+    const config = loadConfig()
+    const primary = flags.base ?? config.primary_branch
     const cwd = process.cwd()
     const projectKey = resolveProjectKeyOrMock({cwd})
 
     const db = openFleetDb()
     try {
+      // Read bean status from the fleet's ms worktree, not process.cwd().
+      // The ms worktree is on the milestone branch where completed epics are visible.
+      const fleet = getFleet(db, projectKey, milestoneId)
+      if (!fleet) {
+        this.error(`no fleet for ${milestoneId}`)
+      }
+
+      const msCwd = fleet.worktreePath
+
       const result = finishFleet(
         db,
         milestoneId,
-        {cwd, primaryBranch: primary, projectKey},
+        {cwd: msCwd, primaryBranch: primary, projectKey},
         {
-          beanStatus: (id) => getBean(id, {cwd}).status as string | undefined,
-          fetchEpicStatuses: (id) => fetchChildStatuses(id, {cwd}),
+          beanStatus: (id) => getBean(id, {cwd: msCwd}).status as string | undefined,
+          fetchEpicStatuses: (id) => fetchChildStatuses(id, {cwd: msCwd}),
           git: getGitRunner(),
         },
       )

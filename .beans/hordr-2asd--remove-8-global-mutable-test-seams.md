@@ -1,11 +1,11 @@
 ---
 # hordr-2asd
 title: Remove 8 global mutable test seams
-status: todo
+status: completed
 type: epic
 priority: normal
 created_at: 2026-07-13T06:36:34Z
-updated_at: 2026-07-13T06:36:34Z
+updated_at: 2026-07-13T07:43:49Z
 parent: hordr-sjue
 ---
 

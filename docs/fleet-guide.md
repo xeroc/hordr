@@ -142,12 +142,12 @@ reviewer:
 These responsibilities moved from the agent persona to the daemon broker
 (ADR-0009, ADR-0010, ADR-0011):
 
-| Old v3 agent responsibility       | New owner                      |
-| --------------------------------- | ------------------------------ |
-| Enumerate descendant beans        | Broker (getDispatchable)       |
-| Pick the next task to work        | Broker (dispatchNext)          |
-| Propagate status upward (rollup)  | Broker (rollup + squashRollup) |
-| Traverse the bean tree            | Broker (beans query)           |
-| Decide when the milestone is done | Broker (isMilestoneComplete)   |
+| Old v3 agent responsibility       | New owner                    |
+| --------------------------------- | ---------------------------- |
+| Enumerate descendant beans        | Broker (getDispatchable)     |
+| Pick the next task to work        | Broker (dispatchNext)        |
+| Propagate status upward (rollup)  | Broker (rollup)              |
+| Traverse the bean tree            | Broker (beans query)         |
+| Decide when the milestone is done | Broker (isMilestoneComplete) |
 
 The agent is a worker, not a planner. One task, one commit, one `hordr done`.

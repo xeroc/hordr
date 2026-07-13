@@ -1,14 +1,13 @@
 import {Command, Flags} from '@oclif/core'
 import {spawn} from 'node:child_process'
 
-import {getBean} from '../beans/client.js'
 import {loadConfig} from '../config/loader.js'
-import {type BrokerHandle, createTickDepsFactory, wireDaemon} from '../daemon/broker.js'
+import {type BrokerHandle, wireDaemon} from '../daemon/broker.js'
 import {installSignalHandlers, startServer} from '../daemon/server.js'
 import {socketPath} from '../daemon/socket.js'
+import {createFleetEngine} from '../dispatch/engine.js'
 import {configureLogger, logger} from '../logger.js'
 import {openFleetDb} from '../storage/db.js'
-import {findLaneByTask} from '../storage/fleets.js'
 
 /**
  * The hordr daemon: a unix-socket server (health + /done) plus the broker tick
@@ -60,26 +59,20 @@ export default class Daemon extends Command {
     logger.info(`hordr daemon starting (log level: ${flags['log-level']})`)
 
     const config = loadConfig()
-    const cwd = process.cwd()
     const db = openFleetDb()
-    const depsFactory = createTickDepsFactory(config)
+    const engine = createFleetEngine(config, process.cwd())
 
     const server = await startServer({path: sock})
     installSignalHandlers(server)
     const broker: BrokerHandle = wireDaemon({
       db,
-      depsFactory,
-      verifyCompleted(taskId) {
-        // Resolve the task's worktree from the DB — different fleets are in
-        // different repos. Fall back to false (self-heal handles it).
-        try {
-          const lane = findLaneByTask(db, taskId)
-          const laneCwd = lane?.worktreePath ?? cwd
-          return getBean(taskId, {cwd: laneCwd}).status === 'completed'
-        } catch {
-          logger.warn(`/done: could not verify ${taskId} — self-heal will handle it`)
-          return false
-        }
+      engine,
+      verifyCompleted() {
+        // /done is a notification, not a gate. Always accept — the self-heal
+        // poll on the next tick does the real verification and rollup.
+        // Returning 409 causes the agent to think it failed (the self-heal
+        // may have already cleared current_task_bean_id).
+        return true
       },
     })
     installBrokerShutdown(broker)

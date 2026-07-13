@@ -27,7 +27,7 @@ export default class FleetStatus extends Command {
     const db = openFleetDb()
     try {
       const {fleet, lanes} = describeFleet(db, projectKey, milestoneId)
-      const drafts = listDrafts(milestoneId)
+      const drafts = listDrafts(milestoneId, {cwd: fleet.worktreePath})
 
       if (flags.json) {
         this.log(
