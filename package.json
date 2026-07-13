@@ -1,6 +1,7 @@
 {
   "name": "@hordr/cli",
   "description": "Manage a horde of coding agents through beans, worktrees, and workflows",
+  "private": "false",
   "version": "0.1.0",
   "author": "Fabian Schuh",
   "bin": {
@@ -66,7 +67,7 @@
     "build": "shx rm -rf dist && tsc -b",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "postpack": "shx rm -f oclif.manifest.json",
+    "postpack": "npx shx rm -f oclif.manifest.json",
     "posttest": "bun run lint",
     "prepack": "npx oclif manifest && npx oclif readme",
     "test": "mocha --forbid-only \"test/**/*.test.ts\"",
