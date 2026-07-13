@@ -60,7 +60,7 @@ export default class Daemon extends Command {
 
     const config = loadConfig()
     const db = openFleetDb()
-    const engine = createFleetEngine(config, process.cwd())
+    const engine = createFleetEngine(config)
 
     const server = await startServer({path: sock})
     installSignalHandlers(server)

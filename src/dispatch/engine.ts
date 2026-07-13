@@ -33,6 +33,7 @@ import {logger} from '../logger.js'
 import {getGitRunner} from '../runtime.js'
 import {
   addLane,
+  getProjectPath,
   listFleets,
   listLanes,
   setLaneCurrentTask,
@@ -156,28 +157,29 @@ function rollupAncestors(taskId: string, beansCwd: string): boolean {
 
 // --- factory ---
 
-export function createFleetEngine(config: HordrConfig, mainRepoCwd: string): FleetEngine {
-  /** Merge an epic's lane into the ms branch, tear down the worktree, go done. */
-  const mergeEpicLane = (db: Database.Database, fleet: FleetRow, lane: LaneRow, taskId?: string): AdvanceResult => {
-    const loc: LaneLoc = {epicId: lane.epicBeanId, milestoneId: fleet.milestoneBeanId, projectKey: fleet.projectKey}
-    logger.debug(`lane ${lane.epicBeanId}: merging ${lane.branch} → ${fleet.branch} (cwd=${fleet.worktreePath})`)
-    const result = mergeBranch(
-      {cwd: fleet.worktreePath, source: lane.branch, target: fleet.branch},
-      {git: getGitRunner()},
-    )
-    if (result.conflict) {
-      logger.error(`lane — needs human resolution`)
-      updateLaneStatus(db, loc, 'conflict')
-      return {action: 'blocked', taskId}
-    }
-
-    logger.info(`lane, removing worktree, lane → done`)
-    removeWorktreeByBranch(lane.branch, mainRepoCwd)
-    setLaneCurrentTask(db, loc, null)
-    updateLaneStatus(db, loc, 'done')
-    return {action: 'epic-completed', taskId}
+/** Merge an epic's lane into the ms branch, tear down the worktree, go done. */
+function mergeEpicLane(db: Database.Database, fleet: FleetRow, lane: LaneRow, taskId?: string): AdvanceResult {
+  const loc: LaneLoc = {epicId: lane.epicBeanId, milestoneId: fleet.milestoneBeanId, projectKey: fleet.projectKey}
+  const mainRepoCwd = getProjectPath(db, fleet.projectKey)!
+  logger.debug(`lane ${lane.epicBeanId}: merging ${lane.branch} → ${fleet.branch} (cwd=${fleet.worktreePath})`)
+  const result = mergeBranch(
+    {cwd: fleet.worktreePath, source: lane.branch, target: fleet.branch},
+    {git: getGitRunner()},
+  )
+  if (result.conflict) {
+    logger.error(`lane — needs human resolution`)
+    updateLaneStatus(db, loc, 'conflict')
+    return {action: 'blocked', taskId}
   }
 
+  logger.info(`lane, removing worktree, lane → done`)
+  removeWorktreeByBranch(lane.branch, mainRepoCwd)
+  setLaneCurrentTask(db, loc, null)
+  updateLaneStatus(db, loc, 'done')
+  return {action: 'epic-completed', taskId}
+}
+
+export function createFleetEngine(config: HordrConfig): FleetEngine {
   /** Advance one lane by one step: idle/dispatch/heal/rollup/merge. */
   const advanceLane = (db: Database.Database, fleet: FleetRow, lane: LaneRow): AdvanceResult => {
     const beansCwd = lane.worktreePath
@@ -268,6 +270,12 @@ export function createFleetEngine(config: HordrConfig, mainRepoCwd: string): Fle
     let advanced = 0
 
     for (const fleet of listFleets(db, {status: 'active'})) {
+      const mainRepoCwd = getProjectPath(db, fleet.projectKey)
+      if (!mainRepoCwd) {
+        logger.warn(`fleet ${fleet.milestoneBeanId}: project ${fleet.projectKey} not in projects table — skipping`)
+        continue
+      }
+
       // 1. scan: create lanes for newly-unblocked epics
       const allLanes = listLanes(db, fleet.projectKey, fleet.milestoneBeanId)
       const existingLaneEpicIds = new Set(allLanes.map((l) => l.epicBeanId))

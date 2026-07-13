@@ -35,7 +35,7 @@ export function buildInvocationPrompt(opts: {
 ${contextSection}
 ---
 
-# CURRENT BEAN: ${opts.beanId}
+# IMPLEMENT THIS — Bean ${opts.beanId}
 
 ${opts.beanBody}
 

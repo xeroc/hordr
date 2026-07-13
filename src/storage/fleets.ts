@@ -24,6 +24,14 @@ export function ensureProject(db: Database.Database, row: ProjectRow): void {
   ).run(row.projectKey, row.configPath, row.beansPath, row.companyPath, new Date().toISOString())
 }
 
+/** Read the main repo path (beans_path) for a project. Returns undefined if not registered. */
+export function getProjectPath(db: Database.Database, projectKey: string): string | undefined {
+  const row = db
+    .prepare('SELECT beans_path FROM projects WHERE project_key = ?')
+    .get(projectKey) as undefined | {beans_path?: string}
+  return row?.beans_path
+}
+
 // --- fleet ---
 
 export interface FleetRow {

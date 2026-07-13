@@ -8,6 +8,7 @@ import {
   deleteLanes,
   ensureProject,
   getFleet,
+  getProjectPath,
   listLanes,
   listProvenance,
   provenanceFor,
@@ -56,6 +57,14 @@ describe('storage/fleets', () => {
       // registering twice does not throw and does not duplicate
       const count = db.prepare('SELECT COUNT(*) n FROM projects').get() as {n: number}
       expect(count.n).to.equal(1)
+    })
+
+    it('getProjectPath returns the beans_path stored by ensureProject', () => {
+      expect(getProjectPath(db, PK)).to.equal('/b')
+    })
+
+    it('getProjectPath returns undefined for unknown projectKey', () => {
+      expect(getProjectPath(db, 'unknown')).to.be.undefined
     })
   })
 

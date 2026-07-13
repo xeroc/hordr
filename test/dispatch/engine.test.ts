@@ -13,7 +13,7 @@ const config: HordrConfig = {
 
 describe('dispatch/engine', () => {
   it('createFleetEngine returns an object with exactly 2 methods (scanFleet, advanceLane)', () => {
-    const engine: FleetEngine = createFleetEngine(config, '/repo')
+    const engine: FleetEngine = createFleetEngine(config)
 
     const keys = Object.keys(engine).sort()
     expect(keys).to.deep.equal(['advanceLane', 'scanFleet'])
