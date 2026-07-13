@@ -4,13 +4,12 @@ import {expect} from 'chai'
 import type {HordrConfig} from '../../src/config/schema.js'
 
 import {checkInvocation} from '../../src/dispatch/heal.js'
-import {canTransition} from '../../src/dispatch/lane.js'
 import {type DispatchDeps, dispatchNext, type LaneContext} from '../../src/dispatch/loop.js'
 import {rollup} from '../../src/dispatch/rollup.js'
 import {scanForNewLanes} from '../../src/dispatch/scan.js'
 
 // Integration characterization test: the lane dispatch flow composes correctly.
-// scan → dispatchNext → heal → rollup → canTransition. The building blocks
+// scan → dispatchNext → heal → rollup. The building blocks
 // work together end-to-end with mock deps.
 
 const config: HordrConfig = {
@@ -74,10 +73,6 @@ describe('dispatch (lane flow integration)', () => {
       markCompleted() {},
     })
     expect(marked).to.deep.equal(['epic-1'])
-
-    // --- 6. Lane transitions: active → merging → done ---
-    expect(canTransition('active', 'merging')).to.be.true
-    expect(canTransition('merging', 'done')).to.be.true
   })
 
   it('multiple lanes scan independently (N parallel lanes)', () => {

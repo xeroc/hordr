@@ -29,7 +29,6 @@ src/
 │   ├── heal.ts        checkInvocation (self-heal: done? crash? wait?)
 │   ├── rollup.ts      rollup + isMilestoneComplete + areAllEpicsCompleted
 │   ├── squash.ts      squashRollup (fixup + autosquash into work commit)
-│   ├── lane.ts        lane lifecycle state machine
 │   ├── scan.ts        scanForNewLanes (lazy worktree creation)
 │   ├── branch.ts      milestoneBranchName + createMilestoneBranch
 │   └── merge.ts       mergeBranch + mergeMilestoneToPrimary (conflict detection)
