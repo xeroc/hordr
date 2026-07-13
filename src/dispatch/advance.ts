@@ -15,7 +15,7 @@ import type {HordrConfig} from '../config/schema.js'
 import type {LaneLoc, LaneRow} from '../storage/fleets.js'
 import type {MergeResult} from './merge.js'
 
-import {logger} from "../logger.js"
+import {logger} from '../logger.js'
 import {type DispatchableBean} from './dispatch.js'
 import {checkInvocation} from './heal.js'
 import {dispatchNext} from './loop.js'
@@ -70,10 +70,33 @@ export function advanceLane(opts: AdvanceLaneOpts, deps: AdvanceLaneDeps): Advan
     if (dispatchable.length === 0) {
       // No more tasks to dispatch. If the epic is completed, merge it into
       // the milestone branch.
-      const epicStat = deps.epicStatus(opts.lane.epicBeanId)
+      let epicStat = deps.epicStatus(opts.lane.epicBeanId)
       logger.debug(`lane, no dispatchable, epic status=${epicStat}`)
+
+      // If epic is still not completed but has no dispatchable work, the children
+      // may all be completed without rollup having propagated. Try a rollup sweep
+      // on each completed child to propagate status upward.
+      if (epicStat !== 'completed') {
+        const children = deps.fetchAncestry(opts.lane.epicBeanId)
+        let didMark = false
+        for (const child of children) {
+          if (child.status !== 'completed' && child.descendantsAllCompleted) {
+            deps.markCompleted(child.id)
+            didMark = true
+            logger.debug(`lane ${opts.lane.epicBeanId}: rollup sweep marked ${child.id}`)
+          }
+        }
+
+        if (didMark) {
+          deps.commitBeans(opts.lane.worktreePath)
+          // Re-check epic status after the sweep
+          epicStat = deps.epicStatus(opts.lane.epicBeanId)
+          logger.debug(`lane ${opts.lane.epicBeanId}: post-sweep epic status=${epicStat}`)
+        }
+      }
+
       if (epicStat === 'completed') {
-        logger.debug(
+        logger.info(
           `lane ${opts.lane.epicBeanId}: epic completed → merge ${opts.lane.branch} into ${opts.fleet.msBranch}`,
         )
         return mergeEpicLane(opts, deps, loc)
@@ -118,9 +141,7 @@ export function advanceLane(opts: AdvanceLaneOpts, deps: AdvanceLaneDeps): Advan
 
   if (heal.action === 'wait') return {action: 'wait'}
   if (heal.action === 'blocked') {
-    logger.debug(
-      `lane ${opts.lane.epicBeanId}: task ${opts.lane.currentTaskBeanId} blocked (${heal.reason})`,
-    )
+    logger.debug(`lane ${opts.lane.epicBeanId}: task ${opts.lane.currentTaskBeanId} blocked (${heal.reason})`)
     deps.updateLaneStatus(loc, 'conflict')
     return {action: 'blocked', taskId: opts.lane.currentTaskBeanId}
   }
