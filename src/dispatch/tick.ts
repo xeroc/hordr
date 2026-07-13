@@ -21,6 +21,7 @@ import type {EpicInfo} from './scan.js'
 import {logger} from '../logger.js'
 import {
   addLane,
+  deleteLanesByEpic,
   listFleets,
   listLanes,
   setLaneCurrentTask,
@@ -105,8 +106,23 @@ export function tick(db: Database.Database, depsFactory: TickDepsFactory): TickR
     }
 
     // 2. advance each active lane by one step.
+    // Also: clean up stale 'done' lanes whose epic isn't actually completed.
     const lanes = listLanes(db, fleet.projectKey, fleet.milestoneBeanId)
     for (const lane of lanes) {
+      if (lane.status === 'done') {
+        // Lane is done but is the epic actually completed? If not, and there's
+        // ready work, the lane was prematurely closed. Delete the stale row so
+        // the scanner recreates a fresh lane on the next tick.
+        const epicStat = deps.epicStatus(lane.epicBeanId)
+        if (epicStat !== 'completed' && deps.hasReadyWork(lane.epicBeanId)) {
+          logger.info(`lane ${lane.epicBeanId}: done but epic is ${epicStat} with ready work → deleting stale lane row`)
+          const loc = {epicId: lane.epicBeanId, milestoneId: fleet.milestoneBeanId, projectKey: fleet.projectKey}
+          deleteLanesByEpic(db, loc)
+        }
+
+        continue
+      }
+
       if (lane.status !== 'active') {
         logger.debug(`lane ${lane.epicBeanId}: status=${lane.status} (skip)`)
         continue

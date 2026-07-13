@@ -152,6 +152,14 @@ export function deleteLanes(db: Database.Database, projectKey: string, milestone
   db.prepare('DELETE FROM lanes WHERE project_key = ? AND fleet_milestone_bean_id = ?').run(projectKey, milestoneId)
 }
 
+export function deleteLanesByEpic(db: Database.Database, loc: LaneLoc): void {
+  db.prepare('DELETE FROM lanes WHERE project_key = ? AND fleet_milestone_bean_id = ? AND epic_bean_id = ?').run(
+    loc.projectKey,
+    loc.milestoneId,
+    loc.epicId,
+  )
+}
+
 export interface LaneLoc {
   epicId: string
   milestoneId: string
