@@ -1,5 +1,5 @@
 {
-  "name": "hordr",
+  "name": "@hordr/cli",
   "description": "Manage a horde of coding agents through beans, worktrees, and workflows",
   "version": "0.1.0",
   "author": "Fabian Schuh",
@@ -10,7 +10,6 @@
   "dependencies": {
     "@oclif/core": "^4",
     "@oclif/plugin-help": "^6",
-    "@types/winston": "^2.4.4",
     "better-sqlite3": "^12.11.1",
     "winston": "^3.19.0",
     "yaml": "^2",
@@ -21,6 +20,7 @@
     "@oclif/prettier-config": "^0.2.1",
     "@oclif/test": "^4",
     "@types/better-sqlite3": "^7.6.13",
+    "@types/winston": "^2.4.4",
     "@types/chai": "^4",
     "@types/mocha": "^10",
     "@types/node": "^18",
@@ -68,7 +68,7 @@
     "typecheck": "tsc --noEmit",
     "postpack": "shx rm -f oclif.manifest.json",
     "posttest": "bun run lint",
-    "prepack": "oclif manifest && oclif readme",
+    "prepack": "npx oclif manifest && npx oclif readme",
     "test": "mocha --forbid-only \"test/**/*.test.ts\"",
     "version": "oclif readme && git add README.md"
   }

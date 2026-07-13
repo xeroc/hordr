@@ -50,7 +50,7 @@ describe('storage/db', () => {
       db.close()
     })
 
-    it('creates projects, fleets, invocations tables', () => {
+    it('creates projects, fleets, lanes, bean_provenance tables', () => {
       applySchema(db)
       const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all() as {
         name: string
@@ -58,7 +58,8 @@ describe('storage/db', () => {
       const names = tables.map((t) => t.name)
       expect(names).to.include('projects')
       expect(names).to.include('fleets')
-      expect(names).to.include('invocations')
+      expect(names).to.include('lanes')
+      expect(names).to.include('bean_provenance')
     })
 
     it('is idempotent (running twice does not error)', () => {
@@ -102,26 +103,6 @@ describe('storage/db', () => {
           )
           .run(),
       ).to.throw()
-    })
-
-    it('invocations table records per-task agent runs with post-squash commit sha', () => {
-      applySchema(db)
-      db.prepare(
-        "INSERT INTO projects (project_key, config_path, beans_path, registered_at) VALUES ('pk1', '/c', '/b', '2026-01-01T00:00:00Z')",
-      ).run()
-      db.prepare(
-        "INSERT INTO fleets (project_key, milestone_bean_id, worktree_path, branch, status, created_at) VALUES ('pk1', 'hordr-9999', '/wt', 'milestone/hordr-9999', 'active', '2026-01-01T00:00:00Z')",
-      ).run()
-      db.prepare(
-        `INSERT INTO invocations (project_key, fleet_milestone_bean_id, task_bean_id, role, pane_id, started_at, ended_at, commit_sha)
-         VALUES ('pk1', 'hordr-9999', 'hordr-1234', 'implementer', 'w1:p1', '2026-01-01T00:00:00Z', '2026-01-01T00:05:00Z', 'abc123')`,
-      ).run()
-      const row = db.prepare('SELECT role, commit_sha FROM invocations WHERE task_bean_id = ?').get('hordr-1234') as {
-        commit_sha: string
-        role: string
-      }
-      expect(row.role).to.equal('implementer')
-      expect(row.commit_sha).to.equal('abc123')
     })
 
     it('creates a lanes table for per-epic worktree state', () => {
