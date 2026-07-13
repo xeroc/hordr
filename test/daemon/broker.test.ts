@@ -137,7 +137,7 @@ describe('daemon/broker', () => {
         primary_branch: 'develop',
         worktree_branch_prefix: 'bean/',
       }
-      const deps = createTickDepsFactory(config, '/repo')('/repo')
+      const deps = createTickDepsFactory(config)('/repo')
       deps.markCompleted('hordr-1001')
       const updateCall = beansCalls.find((a) => a[0] === 'update')
       expect(updateCall).to.deep.equal(['update', 'hordr-1001', '-s', 'completed'])

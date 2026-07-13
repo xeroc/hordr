@@ -61,7 +61,7 @@ export default class Daemon extends Command {
     const config = loadConfig()
     const cwd = process.cwd()
     const db = openFleetDb()
-    const depsFactory = createTickDepsFactory(config, cwd)
+    const depsFactory = createTickDepsFactory(config)
 
     const server = await startServer({path: sock})
     installSignalHandlers(server)

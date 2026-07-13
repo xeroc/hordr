@@ -1,14 +1,6 @@
 import type Database from 'better-sqlite3'
 
-/**
- * The daemon broker runtime (ADR-0010, ADR-0012).
- *
- * Wires the pure `tick` to a real interval and registers the /done route.
- * `createTickDeps` composes the existing beans/git/herdr modules into the
- * TickDeps the tick expects; `startBroker` schedules tick on an interval and
- * returns a stop handle; `doneRouteHandler` wires handleDone into the daemon's
- * route registry (the next tick performs the rollup).
- */
+import {execFileSync} from 'node:child_process'
 import {existsSync, readFileSync} from 'node:fs'
 import path from 'node:path'
 import {parse} from 'yaml'
@@ -33,13 +25,26 @@ export function tickIntervalMs(): number {
   return Number.isFinite(raw) && raw > 0 ? raw : 5000
 }
 
+/** Resolve the main repo root from a worktree path via git rev-parse --git-common-dir. */
+function mainRepoFromWorktree(worktreePath: string): string {
+  try {
+    const gitCommonDir = execFileSync('git', ['rev-parse', '--git-common-dir'], {
+      cwd: worktreePath,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim()
+    return path.dirname(gitCommonDir)
+  } catch {
+    return worktreePath
+  }
+}
+
 /**
  * Build a per-fleet TickDeps factory from the config. Each call returns deps
- * scoped to the given beansCwd (for beans queries). Herdr operations always
- * use the mainRepoCwd (the repo parent workspace), because herdr refuses to
- * create/open worktrees from inside a linked worktree.
+ * scoped to the given beansCwd (for beans queries). Herdr operations resolve
+ * the main repo from the worktree path at call time — no global mainRepoCwd.
  */
-export function createTickDepsFactory(config: HordrConfig, mainRepoCwd: string): TickDepsFactory {
+export function createTickDepsFactory(config: HordrConfig): TickDepsFactory {
   return (beansCwd: string): TickDeps => ({
     beanStatus: (id) => getBean(id, {cwd: beansCwd}).status as string | undefined,
     commitBeans(worktreePath) {
@@ -62,17 +67,18 @@ export function createTickDepsFactory(config: HordrConfig, mainRepoCwd: string):
     config,
     createPane: (opts) => createTab({cwd: opts.cwd, label: opts.label, workspaceId: opts.workspaceId}).pane_id,
     createWorktree(opts) {
+      const repoCwd = mainRepoFromWorktree(opts.cwd)
       try {
-        const wt = createWorktree({base: opts.base, branch: opts.branch, cwd: mainRepoCwd})
+        const wt = createWorktree({base: opts.base, branch: opts.branch, cwd: repoCwd})
         return {path: wt.path, workspaceId: wt.workspace_id}
       } catch (error) {
         if (error instanceof HerdrError && /already exists/i.test(error.message)) {
           try {
-            const wt = openWorktree({branch: opts.branch, cwd: mainRepoCwd})
+            const wt = openWorktree({branch: opts.branch, cwd: repoCwd})
             return {path: wt.path, workspaceId: wt.workspace_id}
           } catch {
-            getGitRunner()(['branch', '-D', opts.branch], {cwd: mainRepoCwd})
-            const wt = createWorktree({base: opts.base, branch: opts.branch, cwd: mainRepoCwd})
+            getGitRunner()(['branch', '-D', opts.branch], {cwd: repoCwd})
+            const wt = createWorktree({base: opts.base, branch: opts.branch, cwd: repoCwd})
             return {path: wt.path, workspaceId: wt.workspace_id}
           }
         }
@@ -92,7 +98,7 @@ export function createTickDepsFactory(config: HordrConfig, mainRepoCwd: string):
     mergeBranch: (opts) =>
       mergeBranch({cwd: opts.cwd, source: opts.source, target: opts.target}, {git: getGitRunner()}),
     paneAlive: (paneId) => paneExists(paneId),
-    removeWorktree: (branch) => removeWorktreeByBranch(branch, mainRepoCwd),
+    removeWorktree: (branch) => removeWorktreeByBranch(branch, beansCwd),
     spawn: (opts) => spawnInvocation(opts),
     worktreeExists: (p) => existsSync(p),
   })
