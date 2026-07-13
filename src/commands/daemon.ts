@@ -8,6 +8,7 @@ import {installSignalHandlers, startServer} from '../daemon/server.js'
 import {socketPath} from '../daemon/socket.js'
 import {configureLogger, logger} from '../logger.js'
 import {openFleetDb} from '../storage/db.js'
+import {findLaneByTask} from '../storage/fleets.js'
 
 /**
  * The hordr daemon: a unix-socket server (health + /done) plus the broker tick
@@ -68,7 +69,18 @@ export default class Daemon extends Command {
     const broker: BrokerHandle = wireDaemon({
       db,
       depsFactory,
-      verifyCompleted: (taskId) => getBean(taskId, {cwd}).status === 'completed',
+      verifyCompleted(taskId) {
+        // Resolve the task's worktree from the DB — different fleets are in
+        // different repos. Fall back to false (self-heal handles it).
+        try {
+          const lane = findLaneByTask(db, taskId)
+          const laneCwd = lane?.worktreePath ?? cwd
+          return getBean(taskId, {cwd: laneCwd}).status === 'completed'
+        } catch {
+          logger.warn(`/done: could not verify ${taskId} — self-heal will handle it`)
+          return false
+        }
+      },
     })
     installBrokerShutdown(broker)
 

@@ -186,6 +186,13 @@ export function setLaneCurrentTask(db: Database.Database, loc: LaneLoc, taskId: 
   ).run(taskId, loc.projectKey, loc.milestoneId, loc.epicId)
 }
 
+/** Find the lane that currently has this task assigned. Returns undefined if no lane owns it. */
+export function findLaneByTask(db: Database.Database, taskId: string): LaneRow | undefined {
+  return db.prepare('SELECT * FROM lanes WHERE current_task_bean_id = ?').get(taskId) as LaneDbRow | undefined as
+    | LaneRow
+    | undefined
+}
+
 export function setLaneWorktree(
   db: Database.Database,
   loc: LaneLoc,
