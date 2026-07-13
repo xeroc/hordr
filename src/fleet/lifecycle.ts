@@ -11,8 +11,7 @@ import type Database from 'better-sqlite3'
 
 import type {BeanRecord} from '../beans/client.js'
 
-import {type GitFn, milestoneBranchName} from '../dispatch/branch.js'
-import {mergeMilestoneToPrimary} from '../dispatch/merge.js'
+import {type GitFn, mergeMilestoneToPrimary} from '../dispatch/merge.js'
 import {areAllEpicsCompleted, isMilestoneComplete} from '../dispatch/rollup.js'
 import {
   deleteFleet,
@@ -78,7 +77,7 @@ export async function createFleet(
     throw new FleetError(`fleet for ${milestoneId} is already active (branch ${existing.branch})`)
   }
 
-  const branch = milestoneBranchName(milestoneId)
+  const branch = milestoneId
 
   // Create the ms branch + worktree in one shot: herdr worktree create
   // --branch <milestoneId> --base <primary>. The worktree IS on the milestone

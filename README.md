@@ -427,7 +427,6 @@ src/
 │   ├── rollup.ts      #   rollup (ancestry walk) + isMilestoneComplete + areAllEpicsCompleted
 │   ├── squash.ts      #   squashRollup (fixup + autosquash into work commit)
 │   ├── scan.ts        #   scanForNewLanes (tick-driven lazy worktree creation)
-│   ├── branch.ts      #   milestoneBranchName + createMilestoneBranch
 │   └── merge.ts       #   mergeBranch + mergeMilestoneToPrimary (conflict detection)
 ├── harness/           # buildPrompt, launchAgent, shellQuote
 ├── herdr/             # pane + worktree wrappers (shells out to herdr CLI)
