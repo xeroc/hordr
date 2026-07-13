@@ -10,9 +10,10 @@ import type {HordrConfig} from '../config/schema.js'
 import {getBean, markBeanCompleted} from '../beans/client.js'
 import {fetchAncestry, fetchEpics, getDispatchable} from '../dispatch/dispatch.js'
 import {handleDone} from '../dispatch/done.js'
+import {type FleetEngine} from '../dispatch/engine.js'
 import {mergeBranch} from '../dispatch/merge.js'
 import {spawnInvocation} from '../dispatch/spawn.js'
-import {tick, type TickDeps, type TickDepsFactory} from '../dispatch/tick.js'
+import {type TickDeps, type TickDepsFactory} from '../dispatch/tick.js'
 import {createTab, paneExists} from '../herdr/pane.js'
 import {createWorktree, HerdrError, openWorktree, removeWorktreeByBranch} from '../herdr/worktree.js'
 import {logger} from '../logger.js'
@@ -115,19 +116,15 @@ export interface BrokerHandle {
  */
 export function startBroker(opts: {
   db: Database.Database
-  depsFactory: TickDepsFactory
+  engine: FleetEngine
   intervalMs?: number
-  tickFn?: (db: Database.Database, depsFactory: TickDepsFactory) => void
+  tickFn?: (db: Database.Database, engine: FleetEngine) => void
 }): BrokerHandle {
-  const run =
-    opts.tickFn ??
-    ((db, factory) => {
-      tick(db, factory)
-    })
+  const run = opts.tickFn ?? ((db, engine) => engine.scanFleet(db))
   const intervalMs = opts.intervalMs ?? tickIntervalMs()
   const timer = setInterval(() => {
     try {
-      run(opts.db, opts.depsFactory)
+      run(opts.db, opts.engine)
     } catch (error) {
       // ponytail: a tick must not kill the daemon — log and carry on.
       const msg = error instanceof Error ? error.message : String(error)
@@ -149,9 +146,9 @@ export function doneRouteHandler(verifyCompleted: (taskId: string) => boolean) {
  */
 export function wireDaemon(opts: {
   db: Database.Database
-  depsFactory: TickDepsFactory
+  engine: FleetEngine
   intervalMs?: number
-  tickFn?: (db: Database.Database, depsFactory: TickDepsFactory) => void
+  tickFn?: (db: Database.Database, engine: FleetEngine) => void
   verifyCompleted: (taskId: string) => boolean
 }): BrokerHandle {
   addRoute('POST', '/done', doneRouteHandler(opts.verifyCompleted))
