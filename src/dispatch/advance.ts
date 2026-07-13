@@ -134,16 +134,27 @@ export function advanceLane(opts: AdvanceLaneOpts, deps: AdvanceLaneDeps): Advan
   }
 
   // --- active: heal the in-flight invocation ---
+  const taskBeanId = opts.lane.currentTaskBeanId ?? ''
+  const beanStat = deps.beanStatus(taskBeanId)
+  const paneAlive = opts.lane.paneId ? deps.paneAlive(opts.lane.paneId) : false
+  logger.info(
+    `lane ${opts.lane.epicBeanId}: heal check — task=${taskBeanId} status=${beanStat ?? '?'} pane=${opts.lane.paneId ?? '(none)'} alive=${paneAlive}`,
+  )
+
   const heal = checkInvocation(
-    {paneId: opts.lane.paneId ?? '', taskId: opts.lane.currentTaskBeanId},
+    {paneId: opts.lane.paneId ?? '', taskId: taskBeanId},
     {beanStatus: deps.beanStatus, paneAlive: deps.paneAlive},
   )
 
-  if (heal.action === 'wait') return {action: 'wait'}
+  if (heal.action === 'wait') {
+    logger.info(`lane ${opts.lane.epicBeanId}: waiting (task ${taskBeanId} still ${beanStat})`)
+    return {action: 'wait'}
+  }
+
   if (heal.action === 'blocked') {
-    logger.debug(`lane ${opts.lane.epicBeanId}: task ${opts.lane.currentTaskBeanId} blocked (${heal.reason})`)
+    logger.warn(`lane ${opts.lane.epicBeanId}: BLOCKED — task ${taskBeanId} ${heal.reason}`)
     deps.updateLaneStatus(loc, 'conflict')
-    return {action: 'blocked', taskId: opts.lane.currentTaskBeanId}
+    return {action: 'blocked', taskId: taskBeanId}
   }
 
   // proceed: bean completed → roll up the ancestry.
