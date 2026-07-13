@@ -8,7 +8,7 @@ import {parse} from 'yaml'
 import type {HordrConfig} from '../config/schema.js'
 
 import {getBean, markBeanCompleted} from '../beans/client.js'
-import {fetchAncestry, fetchEpics, getDispatchable} from '../dispatch/dispatch.js'
+import {fetchAncestry, fetchChildStatuses, fetchEpics, getDispatchable} from '../dispatch/dispatch.js'
 import {handleDone} from '../dispatch/done.js'
 import {mergeBranch} from '../dispatch/merge.js'
 import {spawnInvocation} from '../dispatch/spawn.js'
@@ -89,6 +89,7 @@ export function createTickDepsFactory(config: HordrConfig): TickDepsFactory {
     epicStatus: (id) => getBean(id, {cwd: beansCwd}).status as string,
     fetchAncestry: (id) => fetchAncestry(id, {cwd: beansCwd}),
     fetchBean: (id) => getBean(id, {cwd: beansCwd}),
+    fetchChildStatuses: (beanId) => fetchChildStatuses(beanId, {cwd: beansCwd}),
     fetchDispatchable: (epicId) => getDispatchable(epicId, {cwd: beansCwd}),
     fetchEpics: (milestoneId) => fetchEpics(milestoneId, {cwd: beansCwd}),
     hasReadyWork: (epicId) => getDispatchable(epicId, {cwd: beansCwd}).length > 0,
