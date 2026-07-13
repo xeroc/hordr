@@ -5,6 +5,10 @@ beans as their briefs. Two modes: **single-bean** (one agent, one task,
 fire-and-forget) and **fleet** (a team of agents working a milestone in
 parallel, each epic in its own worktree, coordinated by a daemon broker).
 
+```bash
+npx skills@latest xeroc/hordr   # skill for coding agents
+```
+
 ```
                          ┌─────────┐
                          │  Beans  │  (work contracts: milestone → epic → task)

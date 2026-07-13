@@ -77,18 +77,6 @@ CREATE TABLE IF NOT EXISTS fleets (
   PRIMARY KEY (project_key, milestone_bean_id)
 );
 
-CREATE TABLE IF NOT EXISTS invocations (
-  id                      INTEGER PRIMARY KEY AUTOINCREMENT,
-  project_key             TEXT NOT NULL,
-  fleet_milestone_bean_id TEXT NOT NULL,
-  task_bean_id            TEXT NOT NULL,
-  role                    TEXT NOT NULL,
-  pane_id                 TEXT,
-  started_at              TEXT NOT NULL,
-  ended_at                TEXT,
-  commit_sha              TEXT
-);
-
 CREATE TABLE IF NOT EXISTS lanes (
   project_key             TEXT NOT NULL,
   fleet_milestone_bean_id TEXT NOT NULL,
