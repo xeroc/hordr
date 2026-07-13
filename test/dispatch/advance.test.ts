@@ -1,18 +1,30 @@
 /* eslint-disable camelcase -- HordrConfig fields mirror the snake_case config */
+import Database from 'better-sqlite3'
 import {expect} from 'chai'
 
 import type {HordrConfig} from '../../src/config/schema.js'
-import type {LaneRow} from '../../src/storage/fleets.js'
+import type {FleetRow, LaneRow} from '../../src/storage/fleets.js'
 
-import {advanceLane, type AdvanceLaneDeps} from '../../src/dispatch/advance.js'
+import {applySchema, openDb} from '../../src/storage/db.js'
+import {addLane, ensureProject, listLanes, registerFleet} from '../../src/storage/fleets.js'
+import {createTestFleetEngine} from '../helpers/fleet-engine.js'
 
+const PK = 'pk1'
+const MS = 'ms1'
 const config: HordrConfig = {
   agents: {implementer: {harness: 'opencode', persona: 'impl'}},
   primary_branch: 'develop',
   worktree_branch_prefix: 'bean/',
 }
 
-const FLEET = {cwd: '/repo', milestoneBeanId: 'ms1', msBranch: 'ms1', projectKey: 'pk1'}
+const FLEET: FleetRow = {
+  branch: 'ms1',
+  createdAt: '2026-01-01T00:00:00Z',
+  milestoneBeanId: MS,
+  projectKey: PK,
+  status: 'active',
+  worktreePath: '/repo',
+}
 
 function lane(overrides: Partial<LaneRow> = {}): LaneRow {
   return {
@@ -20,9 +32,9 @@ function lane(overrides: Partial<LaneRow> = {}): LaneRow {
     createdAt: '2026-01-01T00:00:00Z',
     currentTaskBeanId: null,
     epicBeanId: 'epic-a',
-    fleetMilestoneBeanId: 'ms1',
+    fleetMilestoneBeanId: MS,
     paneId: 'w1:p1',
-    projectKey: 'pk1',
+    projectKey: PK,
     status: 'active',
     workspaceId: 'w1',
     worktreePath: '/wt/epic-a',
@@ -30,158 +42,149 @@ function lane(overrides: Partial<LaneRow> = {}): LaneRow {
   }
 }
 
-interface DepsState {
-  ancestry: Array<{descendantsAllCompleted: boolean; id: string; status: string}>
-  bean: Record<string, {assigned?: string; body: string; id: string; type: string}>
-  currentTask: null | string
-  dispatchable: Array<{id: string; priority?: string; type?: string}>
-  epicStatus: string
-  markedCompleted: string[]
-  mergeConflict: boolean
-  merged: Array<{cwd: string; source: string; target: string}>
-  removed: string[]
-  spawnCalled: string[]
-  status: string
+/** Register fleet + lane so DB mutations (setLaneCurrentTask, updateLaneStatus) take effect. */
+function freshDbWithLane(laneOverrides: Partial<LaneRow> = {}): Database.Database {
+  const db = openDb(':memory:')
+  applySchema(db)
+  ensureProject(db, {beansPath: '/b', companyPath: null, configPath: '/c', projectKey: PK})
+  registerFleet(db, FLEET)
+  addLane(db, lane(laneOverrides))
+  return db
 }
 
-function depsFor(state: DepsState): AdvanceLaneDeps {
-  return {
-    beanStatus: (id) => (id === state.currentTask ? 'completed' : 'in-progress'),
-    commitBeans() {},
-    createPane: () => 'w1:p1',
-    epicStatus: () => state.epicStatus,
-    fetchAncestry: () => state.ancestry,
-    fetchBean: (id) => ({assigned: 'implementer', body: 'b', id, type: 'task'}) as never,
-    fetchDispatchable: (epicId) =>
-      epicId === 'epic-a'
-        ? state.dispatchable.map((d) => ({
-            assigned: 'implementer',
-            id: d.id,
-            priority: d.priority ?? 'normal',
-            title: 'T',
-            type: d.type ?? 'task',
-          }))
-        : [],
-    markCompleted(id) {
-      state.markedCompleted.push(id)
-      const entry = state.ancestry.find((a) => a.id === id)
-      if (entry) entry.status = 'completed'
-    },
-    mergeBranch(opts) {
-      state.merged.push(opts)
-      return {conflict: state.mergeConflict}
-    },
-    paneAlive: () => true,
-    removeWorktree(branch) {
-      state.removed.push(branch)
-    },
-    setLaneCurrentTask(_loc, taskId) {
-      state.currentTask = taskId
-    },
-    setLanePane() {},
-    spawn(opts) {
-      state.spawnCalled.push(opts.prompt)
-    },
-    updateLaneStatus(_loc, status) {
-      state.status = status
-    },
-  }
+/** Read the lane back from the DB to verify mutations. */
+function dbLane(db: Database.Database): LaneRow {
+  return listLanes(db, PK, MS)[0]!
 }
 
-function freshState(overrides: Partial<DepsState> = {}): DepsState {
-  return {
-    ancestry: [],
-    bean: {},
-    currentTask: null,
-    dispatchable: [],
-    epicStatus: 'todo',
-    markedCompleted: [],
-    mergeConflict: false,
-    merged: [],
-    removed: [],
-    spawnCalled: [],
-    status: 'active',
-    ...overrides,
-  }
-}
-
-describe('dispatch/advance advanceLane', () => {
+describe('dispatch/advance (via FleetEngine.advanceLane)', () => {
   it('idle + ready work → dispatches next task, sets currentTask', () => {
-    const state = freshState({dispatchable: [{id: 'task-1'}]})
-    const res = advanceLane({config, fleet: FLEET, lane: lane()}, depsFor(state))
+    const db = freshDbWithLane()
+    const {engine, records} = createTestFleetEngine({
+      config,
+      data: {
+        beans: {
+          'epic-a': {status: 'todo', type: 'epic'},
+          'task-1': {assigned: 'implementer', status: 'todo', type: 'task'},
+        },
+        dispatchable: {
+          'epic-a': [{assigned: 'implementer', id: 'task-1', priority: 'normal', title: 'T1', type: 'task'}],
+        },
+      },
+    })
+
+    const res = engine.advanceLane(db, FLEET, lane())
 
     expect(res.action).to.equal('dispatched')
     expect(res.taskId).to.equal('task-1')
-    expect(state.spawnCalled).to.have.length(1)
-    expect(state.currentTask).to.equal('task-1')
+    expect(records.spawn).to.have.length(1)
+    expect(dbLane(db).currentTaskBeanId).to.equal('task-1')
+    db.close()
   })
 
   it('idle + no ready work → idle (no spawn)', () => {
-    const state = freshState({dispatchable: []})
-    const res = advanceLane({config, fleet: FLEET, lane: lane()}, depsFor(state))
+    const db = freshDbWithLane()
+    const {engine, records} = createTestFleetEngine({config})
+
+    const res = engine.advanceLane(db, FLEET, lane())
+
     expect(res.action).to.equal('idle')
-    expect(state.spawnCalled).to.have.length(0)
+    expect(records.spawn).to.have.length(0)
+    db.close()
   })
 
   it('active + task not done + pane alive → wait', () => {
-    const state = freshState({currentTask: 'task-1'})
-    const d = depsFor(state)
-    d.beanStatus = () => 'in-progress'
-    const res = advanceLane({config, fleet: FLEET, lane: lane({currentTaskBeanId: 'task-1'})}, d)
+    const db = freshDbWithLane({currentTaskBeanId: 'task-1'})
+    const {engine} = createTestFleetEngine({
+      behavior: {defaultBeanStatus: 'in-progress', paneAlive: true},
+      config,
+    })
+
+    const res = engine.advanceLane(db, FLEET, lane({currentTaskBeanId: 'task-1'}))
+
     expect(res.action).to.equal('wait')
+    db.close()
   })
 
   it('active + pane gone + task not done → blocked, lane flips to conflict', () => {
-    const state = freshState({currentTask: 'task-1'})
-    const d = depsFor(state)
-    d.beanStatus = () => 'in-progress'
-    d.paneAlive = () => false
-    const res = advanceLane({config, fleet: FLEET, lane: lane({currentTaskBeanId: 'task-1'})}, d)
+    const db = freshDbWithLane({currentTaskBeanId: 'task-1'})
+    const {engine} = createTestFleetEngine({
+      behavior: {defaultBeanStatus: 'in-progress', paneAlive: false},
+      config,
+    })
+
+    const res = engine.advanceLane(db, FLEET, lane({currentTaskBeanId: 'task-1'}))
+
     expect(res.action).to.equal('blocked')
-    expect(state.status).to.equal('conflict')
+    expect(dbLane(db).status).to.equal('conflict')
+    db.close()
   })
 
   it('proceed + epic NOT yet completed → rollup, free lane (currentTask cleared)', () => {
-    const state = freshState({
-      ancestry: [{descendantsAllCompleted: false, id: 'epic-a', status: 'todo'}],
-      currentTask: 'task-1',
-      epicStatus: 'todo',
+    const db = freshDbWithLane({currentTaskBeanId: 'task-1'})
+    const {engine, records} = createTestFleetEngine({
+      config,
+      data: {
+        ancestry: [{descendantsAllCompleted: false, id: 'epic-a', status: 'todo'}],
+        beans: {
+          'epic-a': {status: 'todo', type: 'epic'},
+          'task-1': {assigned: 'implementer', status: 'completed', type: 'task'},
+        },
+      },
     })
-    const res = advanceLane({config, fleet: FLEET, lane: lane({currentTaskBeanId: 'task-1'})}, depsFor(state))
+
+    const res = engine.advanceLane(db, FLEET, lane({currentTaskBeanId: 'task-1'}))
 
     expect(res.action).to.equal('wait')
-    expect(state.markedCompleted).to.deep.equal([]) // epic not completed → rollup stops before epic
-    expect(state.currentTask).to.equal(null) // lane freed for next dispatch
-    expect(state.merged).to.have.length(0) // no epic merge
+    expect(records.markedCompleted).to.deep.equal([])
+    expect(dbLane(db).currentTaskBeanId).to.equal(null)
+    expect(records.merge).to.have.length(0)
+    db.close()
   })
 
   it('proceed + epic completed → merge lane into ms, remove worktree, lane done', () => {
-    const state = freshState({
-      ancestry: [{descendantsAllCompleted: true, id: 'epic-a', status: 'todo'}],
-      currentTask: 'task-1',
-      epicStatus: 'completed',
+    const db = freshDbWithLane({currentTaskBeanId: 'task-1'})
+    const {engine, records} = createTestFleetEngine({
+      config,
+      data: {
+        ancestry: [{descendantsAllCompleted: true, id: 'epic-a', status: 'todo'}],
+        beans: {
+          'epic-a': {status: 'completed', type: 'epic'},
+          'task-1': {assigned: 'implementer', status: 'completed', type: 'task'},
+        },
+      },
     })
-    const res = advanceLane({config, fleet: FLEET, lane: lane({currentTaskBeanId: 'task-1'})}, depsFor(state))
+
+    const res = engine.advanceLane(db, FLEET, lane({currentTaskBeanId: 'task-1'}))
 
     expect(res.action).to.equal('epic-completed')
-    expect(state.markedCompleted).to.deep.equal(['epic-a'])
-    expect(state.merged).to.deep.equal([{cwd: '/repo', source: 'ms1/epic-a', target: 'ms1'}])
-    expect(state.removed).to.deep.equal(['ms1/epic-a'])
-    expect(state.status).to.equal('done')
-    expect(state.currentTask).to.equal(null)
+    expect(records.markedCompleted).to.deep.equal(['epic-a'])
+    expect(records.merge).to.deep.equal([{cwd: '/repo', source: 'ms1/epic-a', target: 'ms1'}])
+    expect(records.removedWorktrees).to.deep.equal(['ms1/epic-a'])
+    expect(dbLane(db).status).to.equal('done')
+    expect(dbLane(db).currentTaskBeanId).to.equal(null)
+    db.close()
   })
 
   it('proceed + epic completed + merge conflict → lane conflict, worktree kept', () => {
-    const state = freshState({
-      ancestry: [{descendantsAllCompleted: true, id: 'epic-a', status: 'todo'}],
-      currentTask: 'task-1',
-      epicStatus: 'completed',
-      mergeConflict: true,
+    const db = freshDbWithLane({currentTaskBeanId: 'task-1'})
+    const {engine, records} = createTestFleetEngine({
+      behavior: {mergeConflict: true},
+      config,
+      data: {
+        ancestry: [{descendantsAllCompleted: true, id: 'epic-a', status: 'todo'}],
+        beans: {
+          'epic-a': {status: 'completed', type: 'epic'},
+          'task-1': {assigned: 'implementer', status: 'completed', type: 'task'},
+        },
+      },
     })
-    const res = advanceLane({config, fleet: FLEET, lane: lane({currentTaskBeanId: 'task-1'})}, depsFor(state))
+
+    const res = engine.advanceLane(db, FLEET, lane({currentTaskBeanId: 'task-1'}))
 
     expect(res.action).to.equal('blocked')
-    expect(state.status).to.equal('conflict')
-    expect(state.removed).to.have.length(0) // worktree kept for human resolution
+    expect(dbLane(db).status).to.equal('conflict')
+    expect(records.removedWorktrees).to.have.length(0)
+    db.close()
   })
 })
