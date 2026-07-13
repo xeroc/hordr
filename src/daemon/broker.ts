@@ -1,3 +1,5 @@
+import type Database from 'better-sqlite3'
+
 /**
  * The daemon broker runtime (ADR-0010, ADR-0012).
  *
@@ -7,9 +9,9 @@
  * returns a stop handle; `doneRouteHandler` wires handleDone into the daemon's
  * route registry (the next tick performs the rollup).
  */
-import type Database from 'better-sqlite3'
-
-import {existsSync} from 'node:fs'
+import {existsSync, readFileSync} from 'node:fs'
+import path from 'node:path'
+import {parse} from 'yaml'
 
 import type {HordrConfig} from '../config/schema.js'
 
@@ -41,7 +43,20 @@ export function createTickDepsFactory(config: HordrConfig, mainRepoCwd: string):
   return (beansCwd: string): TickDeps => ({
     beanStatus: (id) => getBean(id, {cwd: beansCwd}).status as string | undefined,
     commitBeans(worktreePath) {
-      getGitRunner()(['add', 'apps/docs/beans/'], {cwd: worktreePath})
+      // Resolve the beans data directory from the project's .beans.yml.
+      // Falls back to '.beans' if config is missing or unparseable.
+      let beansDir = '.beans'
+      try {
+        const cfgPath = path.join(worktreePath, '.beans.yml')
+        if (existsSync(cfgPath)) {
+          const raw = parse(readFileSync(cfgPath, 'utf8')) as {beans?: {path?: string}}
+          if (raw?.beans?.path) beansDir = raw.beans.path
+        }
+      } catch {
+        // Config unreadable — use default
+      }
+
+      getGitRunner()(['add', beansDir], {cwd: worktreePath})
       getGitRunner()(['commit', '-m', 'chore(beans): rollup status changes'], {cwd: worktreePath})
     },
     config,
