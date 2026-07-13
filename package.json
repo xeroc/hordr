@@ -10,7 +10,9 @@
   "dependencies": {
     "@oclif/core": "^4",
     "@oclif/plugin-help": "^6",
+    "@types/winston": "^2.4.4",
     "better-sqlite3": "^12.11.1",
+    "winston": "^3.19.0",
     "yaml": "^2",
     "zod": "^3"
   },

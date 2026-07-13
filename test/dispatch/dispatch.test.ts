@@ -4,16 +4,20 @@ import {
   _resetShell,
   _setShellForTesting,
   type DispatchableBean,
+  fetchAncestry,
+  fetchEpics,
   getDispatchable,
+  listDrafts,
   pickDispatchable,
   type ShellFn,
 } from '../../src/dispatch/dispatch.js'
 
-const bean = (id: string, priority: string, assigned?: string): DispatchableBean => ({
+const bean = (id: string, priority: string, assigned?: string, type = 'task'): DispatchableBean => ({
   assigned,
   id,
   priority,
   title: `Task ${id}`,
+  type,
 })
 
 describe('dispatch/dispatch', () => {
@@ -40,6 +44,19 @@ describe('dispatch/dispatch', () => {
       expect(pickDispatchable([bean('hordr-0001', 'normal')], [bean('hordr-0099', 'critical')])).to.have.length(0)
     })
 
+    // ADR-0013: draft beans are never dispatched. The gate is beans' `--ready`
+    // filter (drafts are excluded from --ready), so pickDispatchable — which
+    // intersects descendants ∩ ready — never selects a draft. No hordr-side
+    // governance code; this test pins the invariant.
+    it('never dispatches a draft bean (excluded by beans --ready filter)', () => {
+      const descendants = [
+        bean('hordr-0001', 'normal'), // a ready task
+        bean('hordr-0002', 'normal'), // a draft task (NOT in --ready)
+      ]
+      const ready = [bean('hordr-0001', 'normal')] // draft hordr-0002 absent
+      expect(pickDispatchable(descendants, ready).map((b) => b.id)).to.deep.equal(['hordr-0001'])
+    })
+
     it('preserves assigned field from the ready set', () => {
       const result = pickDispatchable([bean('hordr-0001', 'normal')], [bean('hordr-0001', 'normal', 'implementer')])
       expect(result[0]!.assigned).to.equal('implementer')
@@ -54,6 +71,28 @@ describe('dispatch/dispatch', () => {
         bean('e', 'normal'),
       ]
       expect(pickDispatchable(all, all).map((b) => b.id)).to.deep.equal(['b', 'd', 'e', 'a', 'c'])
+    })
+
+    it('excludes epic/milestone + features-with-children; dispatches leaf features, tasks, bugs', () => {
+      const descendants = [
+        bean('task-1', 'normal', undefined, 'task'),
+        bean('feat-leaf', 'normal', undefined, 'feature'),
+        bean('feat-container', 'normal', undefined, 'feature'),
+        bean('epic-1', 'normal', undefined, 'epic'),
+        bean('bug-1', 'normal', undefined, 'bug'),
+      ]
+      const ready = [
+        bean('task-1', 'normal', undefined, 'task'),
+        bean('feat-leaf', 'normal', undefined, 'feature'),
+        bean('feat-container', 'normal', undefined, 'feature'),
+        bean('epic-1', 'normal', undefined, 'epic'),
+        bean('bug-1', 'normal', undefined, 'bug'),
+      ]
+      // feat-container has children → it's a container, not dispatchable
+      const containerIds = new Set(['feat-container'])
+
+      const result = pickDispatchable(descendants, ready, containerIds)
+      expect(result.map((b) => b.id)).to.deep.equal(['bug-1', 'feat-leaf', 'task-1'])
     })
   })
 
@@ -79,8 +118,8 @@ describe('dispatch/dispatch', () => {
 
         if (joined.includes('list') && joined.includes('--ready')) {
           return JSON.stringify([
-            {assigned: 'implementer', id: 'hordr-0001', priority: 'normal', title: 'T1'},
-            {assigned: 'tester', id: 'hordr-0002', priority: 'critical', title: 'T2'},
+            {assigned: 'implementer', id: 'hordr-0001', priority: 'normal', title: 'T1', type: 'task'},
+            {assigned: 'tester', id: 'hordr-0002', priority: 'critical', title: 'T2', type: 'task'},
           ])
         }
 
@@ -146,8 +185,8 @@ describe('dispatch/dispatch', () => {
 
         if (joined.includes('--ready')) {
           return JSON.stringify([
-            {assigned: 'implementer', id: 'hordr-0002', priority: 'high', title: 'T2'},
-            {assigned: 'tester', id: 'hordr-0003', priority: 'normal', title: 'T3'},
+            {assigned: 'implementer', id: 'hordr-0002', priority: 'high', title: 'T2', type: 'task'},
+            {assigned: 'tester', id: 'hordr-0003', priority: 'normal', title: 'T3', type: 'task'},
           ])
         }
 
@@ -157,6 +196,119 @@ describe('dispatch/dispatch', () => {
       _setShellForTesting(mock)
       const result = getDispatchable('hordr-test')
       expect(result.map((b) => b.id)).to.deep.equal(['hordr-0002', 'hordr-0003'])
+    })
+
+    it('listDrafts returns only status==draft descendants (any depth)', () => {
+      _setShellForTesting((args) => {
+        if (args.includes('query')) {
+          return JSON.stringify({
+            bean: {
+              children: [
+                {
+                  children: [
+                    {id: 'hordr-0001', status: 'todo', title: 'T1'},
+                    {id: 'hordr-0002', status: 'draft', title: 'T2'},
+                  ],
+                  id: 'epic-1',
+                  status: 'todo',
+                  title: 'Epic 1',
+                },
+                {id: 'hordr-0003', status: 'draft', title: 'T3'},
+                {id: 'hordr-0004', status: 'completed', title: 'T4'},
+              ],
+            },
+          })
+        }
+
+        throw new Error(`unexpected: ${args.join(' ')}`)
+      })
+
+      const drafts = listDrafts('hordr-test')
+      expect(drafts).to.deep.equal([
+        {id: 'hordr-0002', title: 'T2'},
+        {id: 'hordr-0003', title: 'T3'},
+      ])
+    })
+
+    it('fetchEpics returns the milestone direct children', () => {
+      _setShellForTesting((args) => {
+        if (args.includes('query')) {
+          return JSON.stringify({
+            bean: {
+              children: [
+                {id: 'epic-1', title: 'Epic 1'},
+                {id: 'epic-2', title: 'Epic 2'},
+              ],
+            },
+          })
+        }
+
+        throw new Error(`unexpected: ${args.join(' ')}`)
+      })
+      expect(fetchEpics('hordr-ms1')).to.deep.equal([
+        {id: 'epic-1', title: 'Epic 1'},
+        {id: 'epic-2', title: 'Epic 2'},
+      ])
+    })
+
+    it('fetchAncestry walks task→feature→epic, stopping at epic', () => {
+      _setShellForTesting((args) => {
+        if (args.includes('query')) {
+          return JSON.stringify({
+            bean: {
+              // task's parent is a feature; feature's parent is the epic
+              parent: {
+                children: [
+                  {id: 'task-1', status: 'completed'},
+                  {id: 'task-2', status: 'completed'},
+                ],
+                id: 'feat-1',
+                parent: {
+                  children: [
+                    {id: 'feat-1', status: 'in-progress'},
+                    {id: 'feat-2', status: 'todo'},
+                  ],
+                  id: 'epic-1',
+                  status: 'todo',
+                  type: 'epic',
+                },
+                status: 'todo',
+                type: 'feature',
+              },
+            },
+          })
+        }
+
+        throw new Error(`unexpected: ${args.join(' ')}`)
+      })
+      const ancestry = fetchAncestry('task-1')
+      expect(ancestry).to.deep.equal([
+        {descendantsAllCompleted: true, id: 'feat-1', status: 'todo'}, // both tasks done
+        {descendantsAllCompleted: false, id: 'epic-1', status: 'todo'}, // feat-2 still todo
+      ])
+    })
+
+    it('fetchAncestry stops at epic when task is directly under it', () => {
+      _setShellForTesting((args) => {
+        if (args.includes('query')) {
+          return JSON.stringify({
+            bean: {
+              parent: {
+                children: [
+                  {id: 'task-1', status: 'completed'},
+                  {id: 'task-2', status: 'todo'},
+                ],
+                id: 'epic-1',
+                status: 'todo',
+                type: 'epic',
+              },
+            },
+          })
+        }
+
+        throw new Error(`unexpected: ${args.join(' ')}`)
+      })
+      expect(fetchAncestry('task-1')).to.deep.equal([{descendantsAllCompleted: false, id: 'epic-1', status: 'todo'}])
     })
   })
 })

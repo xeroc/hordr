@@ -1,4 +1,4 @@
-import {Command} from '@oclif/core'
+import { Command } from '@oclif/core'
 
 /**
  * `hordr prime` — outputs a condensed, token-optimized guide for agents
@@ -12,12 +12,19 @@ const PRIME_OUTPUT = `# Hordr — Agent Guide
 
 Complements \`beans prime\` (beans CLI). This covers hordr-specific concepts only.
 
-## Bean hierarchy
+## Bean hierarchy (mandatory)
 
-milestone → epic → task. Never skip levels.
-- milestone: one per release; gets the fleet
-- epic: thematic container; gets a parallel worktree (lane)
-- task: one task = one commit; the executable unit
+Every body of work large enough to warrant a release ships as a **milestone**
+bean with a fixed type hierarchy. The bean \`type\` MUST match its level:
+
+\`\`\`
+milestone            ← one per release / main topic
+├─ epic              ← thematic container, NEVER worked on directly
+│  ├─ feature        ← user-facing capability or distinct deliverable
+│  │  └─ task        ← concrete, grabbable unit of work
+│  └─ ...
+└─ ...
+\`\`\`
 
 Wire parents: \`--parent <id>\`. Wire dependencies: \`--blocked-by <id>\`.
 
@@ -52,50 +59,6 @@ beans create "Review X" -t task --parent EPIC --blocked-by <test-id>
 
 4. Cross-epic deps: \`beans create "Profile" -t epic --parent MS --blocked-by <auth-epic>\`
    Blocked epics get no worktree until their blocker merges (lazy creation).
-
-## Dynamic beans (mid-work)
-
-Agent discovers new work? \`beans create ... -s draft\`. Human reviews → flips to \`todo\`.
-
-## Status flow
-
-The daemon rolls up status automatically (fixup + autosquash). Do NOT propagate manually.
-A parent is \`completed\` only when ALL descendants are \`completed\`.
-
-## Fleet lifecycle
-
-\`\`\`
-hordr fleet create <milestone>  → ms/<id> branch → lanes per epic → parallel dispatch
-hordr fleet status <milestone>  → observe lanes, tasks, conflicts
-hordr fleet finish <milestone>  → merge ms/<id> into primary
-\`\`\`
-
-Inside each lane: daemon picks next ready task → resolves role → spawns agent →
-waits for \`hordr done <id>\` → rolls up status → picks next. Serialized within a
-lane, parallel across lanes. No timeouts — the daemon never kills for slowness.
-
-## Code conventions
-
-- **Pure functions with injected deps.** Every dispatch module takes ShellFn/GitFn/DispatchDeps.
-  Tests mock deps; daemon wires real I/O.
-- **Shell seams.** \`_setShellForTesting\`, \`_setGitRunnerForTesting\`. No real I/O in tests.
-- **TDD.** RED → GREEN → REFACTOR. Tests first, no exceptions.
-- **Lint.** \`bun run lint\` before commit. bracketSpacing: false, singleQuote: true, semi: false.
-- **Commit.** Include bean IDs: \`Refs: hordr-XXXX\`. Use commit skill. No emoji (gitmojify adds it).
-- **No comments** unless asked.
-
-## Where things live
-
-\`\`\`
-src/dispatch/   fleet dispatch core (pure functions)
-src/storage/    SQLite (schema, project-key)
-src/daemon/     unix-socket server (extensible router)
-src/commands/   OCLIF commands
-src/config/     schema, loader, defaults
-src/herdr/      pane + worktree wrappers
-docs/adr/       14 ADRs (0009-0014 are the fleet model)
-docs/fleet-guide.md  personas + assigned: convention
-\`\`\`
 `
 
 export default class Prime extends Command {

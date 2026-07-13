@@ -1,13 +1,13 @@
-import type {Config} from '@oclif/core'
+import type { Config } from '@oclif/core'
 
-import {expect} from 'chai'
+import { expect } from 'chai'
 
 import Prime from '../../src/commands/prime.js'
 
 const stubConfig = {
   bin: 'hordr',
   name: 'hordr',
-  runHook: async () => ({failures: [], successes: []}),
+  runHook: async () => ({ failures: [], successes: [] }),
   topicSeparator: ' ',
   version: '0.0.0',
 } as unknown as Config
@@ -35,8 +35,6 @@ describe('commands/prime', () => {
     expect(text).to.contain('tester')
     expect(text).to.contain('reviewer')
     expect(text).to.contain('--blocked-by')
-    expect(text).to.contain('fleet create')
-    expect(text).to.contain('Pure functions')
     expect(text).to.contain('beans prime')
   })
 })

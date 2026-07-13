@@ -41,3 +41,15 @@ export function resolveProjectKey(opts?: {cwd?: string}): string {
   // git may return a relative path; resolve to absolute so it's stable as cwd.
   return path.resolve(opts?.cwd ?? process.cwd(), raw)
 }
+
+// --- test seam ---
+let _override: ((opts?: {cwd?: string}) => string) | null = null
+
+export function _setProjectKeyResolverForTesting(fn: ((opts?: {cwd?: string}) => string) | null): void {
+  _override = fn
+}
+
+/** resolveProjectKey with an injectable test override. */
+export function resolveProjectKeyOrMock(opts?: {cwd?: string}): string {
+  return _override ? _override(opts) : resolveProjectKey(opts)
+}

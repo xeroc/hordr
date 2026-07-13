@@ -34,7 +34,11 @@ export interface DispatchableBean {
   id: string
   priority: string
   title: string
+  type: string
 }
+
+/** Only task and bug beans are executable — features, epics, milestones are containers. */
+const EXECUTABLE_TYPES = new Set(['bug', 'feature', 'task'])
 
 // --- priority ordering ---
 
@@ -59,10 +63,25 @@ function byPriorityThenId(a: DispatchableBean, b: DispatchableBean): number {
 
 // --- pure logic ---
 
-/** Intersection of descendants ∩ ready, sorted by priority then id. */
-export function pickDispatchable(descendants: DispatchableBean[], ready: DispatchableBean[]): DispatchableBean[] {
+/**
+ * Intersection of descendants ∩ ready ∩ executable, sorted by priority then id.
+ *  Features with children are containers — excluded from dispatch.
+ */
+export function pickDispatchable(
+  descendants: DispatchableBean[],
+  ready: DispatchableBean[],
+  containerIds?: Set<string>,
+): DispatchableBean[] {
   const descendantIds = new Set(descendants.map((d) => d.id))
-  return ready.filter((r) => descendantIds.has(r.id)).sort(byPriorityThenId)
+  return ready
+    .filter((r) => {
+      if (!descendantIds.has(r.id)) return false
+      if (!EXECUTABLE_TYPES.has(r.type)) return false
+      // Features with children are containers, not work items
+      if (r.type === 'feature' && containerIds?.has(r.id)) return false
+      return true
+    })
+    .sort(byPriorityThenId)
 }
 
 // --- tree flattening ---
@@ -76,18 +95,21 @@ interface RawBean {
   type?: string
 }
 
-/** Recursively flatten a bean tree into a list of all descendant ids. */
-function flattenDescendants(node: RawBean): DispatchableBean[] {
+/** Recursively flatten a bean tree. Collects IDs of beans that have children (containers). */
+function flattenDescendants(node: RawBean, containerIds: Set<string>): DispatchableBean[] {
   const result: DispatchableBean[] = []
   for (const child of node.children ?? []) {
+    const hasChildren = (child.children?.length ?? 0) > 0
+    if (hasChildren) containerIds.add(child.id)
     result.push(
       {
         assigned: child.assigned,
         id: child.id,
         priority: child.priority ?? 'normal',
         title: child.title ?? '',
+        type: child.type ?? 'task',
       },
-      ...flattenDescendants(child),
+      ...flattenDescendants(child, containerIds),
     )
   }
 
@@ -96,14 +118,97 @@ function flattenDescendants(node: RawBean): DispatchableBean[] {
 
 // --- I/O: query beans ---
 
-/** Fetch the milestone's descendant tree and flatten to a list. */
-function fetchDescendants(milestoneId: string, cwd?: string): DispatchableBean[] {
-  // Fixed-depth nesting (3 levels: milestone → epic → task). Deeper trees
-  // need more levels; a recursive-descent beans query would be cleaner.
-  const query = `{ bean(id: "${milestoneId}") { children { id title type assigned priority children { id title type assigned priority children { id title type assigned priority } } } } }`
+/** Fetch the subtree and flatten to a list. Returns descendants + container IDs. */
+function fetchDescendants(
+  rootBeanId: string,
+  cwd?: string,
+): {containerIds: Set<string>; descendants: DispatchableBean[]} {
+  const query = `{ bean(id: "${rootBeanId}") { children { id title type priority children { id title type priority children { id title type priority } } } } }`
   const raw = _shell(['query', '--json', query], {cwd})
   const data = JSON.parse(raw) as {bean?: RawBean}
-  return data.bean ? flattenDescendants(data.bean) : []
+  if (!data.bean) return {containerIds: new Set(), descendants: []}
+  const containerIds = new Set<string>()
+  const descendants = flattenDescendants(data.bean, containerIds)
+  return {containerIds, descendants}
+}
+
+interface DraftBean {
+  id: string
+  status: string
+  title?: string
+}
+
+/**
+ * Beans under the milestone with status == 'draft' (ADR-0013). These await
+ * human review before they can be dispatched. Reuses the dispatch shell seam.
+ */
+export function listDrafts(milestoneId: string, opts?: {cwd?: string}): Array<{id: string; title: string}> {
+  const query = `{ bean(id: "${milestoneId}") { children { id title status children { id title status children { id title status } } } } }`
+  const raw = _shell(['query', '--json', query], {cwd: opts?.cwd})
+  const data = JSON.parse(raw) as {bean?: {children?: DraftBean[]}}
+
+  const drafts: Array<{id: string; title: string}> = []
+  const walk = (nodes: DraftBean[] | undefined): void => {
+    for (const node of nodes ?? []) {
+      if (node.status === 'draft') drafts.push({id: node.id, title: node.title ?? ''})
+      // children aren't returned by this fixed-depth query for draft leaves, but
+      // walk anyway in case a draft has its own subtree.
+      walk((node as unknown as {children?: DraftBean[]}).children)
+    }
+  }
+
+  walk(data.bean?.children)
+  return drafts
+}
+
+/** Direct children of a bean with their status (milestone → epics). */
+export function fetchChildStatuses(beanId: string, opts?: {cwd?: string}): Array<{id: string; status: string}> {
+  const query = `{ bean(id: "${beanId}") { children { id status } } }`
+  const raw = _shell(['query', '--json', query], {cwd: opts?.cwd})
+  const data = JSON.parse(raw) as {bean?: {children?: Array<{id: string; status: string}>}}
+  return data.bean?.children ?? []
+}
+
+/** The milestone's direct children as epic infos (for the lane scanner). */
+export function fetchEpics(milestoneId: string, opts?: {cwd?: string}): Array<{id: string; title: string}> {
+  const query = `{ bean(id: "${milestoneId}") { children { id title } } }`
+  const raw = _shell(['query', '--json', query], {cwd: opts?.cwd})
+  const data = JSON.parse(raw) as {bean?: {children?: Array<{id: string; title?: string}>}}
+  return (data.bean?.children ?? []).map((c) => ({id: c.id, title: c.title ?? ''}))
+}
+
+interface AncestorNode {
+  children?: Array<{id: string; status: string}>
+  id: string
+  parent?: AncestorNode
+  status: string
+  type: string
+}
+
+/**
+ * A task's ancestor chain (nearest-first) with each ancestor's subtree
+ * completion, stopping at the epic level (per-epic model, ADR-0014). Feeds
+ * rollup(): the daemon marks each ancestor completed when its subtree is done.
+ */
+export function fetchAncestry(
+  taskId: string,
+  opts?: {cwd?: string},
+): Array<{descendantsAllCompleted: boolean; id: string; status: string}> {
+  const query = `{ bean(id: "${taskId}") { parent { id type status children { id status } parent { id type status children { id status } } } } }`
+  const raw = _shell(['query', '--json', query], {cwd: opts?.cwd})
+  const data = JSON.parse(raw) as {bean?: {parent?: AncestorNode}}
+
+  const result: Array<{descendantsAllCompleted: boolean; id: string; status: string}> = []
+  let node = data.bean?.parent
+  while (node) {
+    const children = node.children ?? []
+    const allDone = children.length > 0 && children.every((c) => c.status === 'completed')
+    result.push({descendantsAllCompleted: allDone, id: node.id, status: node.status})
+    if (node.type === 'epic') break // stop at epic — milestone-level is fleet finish's job
+    node = node.parent
+  }
+
+  return result
 }
 
 /** Fetch the globally-ready beans (readiness is beans' job). */
@@ -115,9 +220,9 @@ function fetchReady(cwd?: string): DispatchableBean[] {
 
 // --- public API ---
 
-/** Get the sorted list of dispatchable task beans under a subtree root (epic or milestone). */
+/** Get the sorted list of dispatchable beans under a subtree root (epic or milestone). */
 export function getDispatchable(rootBeanId: string, opts?: {cwd?: string}): DispatchableBean[] {
-  const descendants = fetchDescendants(rootBeanId, opts?.cwd)
+  const {containerIds, descendants} = fetchDescendants(rootBeanId, opts?.cwd)
   const ready = fetchReady(opts?.cwd)
-  return pickDispatchable(descendants, ready)
+  return pickDispatchable(descendants, ready, containerIds)
 }

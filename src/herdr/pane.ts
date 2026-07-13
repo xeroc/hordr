@@ -94,3 +94,20 @@ export function paneLabel(beanId: string, role: string): string {
 export function runInPane(paneId: string, command: string): void {
   herdr(['pane', 'run', paneId, command])
 }
+
+/**
+ * Whether a pane still exists. Best-effort: if herdr has no pane-list or the
+ * call errors, return true (don't false-block a lane on a missing API).
+ */
+export function paneExists(paneId: string): boolean {
+  try {
+    const raw = herdr(['pane', 'list', '--json'])
+    const data = parseJSON<{panes?: Array<{pane_id?: string}>}>(raw, 'pane list')
+    const panes = data.panes ?? []
+    return panes.some((p) => p.pane_id === paneId)
+  } catch {
+    // ponytail: trust the pane is alive when herdr can't confirm — crash
+    // detection via pane-gone degrades gracefully rather than false-blocking.
+    return true
+  }
+}

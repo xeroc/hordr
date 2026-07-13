@@ -41,6 +41,11 @@ export function _resetGitRunner(): void {
   _gitRunner = defaultGitRunner
 }
 
+/** Current git runner (test-overridable via _setGitRunnerForTesting). */
+export function getGitRunner(): GitRunner {
+  return _gitRunner
+}
+
 /**
  * Check out `primary` and merge `branch` into it. Runs from `cwd` (the main
  * repo). Uses the mockable git runner so tests don't shell out. Throws

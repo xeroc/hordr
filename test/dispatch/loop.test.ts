@@ -44,8 +44,8 @@ function mockBean(id: string, assigned: string, body: string): BeanRecord {
 describe('dispatch/loop', () => {
   it('picks the highest-priority dispatchable task and spawns an invocation', () => {
     const dispatchable: DispatchableBean[] = [
-      {assigned: 'tester', id: 'hordr-0002', priority: 'critical', title: 'T2'},
-      {assigned: 'implementer', id: 'hordr-0001', priority: 'normal', title: 'T1'},
+      {assigned: 'tester', id: 'hordr-0002', priority: 'critical', title: 'T2', type: 'task'},
+      {assigned: 'implementer', id: 'hordr-0001', priority: 'normal', title: 'T1', type: 'task'},
     ]
 
     let spawned: undefined | {harness: string; prompt: string}
@@ -85,7 +85,7 @@ describe('dispatch/loop', () => {
     const body = '## Requirement\n\nImplement the frobnicator.\n\n## AC\n\n- It frobs.'
     const result = dispatchNext(ctx, config, {
       fetchBean: () => mockBean('hordr-0001', 'implementer', body),
-      fetchDispatchable: () => [{assigned: 'implementer', id: 'hordr-0001', priority: 'normal', title: 'T1'}],
+      fetchDispatchable: () => [{assigned: 'implementer', id: 'hordr-0001', priority: 'normal', title: 'T1', type: 'task'}],
       spawn() {},
     })
 

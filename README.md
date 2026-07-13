@@ -443,6 +443,21 @@ testable in isolation, wired to real I/O by the daemon and command classes.
 
 ## The fleet model
 
+### Bean hierarchy
+
+```
+milestone            ← one per release; gets the fleet
+├─ epic              ← thematic container; gets a parallel worktree (lane)
+│  ├─ feature        ← optional grouping for large epics
+│  │  └─ task        ← one task = one commit; the executable unit
+│  └─ task           ← tasks can sit directly under epics (feature is optional)
+└─ ...
+```
+
+Features are **optional** — use them when an epic needs sub-grouping, skip them
+for simple epics. Only `task` and `bug` beans are dispatched to agents;
+features, epics, and milestones are containers that complete via rollup.
+
 ### Fleet = milestone + team + daemon broker
 
 A fleet is the runtime instance of a team working a milestone. It is bounded

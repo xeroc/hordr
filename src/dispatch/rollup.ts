@@ -10,16 +10,17 @@
  * query for parent chain + subtree status) and markCompleted (beans update).
  */
 /**
- * Check if all the milestone's epic children are completed (ADR-0014).
- * Called after each epic merge into the milestone branch. If true, the
- * milestone bean itself can be marked completed → fleet is finishable.
+ * Check if all the milestone's epic children are done (completed or scrapped).
+ * Scrapped = decided not to do → not blocking. Called after each epic merge
+ * into the milestone branch. If true, the milestone can be marked completed.
  */
 export function areAllEpicsCompleted(
   milestoneId: string,
   deps: {fetchEpicStatuses: (id: string) => Array<{id: string; status: string}>},
 ): boolean {
   const epics = deps.fetchEpicStatuses(milestoneId)
-  return epics.length > 0 && epics.every((e) => e.status === 'completed')
+  const TERMINAL = new Set(['completed', 'scrapped'])
+  return epics.length > 0 && epics.every((e) => TERMINAL.has(e.status))
 }
 
 export function isMilestoneComplete(
@@ -32,6 +33,7 @@ export function isMilestoneComplete(
 export interface AncestorInfo {
   descendantsAllCompleted: boolean
   id: string
+  status: string
 }
 
 export interface RollupDeps {
@@ -50,6 +52,7 @@ export function rollup(taskId: string, deps: RollupDeps): string[] {
   const marked: string[] = []
 
   for (const ancestor of ancestors) {
+    if (ancestor.status === 'completed') continue
     if (!ancestor.descendantsAllCompleted) break
     deps.markCompleted(ancestor.id)
     marked.push(ancestor.id)

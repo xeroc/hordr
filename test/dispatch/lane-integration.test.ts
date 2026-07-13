@@ -43,7 +43,7 @@ describe('dispatch (lane flow integration)', () => {
     let spawnCalled = false
     const dispatchDeps: DispatchDeps = {
       fetchBean: (id) => ({assigned: 'implementer', body: `body of ${id}`, id}) as never,
-      fetchDispatchable: () => [{assigned: 'implementer', id: 'task-1', priority: 'normal', title: 'T1'}],
+      fetchDispatchable: () => [{assigned: 'implementer', id: 'task-1', priority: 'normal', title: 'T1', type: 'task'}],
       spawn() {
         spawnCalled = true
       },
@@ -70,7 +70,7 @@ describe('dispatch (lane flow integration)', () => {
 
     // --- 5. Rollup: walk ancestry, mark epic completed ---
     const marked = rollup('task-1', {
-      fetchAncestry: () => [{descendantsAllCompleted: true, id: 'epic-1'}],
+      fetchAncestry: () => [{descendantsAllCompleted: true, id: 'epic-1', status: 'todo'}],
       markCompleted() {},
     })
     expect(marked).to.deep.equal(['epic-1'])
