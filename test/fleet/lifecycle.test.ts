@@ -40,13 +40,13 @@ describe('fleet/lifecycle', () => {
   describe('createFleet', () => {
     let db: Database.Database
     let gitCalls: Array<{args: string[]; cwd: string}>
-    let daemonStarted: boolean
+    let daemonAlive: boolean
     let fetched: string[]
 
     beforeEach(() => {
       db = freshDb()
       gitCalls = []
-      daemonStarted = false
+      daemonAlive = true
       fetched = []
     })
 
@@ -65,7 +65,9 @@ describe('fleet/lifecycle', () => {
         },
         {
           createWorktree: (opts) => ({path: `/wt/${opts.branch}`, workspaceId: 'w-ms'}),
-          ensureDaemon: async () => ({started: daemonStarted}),
+          async ensureDaemon() {
+            if (!daemonAlive) throw new FleetError('daemon not running — start it with `hordr daemon`')
+          },
           fetchBean(id) {
             fetched.push(id)
             return bean
@@ -77,8 +79,7 @@ describe('fleet/lifecycle', () => {
       )
     }
 
-    it('validates the milestone, creates ms branch, registers fleet, ensures daemon', async () => {
-      daemonStarted = true
+    it('validates the milestone, creates ms branch, registers fleet, asserts daemon alive', async () => {
       const res = await run(milestoneBean())
 
       expect(fetched).to.deep.equal([MS])
@@ -88,7 +89,23 @@ describe('fleet/lifecycle', () => {
       const fleet = getFleet(db, PK, MS)
       expect(fleet?.status).to.equal('active')
       expect(fleet?.branch).to.equal(MS)
-      expect(res).to.deep.equal({branch: MS, daemonStarted: true})
+      expect(res).to.deep.equal({branch: MS})
+    })
+
+    it('refuses to create the fleet when the daemon is not running', async () => {
+      daemonAlive = false
+      let err: unknown
+      try {
+        await run(milestoneBean())
+      } catch (error) {
+        err = error
+      }
+
+      expect(err).to.be.instanceOf(FleetError)
+      expect((err as FleetError).message).to.match(/daemon not running/)
+      // no fleet row registered
+      expect(getFleet(db, PK, MS)).to.be.undefined
+      expect(gitCalls).to.have.length(0)
     })
 
     it('refuses when the bean is not a milestone', async () => {

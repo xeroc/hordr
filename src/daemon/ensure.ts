@@ -1,18 +1,14 @@
 /**
- * Lazy daemon auto-start (ADR-0012).
+ * Daemon reachability check (ADR-0012, revised: no auto-spawn).
  *
- * `fleet create` ensures the daemon is running so per-lane dispatch loops can
- * tick. A cheap GET /health over the unix socket tells us if it's alive; if
- * not, spawn `hordr daemon` detached (unref'd so the CLI returns immediately).
+ * `fleet create` requires the daemon to already be listening. A cheap
+ * GET /health over the unix socket tells us if it's alive; if not, throw —
+ * the operator starts the daemon explicitly with `hordr daemon`.
  */
-import {spawn} from 'node:child_process'
 import http from 'node:http'
 
+import {FleetError} from '../fleet/lifecycle.js'
 import {socketPath} from './socket.js'
-
-export interface EnsureDaemonResult {
-  started: boolean
-}
 
 /** Resolve a daemon /health check as a boolean (true = alive). */
 function pingHealth(sockPath: string, timeoutMs = 600): Promise<boolean> {
@@ -31,33 +27,24 @@ function pingHealth(sockPath: string, timeoutMs = 600): Promise<boolean> {
 }
 
 /**
- * Ensure the daemon is listening on `sockPath`. If /health answers, do
- * nothing. Otherwise spawn `hordr daemon` detached and unref'd.
+ * Require the daemon to be listening on `sockPath`. If /health answers,
+ * return. Otherwise throw FleetError instructing the operator to start it.
  *
- * Returns {started: true} if this call spawned the daemon, false if it was
- * already alive. Re-exported as a seam so tests inject a stub.
+ * Never spawns. Re-exported as a seam so tests inject a stub.
  */
-export async function ensureDaemonRunning(opts?: {socket?: string}): Promise<EnsureDaemonResult> {
+export async function requireDaemonRunning(opts?: {socket?: string}): Promise<void> {
   const sock = opts?.socket ?? socketPath()
-  if (await pingHealth(sock)) return {started: false}
-
-  const child = spawn('hordr', ['daemon'], {
-    detached: true,
-    stdio: 'ignore',
-  })
-  child.unref()
-  return {started: true}
+  if (await pingHealth(sock)) return
+  throw new FleetError(`hordr daemon is not running on ${sock}. Start it in another terminal with: hordr daemon`)
 }
 
 // --- test seam ---
-let _override: ((opts?: {socket?: string}) => Promise<EnsureDaemonResult>) | null = null
+let _override: ((opts?: {socket?: string}) => Promise<void>) | null = null
 
-export function _setEnsureDaemonForTesting(
-  fn: ((opts?: {socket?: string}) => Promise<EnsureDaemonResult>) | null,
-): void {
+export function _setEnsureDaemonForTesting(fn: ((opts?: {socket?: string}) => Promise<void>) | null): void {
   _override = fn
 }
 
-export function ensureDaemon(opts?: {socket?: string}): Promise<EnsureDaemonResult> {
-  return _override ? _override(opts) : ensureDaemonRunning(opts)
+export function ensureDaemon(opts?: {socket?: string}): Promise<void> {
+  return _override ? _override(opts) : requireDaemonRunning(opts)
 }

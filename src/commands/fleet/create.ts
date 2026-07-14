@@ -13,9 +13,10 @@ import {resolveProjectKeyOrMock} from '../../storage/project.js'
  * hordr fleet create <milestone-id>
  *
  * Bootstrap a fleet for a milestone bean: validate it's a milestone, create the
- * ms/<id> integration branch from primary, register the fleet row, and ensure
- * the daemon is running. Per-epic lanes are created lazily by the daemon tick
- * (ADR-0014). Refuses if a fleet is already active for the milestone.
+ * ms/<id> integration branch from primary, register the fleet row, and require
+ * the daemon to already be running (throws if not — never spawns). Per-epic
+ * lanes are created lazily by the daemon tick (ADR-0014). Refuses if a fleet
+ * is already active for the milestone.
  */
 export default class FleetCreate extends Command {
   static args = {milestone: Args.string({description: 'Milestone bean id', required: true})}
@@ -67,15 +68,12 @@ export default class FleetCreate extends Command {
         this.log(
           JSON.stringify({
             branch: result.branch,
-            daemonStarted: result.daemonStarted,
             milestone: milestoneId,
             projectKey,
           }),
         )
       } else {
-        this.log(
-          `fleet ${milestoneId} created on ${result.branch} (daemon ${result.daemonStarted ? 'started' : 'already running'})`,
-        )
+        this.log(`fleet ${milestoneId} created on ${result.branch}`)
       }
     } finally {
       db.close()

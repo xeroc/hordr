@@ -41,20 +41,21 @@ export interface ProjectInfo {
 export interface CreateFleetDeps {
   /** Create a herdr worktree for the ms branch; return its path. */
   createWorktree: (opts: {base: string; branch: string; cwd: string}) => {path: string; workspaceId: string}
-  ensureDaemon: () => Promise<{started: boolean}>
+  /** Throw if the daemon is not reachable. Never spawns. */
+  ensureDaemon: () => Promise<void>
   fetchBean: (id: string) => BeanRecord
   git: GitFn
 }
 
 export interface CreateFleetResult {
   branch: string
-  daemonStarted: boolean
 }
 
 /**
  * Bootstrap a fleet for a milestone: validate the bean is a milestone, create
  * the milestone integration branch from primary, register the fleet row, and
- * ensure the daemon is running. Refuses if an active fleet already exists.
+ * require the daemon to already be running (throws if not — never spawns).
+ * Refuses if an active fleet already exists.
  *
  * Does NOT create lanes/worktrees — the daemon's tick scanner does that
  * lazily as epics become unblocked (ADR-0014).
@@ -77,6 +78,10 @@ export async function createFleet(
     throw new FleetError(`fleet for ${milestoneId} is already active (branch ${existing.branch})`)
   }
 
+  // Fail fast: refuse to create worktrees or fleet rows if the daemon isn't
+  // listening. Avoids partial state when the operator forgot `hordr daemon`.
+  await deps.ensureDaemon()
+
   const branch = milestoneId
 
   // Create the ms branch + worktree in one shot: herdr worktree create
@@ -93,8 +98,7 @@ export async function createFleet(
     worktreePath: msWt.path,
   })
 
-  const daemon = await deps.ensureDaemon()
-  return {branch, daemonStarted: daemon.started}
+  return {branch}
 }
 
 export interface FleetSnapshot {

@@ -83,6 +83,7 @@ describe('commands/fleet/create', () => {
   let origDb: string | undefined
   let gitCalls: Array<{args: string[]; cwd: string}>
   let daemonCalls: number
+  let daemonAlive: boolean
   let beanType: string
 
   beforeEach(() => {
@@ -95,6 +96,7 @@ describe('commands/fleet/create', () => {
     process.chdir(configDir)
     gitCalls = []
     daemonCalls = 0
+    daemonAlive = true
     beanType = 'milestone'
     _setGitRunnerForTesting(((args, opts): void => {
       gitCalls.push({args, cwd: opts.cwd})
@@ -102,7 +104,7 @@ describe('commands/fleet/create', () => {
     _setProjectKeyResolverForTesting(() => 'pk-test')
     _setEnsureDaemonForTesting(async () => {
       daemonCalls++
-      return {started: true}
+      if (!daemonAlive) throw new Error('daemon not running — start it with `hordr daemon`')
     })
     _setBeansShell(() => JSON.stringify({...MILESTONE_BEAN, type: beanType}))
     _setWtShell((args) => {
@@ -126,7 +128,7 @@ describe('commands/fleet/create', () => {
     _resetWtShell()
   })
 
-  it('creates ms branch, registers fleet, ensures daemon', async () => {
+  it('creates ms branch, registers fleet, asserts daemon alive', async () => {
     const res = await invoke(['hordr-ms1'])
 
     expect(res.error, res.error?.message).to.be.undefined
@@ -148,19 +150,34 @@ describe('commands/fleet/create', () => {
     }
   })
 
-  it('--json emits milestone, branch, daemonStarted, projectKey', async () => {
+  it('refuses when the daemon is not running', async () => {
+    daemonAlive = false
+    const res = await invoke(['hordr-ms1'])
+
+    expect(res.error).to.be.instanceOf(Error)
+    expect(res.error!.message).to.match(/daemon not running/)
+    expect(daemonCalls).to.equal(1)
+
+    const db = openFleetDb()
+    try {
+      const row = db.prepare('SELECT status FROM fleets WHERE milestone_bean_id = ?').get('hordr-ms1')
+      expect(row).to.be.undefined
+    } finally {
+      db.close()
+    }
+  })
+
+  it('--json emits milestone, branch, projectKey', async () => {
     const res = await invoke(['hordr-ms1', '--json'])
 
     expect(res.error, res.error?.message).to.be.undefined
     const parsed = JSON.parse(res.stdout.trim()) as {
       branch: string
-      daemonStarted: boolean
       milestone: string
       projectKey: string
     }
     expect(parsed).to.deep.equal({
       branch: 'hordr-ms1',
-      daemonStarted: true,
       milestone: 'hordr-ms1',
       projectKey: 'pk-test',
     })
