@@ -180,9 +180,12 @@ export function removeWorktree(opts: WorktreeRemoveOpts): void {
 
   assertHerdrOnPath()
 
-  // Lane worktrees often have uncommitted rollup writes (beans update -s completed).
-  // Force-remove — the status changes are ephemeral; the committed code is what matters.
-  const args = ['worktree', 'remove', '--workspace', opts.workspaceId, '--force', '--json']
+  // --force is opt-in: by default git refuses a dirty worktree, which is the
+  // defense-in-depth net (hordr-wd46). Only explicit callers (abort --force)
+  // pass force=true to discard work deliberately.
+  const args = ['worktree', 'remove', '--workspace', opts.workspaceId]
+  if (opts.force) args.push('--force')
+  args.push('--json')
 
   runHerdr(args)
 }
@@ -190,9 +193,11 @@ export function removeWorktree(opts: WorktreeRemoveOpts): void {
 /**
  * Remove a worktree by its branch: open (resolve workspace) then remove.
  * Tolerant of an already-gone worktree (lane was 'done' / merged). Used by
- * fleet abort --force and the broker's epic-merge teardown.
+ * the broker's epic-merge teardown. Does NOT force — dirty trees are refused
+ * so uncommitted work survives (hordr-wd46). The abort --force path passes
+ * force=true explicitly via its own helper.
  */
-export function removeWorktreeByBranch(branch: string, cwd: string): void {
+export function removeWorktreeByBranch(branch: string, cwd: string, opts?: {force?: boolean}): void {
   // herdr worktree open/remove must run from the repo parent workspace, not
   // from inside a linked worktree. Resolve the main repo from any cwd.
   let mainRepo = cwd
@@ -216,7 +221,7 @@ export function removeWorktreeByBranch(branch: string, cwd: string): void {
     return // already gone
   }
 
-  if (workspaceId) removeWorktree({workspaceId})
+  if (workspaceId) removeWorktree({force: opts?.force, workspaceId})
 }
 
 /**

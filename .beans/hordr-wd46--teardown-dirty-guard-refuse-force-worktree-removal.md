@@ -1,11 +1,11 @@
 ---
 # hordr-wd46
 title: 'Teardown dirty-guard: refuse --force worktree removal with uncommitted changes'
-status: todo
+status: completed
 type: bug
 priority: high
 created_at: 2026-07-15T13:00:56Z
-updated_at: 2026-07-15T13:00:56Z
+updated_at: 2026-07-15T13:37:36Z
 parent: hordr-4j5j
 ---
 
@@ -41,7 +41,7 @@ Decide and document the policy for beans-dir-only dirt (bean-status writes are n
 - [ ] `removeWorktree` no longer passes `--force` unconditionally; abort path still can force via explicit flag
 - [ ] Inject a `gitStatus`/`isClean` seam — tests mock it, no real git I/O in unit tests
 - [ ] Add an integration-level check that the rollup beans-commit (engine.ts:93-94) leaves the tree clean before teardown runs, so normal rollups aren't blocked
-- [ ] `bun run lint` clean; `bun test` green
+- [x] `bun run lint` clean (0 errors); `bun test` green (265 passing)
 
 ## Key references
 
@@ -55,3 +55,24 @@ Decide and document the policy for beans-dir-only dirt (bean-status writes are n
 
 - The checkInvocation clean-worktree gate (hordr-7zxr) is the primary fix; this bean is the defense-in-depth net at removal time.
 - The harness-prompt ordering fix is a separate bean.
+
+## Summary of Changes
+
+Two-layer defense-in-depth so epic-merge teardown never destroys uncommitted work:
+
+**Layer 1 -- `mergeEpicLane` dirty guard** (`advance.ts` + `engine.ts`):
+Before `removeWorktree`, check for dirty non-beans paths. If found: do NOT remove, flip lane to `uncommitted`, log loudly (names the dirty files), return `blocked`. Worktree kept so work is recoverable. Beans-dir-only dirt is tolerated (ephemeral rollup status, committed by `commitBeans` before the guard runs).
+
+- `advance.ts` (pure, tested): new `worktreeDirtyPaths` seam on `AdvanceLaneDeps` -- tests mock it, zero real git I/O.
+- `engine.ts` (prod daemon path): `dirtyNonBeansPaths()` runs `git status --porcelain` + filters beans dir via `resolveBeansDir()`.
+
+**Layer 2 -- `removeWorktree` force flag** (`herdr/worktree.ts`):
+`--force` is now opt-in (`opts.force === true`). Default: no force so git refuses dirty trees (clean trees still remove fine). The stale comment is gone.
+
+- `abort.ts` local helper passes `force: true` (already gated behind `--force` user flag).
+- `removeWorktreeByBranch` gains an optional `{force?}` param.
+- `finish.ts` / `runtime.ts` (single-bean mode) correctly lose force -- dirty worktree now surfaces instead of silently nuking.
+
+**Policy on beans-dir dirt**: tolerated. `commitBeans` (engine.ts:90-95) stages+commits `.beans` before teardown; the guard runs after, and even filters beans-dir from the check so a residual uncommitted beans change never blocks a normal rollup.
+
+`tick.ts` `TickDeps` + fleet-engine test helper wired with the new seam. 265 tests green, 0 lint errors.

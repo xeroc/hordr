@@ -19,6 +19,7 @@
  */
 import type Database from 'better-sqlite3'
 
+import {execFileSync} from 'node:child_process'
 import {existsSync, readFileSync} from 'node:fs'
 import path from 'node:path'
 import {parse} from 'yaml'
@@ -92,6 +93,37 @@ function commitBeans(worktreePath: string): void {
   const git = getGitRunner()
   git(['add', beansDir], {cwd: worktreePath})
   git(['commit', '-m', 'chore(beans): rollup status changes'], {cwd: worktreePath})
+}
+
+/**
+ * List uncommitted paths in a worktree OUTSIDE the beans data dir. Beans-dir
+ * churn is ephemeral rollup status (committed by commitBeans before teardown);
+ * any other dirty file is uncommitted code that teardown must not destroy.
+ * Empty array = clean / safe to remove (hordr-wd46).
+ */
+function dirtyNonBeansPaths(worktreePath: string): string[] {
+  const beansDir = resolveBeansDir(worktreePath)
+  let raw = ''
+  try {
+    // ponytail: direct read-only git call — matches worktree.ts's rev-parse
+    // pattern. A broken worktree is "dirty enough" to block, not crash the tick.
+    raw = execFileSync('git', ['-C', worktreePath, 'status', '--porcelain'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+  } catch {
+    return ['<git status failed>']
+  }
+
+  const dirty: string[] = []
+  for (const line of raw.split('\n')) {
+    if (!line.trim()) continue
+    // porcelain v1: "XY path" (2 status chars + space + path)
+    const p = line.slice(3).trim().replaceAll(/^"|"$/g, '')
+    if (!p.startsWith(beansDir + '/')) dirty.push(p)
+  }
+
+  return dirty
 }
 
 /**
@@ -169,6 +201,21 @@ function mergeEpicLane(db: Database.Database, fleet: FleetRow, lane: LaneRow, ta
   if (result.conflict) {
     logger.error(`lane — needs human resolution`)
     updateLaneStatus(db, loc, 'conflict')
+    return {action: 'blocked', taskId}
+  }
+
+  // Defense-in-depth: refuse to tear down a worktree with uncommitted non-beans
+  // changes (hordr-wd46). Beans-dir-only dirt is tolerated (ephemeral rollup
+  // status, committed by commitBeans above). Keep the worktree so work is
+  // recoverable; lane → uncommitted for a human.
+  const dirty = dirtyNonBeansPaths(lane.worktreePath)
+  if (dirty.length > 0) {
+    logger.error(
+      `lane ${lane.epicBeanId}: refusing to remove worktree — uncommitted changes: ${dirty.join(', ')}. ` +
+        `Lane → uncommitted. Recover the work, then run 'hordr fleet reset'.`,
+    )
+    setLaneCurrentTask(db, loc, null)
+    updateLaneStatus(db, loc, 'uncommitted')
     return {action: 'blocked', taskId}
   }
 

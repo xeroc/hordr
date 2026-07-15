@@ -75,5 +75,5 @@ function removeWorktreeByBranch(branch: string, cwd: string): void {
     return // already gone
   }
 
-  if (workspaceId) removeWorktree({workspaceId})
+  if (workspaceId) removeWorktree({force: true, workspaceId})
 }
