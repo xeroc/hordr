@@ -1,6 +1,5 @@
 import {Args, Command, Flags} from '@oclif/core'
 
-import {loadConfig} from '../config/loader.js'
 import {branchFor, HerdrError, openWorktree, removeWorktree} from '../herdr/worktree.js'
 
 /**
@@ -25,8 +24,7 @@ export default class Cleanup extends Command {
 
   async run(): Promise<void> {
     const {args, flags} = await this.parse(Cleanup)
-    const config = loadConfig()
-    const branch = branchFor(args.bean, config.worktree_branch_prefix)
+    const branch = branchFor(args.bean)
     const cwd = process.cwd()
 
     let workspaceId: string

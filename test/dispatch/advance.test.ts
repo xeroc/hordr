@@ -14,7 +14,6 @@ const MS = 'ms1'
 const config: HordrConfig = {
   agents: {implementer: {harness: 'opencode', persona: 'impl'}},
   primary_branch: 'develop',
-  worktree_branch_prefix: 'bean/',
 }
 
 const FLEET: FleetRow = {

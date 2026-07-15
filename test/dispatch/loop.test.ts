@@ -13,7 +13,6 @@ const config: HordrConfig = {
     tester: {harness: 'claude', persona: 'You test implementations.'},
   },
   primary_branch: 'develop',
-  worktree_branch_prefix: 'bean/',
 }
 
 const ctx: LaneContext = {

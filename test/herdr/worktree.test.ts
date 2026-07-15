@@ -157,9 +157,8 @@ describe('herdr/worktree', () => {
     expect(() => removeWorktree({workspaceId: 'wP'})).to.throw(HerdrError, /not_linked_worktree/)
   })
 
-  it('branchFor produces <prefix><beanId> and throws on empty (AC #4)', () => {
-    expect(branchFor('hordr-1234')).to.equal('bean/hordr-1234')
-    expect(branchFor('hordr-1234', 'feat/')).to.equal('feat/hordr-1234')
+  it('branchFor returns the bean id (consistent with fleet lane naming) and throws on empty', () => {
+    expect(branchFor('hordr-1234')).to.equal('hordr-1234')
     expect(() => branchFor('')).to.throw(HerdrError, /beanId is required/)
   })
 

@@ -266,7 +266,6 @@ Body without path.
         tester: {harness: 'opencode', persona: 'ORIGINAL-TESTER-PERSONA'},
       },
       primary_branch: 'develop',
-      worktree_branch_prefix: 'bean/',
     }
 
     it('overrides persona from AGENTS.md body', () => {

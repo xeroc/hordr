@@ -14,7 +14,6 @@ const NOW = '2026-07-09T00:00:00Z'
 const config: HordrConfig = {
   agents: {implementer: {harness: 'opencode', persona: 'impl'}},
   primary_branch: 'develop',
-  worktree_branch_prefix: 'bean/',
 }
 
 function freshDb(): Database.Database {

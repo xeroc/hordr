@@ -29,7 +29,6 @@ function mockConfig(roles: Record<string, {harness: string; persona?: string}>):
   return {
     agents: roles,
     primary_branch: 'develop',
-    worktree_branch_prefix: 'bean/',
   }
 }
 

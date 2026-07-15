@@ -8,7 +8,6 @@ import {createFleetEngine, type FleetEngine} from '../../src/dispatch/engine.js'
 const config: HordrConfig = {
   agents: {implementer: {harness: 'opencode', persona: 'impl'}},
   primary_branch: 'develop',
-  worktree_branch_prefix: 'bean/',
 }
 
 describe('dispatch/engine', () => {

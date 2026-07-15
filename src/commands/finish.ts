@@ -29,7 +29,7 @@ export default class Finish extends Command {
     const {args, flags} = await this.parse(Finish)
     const config = loadConfig()
     const beanId = args.bean
-    const branch = branchFor(beanId, config.worktree_branch_prefix)
+    const branch = branchFor(beanId)
     const cwd = process.cwd()
 
     // 1. Open the worktree up front: we need its path to read the bean from
@@ -51,7 +51,7 @@ export default class Finish extends Command {
       this.error(`${beanId} is not completed (status: ${String(bean.status)})`)
     }
 
-    // 3. Merge bean/<id> into primary.
+    // 3. Merge <id> into primary.
     gitMergeBranch(config.primary_branch, branch, cwd)
 
     // 4. Remove the worktree (only if we opened it).

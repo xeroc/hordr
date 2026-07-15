@@ -9,7 +9,7 @@ Rationale: the prior Run-state layer duplicated information already present else
 
 Practical consequences:
 
-- "Is this bean being worked on?" → check `herdr worktree list` for `bean/<id>`, or look at bean status in `beans`.
+- "Is this bean being worked on?" → check `herdr worktree list` for `<id>`, or look at bean status in `beans`.
 - "Did the agent finish?" → look at the pane, or the git log on the branch, or the PR. Hordr does not know and does not pretend to.
 - "Resume after a crash" → there is nothing to resume; run `hordr run <bean>` again (it will reuse the existing worktree) or talk to the agent in its existing pane.
 

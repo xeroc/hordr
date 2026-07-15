@@ -11,7 +11,6 @@ beans:
   path: .beans
 hordr:
   primary_branch: develop
-  worktree_branch_prefix: bean/
   agents:
     implementer:
       harness: opencode
@@ -78,7 +77,6 @@ describe('config/schema', () => {
   it('parses a valid config and returns a typed object', () => {
     const cfg = loadConfig(write(VALID_YAML))
     expect(cfg.primary_branch).to.equal('develop')
-    expect(cfg.worktree_branch_prefix).to.equal('bean/')
     expect(cfg.agents).to.have.property('implementer')
     expect(cfg.agents.implementer!.harness).to.equal('opencode')
     expect(cfg.agents).to.have.property('reviewer')

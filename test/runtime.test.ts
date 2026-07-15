@@ -42,7 +42,7 @@ const OPEN_RESULT = {
   type: 'worktree_opened',
   workspace: {label: 'bean-hordr-999', workspace_id: 'wP'},
   worktree: {
-    branch: 'bean/hordr-999',
+    branch: 'hordr-999',
     open_workspace_id: 'wP',
     path: '/home/xeroc/.herdr/worktrees/repo/bean-hordr-999',
   },
@@ -51,7 +51,6 @@ const OPEN_RESULT = {
 const YAML = `
 hordr:
   primary_branch: develop
-  worktree_branch_prefix: bean/
 `
 
 describe('runtime / createDeps.createWorktree', () => {
@@ -90,7 +89,7 @@ describe('runtime / createDeps.createWorktree', () => {
     expect(a).to.include('--base')
     expect(a).to.include('develop')
     expect(info).to.deep.equal({
-      branch: 'bean/hordr-999',
+      branch: 'hordr-999',
       path: '/home/xeroc/.herdr/worktrees/repo/bean-hordr-999',
       workspaceId: 'wP',
     })
@@ -113,12 +112,12 @@ describe('runtime / createDeps.createWorktree', () => {
         // Simulate the HerdrError that defaultShell wraps around git's
         // "a branch named '...' already exists" stderr.
         throw new HerdrError(
-          `herdr worktree create --json --cwd ${c.cwd} --branch bean/hordr-999 --base develop failed: ` +
+          `herdr worktree create --json --cwd ${c.cwd} --branch hordr-999 --base develop failed: ` +
             `Command failed: herdr worktree create (stderr: ${JSON.stringify({
               error: {
                 code: 'worktree_create_failed',
                 message:
-                  "Preparing worktree (new branch 'bean/hordr-999')\nfatal: a branch named 'bean/hordr-999' already exists",
+                  "Preparing worktree (new branch 'hordr-999')\nfatal: a branch named 'hordr-999' already exists",
               },
               id: 'cli:worktree:create',
             })})`,
@@ -134,9 +133,9 @@ describe('runtime / createDeps.createWorktree', () => {
     expect(calls[0].args.slice(0, 2)).to.deep.equal(['worktree', 'create'])
     expect(calls[1].args.slice(0, 2)).to.deep.equal(['worktree', 'open'])
     expect(calls[1].args).to.include('--branch')
-    expect(calls[1].args).to.include('bean/hordr-999')
+    expect(calls[1].args).to.include('hordr-999')
     expect(info).to.deep.equal({
-      branch: 'bean/hordr-999',
+      branch: 'hordr-999',
       path: '/home/xeroc/.herdr/worktrees/repo/bean-hordr-999',
       workspaceId: 'wP',
     })
@@ -172,7 +171,7 @@ describe('runtime / createDeps.createWorktree', () => {
             `herdr worktree create failed: Command failed: herdr worktree create (stderr: ${JSON.stringify({
               error: {
                 code: 'worktree_create_failed',
-                message: "fatal: a branch named 'bean/hordr-999' already exists",
+                message: "fatal: a branch named 'hordr-999' already exists",
               },
               id: 'cli:worktree:create',
             })})`,
@@ -203,9 +202,9 @@ describe('runtime / createDeps.createWorktree', () => {
     expect(calls.filter((c) => c.args[1] === 'create')).to.have.length(2)
     expect(calls.filter((c) => c.args[1] === 'open')).to.have.length(1)
     expect(gitCalls).to.have.length(1)
-    expect(gitCalls[0].args).to.deep.equal(['branch', '-d', 'bean/hordr-999'])
+    expect(gitCalls[0].args).to.deep.equal(['branch', '-d', 'hordr-999'])
     expect(info).to.deep.equal({
-      branch: 'bean/hordr-999',
+      branch: 'hordr-999',
       path: '/home/xeroc/.herdr/worktrees/repo/bean-hordr-999',
       workspaceId: 'wP',
     })
@@ -218,7 +217,7 @@ describe('runtime / createDeps.createWorktree', () => {
           `herdr worktree create failed: (stderr: ${JSON.stringify({
             error: {
               code: 'worktree_create_failed',
-              message: "fatal: a branch named 'bean/hordr-999' already exists",
+              message: "fatal: a branch named 'hordr-999' already exists",
             },
             id: 'cli:worktree:create',
           })})`,
@@ -249,7 +248,7 @@ describe('runtime / createDeps.createWorktree', () => {
           `herdr worktree create failed: (stderr: ${JSON.stringify({
             error: {
               code: 'worktree_create_failed',
-              message: "fatal: a branch named 'bean/hordr-999' already exists",
+              message: "fatal: a branch named 'hordr-999' already exists",
             },
             id: 'cli:worktree:create',
           })})`,
@@ -271,7 +270,7 @@ describe('runtime / createDeps.createWorktree', () => {
     gitResponder = () => {
       // Simulate the wrapped HerdrError that defaultGitRunner produces.
       throw new HerdrError(
-        "git branch -d bean/hordr-999 failed: error: The branch 'bean/hordr-999' is not fully merged.",
+        "git branch -d hordr-999 failed: error: The branch 'hordr-999' is not fully merged.",
       )
     }
 

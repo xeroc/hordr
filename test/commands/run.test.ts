@@ -86,7 +86,7 @@ describe('commands/run (minimal, hordr-zn3f)', () => {
   const stubDeps: HordrDeps = {
     createWorktree(beanId, opts) {
       wtCalls.push({beanId, opts})
-      return {branch: `bean/${beanId}`, path: `/wt/${beanId}`, workspaceId: 'wX'}
+      return {branch: `${beanId}`, path: `/wt/${beanId}`, workspaceId: 'wX'}
     },
     launchAgent(opts) {
       depsCalls.push(opts)
@@ -158,7 +158,7 @@ describe('commands/run (minimal, hordr-zn3f)', () => {
     }
     expect(parsed).to.deep.equal({
       bean: 'hordr-1234',
-      branch: 'bean/hordr-1234',
+      branch: 'hordr-1234',
       pane: 'wX:pNEW',
       role: 'implementer',
       workspace: 'wX',

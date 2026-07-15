@@ -18,7 +18,6 @@ const config: HordrConfig = {
     tester: {harness: 'claude', persona: 'test'},
   },
   primary_branch: 'develop',
-  worktree_branch_prefix: 'bean/',
 }
 
 describe('dispatch (lane flow integration)', () => {

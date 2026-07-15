@@ -71,7 +71,7 @@ beans create "Add input validation" -t task -d "Validate all inputs at trust bou
 
 # Hand it to an agent
 hordr run hordr-XXXX
-# → started hordr-XXXX in bean/hordr-XXXX (role: implementer, pane: wX:pNEW)
+# → started hordr-XXXX in hordr-XXXX (role: implementer, pane: wX:pNEW)
 ```
 
 The agent works in an isolated worktree. When done, it commits and the work is
@@ -101,9 +101,9 @@ EOF
 # Spawn an agent in an isolated worktree
 hordr run hordr-XXXX
 
-# Agent commits to bean/hordr-XXXX. Verify and merge:
+# Agent commits to hordr-XXXX. Verify and merge:
 hordr finish hordr-XXXX
-# → merged bean/hordr-XXXX into develop, removed worktree
+# → merged hordr-XXXX into develop, removed worktree
 ```
 
 **When to use:** single tasks, bug fixes, quick experiments. No team
@@ -279,13 +279,12 @@ beans:
 # No hordr: block needed
 ```
 
-| Default                  | Value      | Description                                   |
-| ------------------------ | ---------- | --------------------------------------------- |
-| `primary_branch`         | `develop`  | Base ref for worktrees and merges             |
-| `worktree_branch_prefix` | `bean/`    | Branch prefix for single-bean worktrees       |
-| `agents.implementer`     | `opencode` | Fleet-shaped persona (one task, commit, done) |
-| `agents.tester`          | `opencode` | Fleet-shaped persona                          |
-| `agents.reviewer`        | `opencode` | Fleet-shaped persona                          |
+| Default              | Value      | Description                                   |
+| -------------------- | ---------- | --------------------------------------------- |
+| `primary_branch`     | `develop`  | Base ref for worktrees and merges             |
+| `agents.implementer` | `opencode` | Fleet-shaped persona (one task, commit, done) |
+| `agents.tester`      | `opencode` | Fleet-shaped persona                          |
+| `agents.reviewer`    | `opencode` | Fleet-shaped persona                          |
 
 Default personas are minimal fleet instructions: read one assigned bean, do the
 work, commit, `hordr done <id>`, stop. See [docs/fleet-guide.md](docs/fleet-guide.md)
@@ -333,13 +332,12 @@ hordr:
 
 ### Field reference
 
-| Field                    | Type    | Default         | Description                                                        |
-| ------------------------ | ------- | --------------- | ------------------------------------------------------------------ |
-| `primary_branch`         | string  | `develop`       | Base ref for worktrees and fleet integration branches              |
-| `worktree_branch_prefix` | string  | `bean/`         | Branch prefix for single-bean worktrees                            |
-| `company.path`           | string? | —               | Agent Companies package root (or set `HORDR_COMPANY_PATH` env var) |
-| `agents.<role>.harness`  | string  | `opencode`      | Harness binary on PATH                                             |
-| `agents.<role>.persona`  | string  | (fleet default) | Opening prompt for the role                                        |
+| Field                   | Type    | Default         | Description                                                        |
+| ----------------------- | ------- | --------------- | ------------------------------------------------------------------ |
+| `primary_branch`        | string  | `develop`       | Base ref for worktrees and fleet integration branches              |
+| `company.path`          | string? | —               | Agent Companies package root (or set `HORDR_COMPANY_PATH` env var) |
+| `agents.<role>.harness` | string  | `opencode`      | Harness binary on PATH                                             |
+| `agents.<role>.persona` | string  | (fleet default) | Opening prompt for the role                                        |
 
 ### The `assigned:` bean frontmatter convention
 
@@ -392,7 +390,7 @@ hordr finish <bean> [--json]
 ```
 
 Verifies the bean is `completed` (reading from the worktree, not the main
-repo — the worktree has the up-to-date status), merges `bean/<id>` into
+repo — the worktree has the up-to-date status), merges `<id>` into
 `primary_branch` via `--no-ff`, removes the worktree.
 
 #### `hordr cleanup`

@@ -58,7 +58,6 @@ async function invoke(args: string[]): Promise<RunResult> {
 const YAML = `
 hordr:
   primary_branch: develop
-  worktree_branch_prefix: bean/
   agents:
     implementer:
       harness: opencode
@@ -67,7 +66,7 @@ hordr:
 
 const OPEN_RESULT = {
   workspace: {workspace_id: 'wP'},
-  worktree: {branch: 'bean/hordr-1234', path: '/wt/hordr-1234'},
+  worktree: {branch: 'hordr-1234', path: '/wt/hordr-1234'},
 }
 
 describe('commands/cleanup (hordr-zn3f)', () => {
@@ -103,7 +102,7 @@ describe('commands/cleanup (hordr-zn3f)', () => {
     expect(res.stdout).to.match(/removed worktree for hordr-1234/)
 
     const openCall = calls.find((c) => c[1] === 'open')
-    expect(openCall).to.include.members(['--branch', 'bean/hordr-1234'])
+    expect(openCall).to.include.members(['--branch', 'hordr-1234'])
     const removeCall = calls.find((c) => c[1] === 'remove')
     expect(removeCall).to.include.members(['--workspace', 'wP'])
   })
@@ -121,7 +120,7 @@ describe('commands/cleanup (hordr-zn3f)', () => {
 
     expect(res.error, res.error?.message).to.be.undefined
     const parsed = JSON.parse(res.stdout.trim()) as {bean: string; branch: string; removed: boolean; workspace: string}
-    expect(parsed).to.deep.equal({bean: 'hordr-1234', branch: 'bean/hordr-1234', removed: true, workspace: 'wP'})
+    expect(parsed).to.deep.equal({bean: 'hordr-1234', branch: 'hordr-1234', removed: true, workspace: 'wP'})
   })
 
   it('no-op message when worktree_not_found', async () => {

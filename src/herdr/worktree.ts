@@ -220,11 +220,11 @@ export function removeWorktreeByBranch(branch: string, cwd: string): void {
 }
 
 /**
- * Compute the worktree branch name for a bean: `<prefix><beanId>`.
- * The prefix comes from hordr config (default "bean/", SPEC §6).
- * Example: branchFor("hordr-1234", "bean/") => "bean/hordr-1234"
+ * Compute the worktree branch name for a bean: the bean id itself.
+ * Consistent with fleet lane naming (`laneBranchName` → epic id).
+ * Example: branchFor("hordr-1234") => "hordr-1234"
  */
-export function branchFor(beanId: string, branchPrefix = 'bean/'): string {
+export function branchFor(beanId: string): string {
   if (!beanId) throw new HerdrError('beanId is required')
-  return `${branchPrefix}${beanId}`
+  return beanId
 }

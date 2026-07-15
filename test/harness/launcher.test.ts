@@ -34,7 +34,6 @@ const makeConfig = (agents: Record<string, unknown> = {}) =>
     primary_branch: 'develop',
     routing: {default_workflow: 'implement'},
     workflows: {},
-    worktree_branch_prefix: 'bean/',
   }) as Parameters<typeof resolveHarness>[1]
 
 // Track every herdr-pane invocation: {cmd: [...subcommand], args: [...rest]}
