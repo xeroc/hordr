@@ -110,12 +110,23 @@ ${opts.beanBody}
 
 ---
 
-## Completion
+## Completion (commit-then-signal-done — status flip rides INSIDE the commit)
 
-When you have completed your assigned role for this bean:
-1. Update the bean status: \`beans update ${opts.beanId} -s completed\`
-2. Commit all your changes (code + bean) using the commit skill
-3. Notify the fleet: \`hordr done ${opts.beanId}\`
+The daemon reads bean status from the working tree. If you flip \`status: completed\`
+BEFORE committing, the daemon can tear the lane down before your code exists in git
+(the phantom-completion race, see hordr-7zxr / hordr-wd46). The daemon now also
+requires a clean worktree to proceed past completion. Honour both layers:
+
+1. Make the code edits.
+2. Verify (lint / typecheck / tests per the bean).
+3. **Commit code + bean status flip TOGETHER in ONE commit** via the commit skill:
+   - Edit the bean file (set \`status: completed\` and add a \`## Summary of Changes\` section).
+   - Stage the code changes AND the bean file in the SAME commit.
+   - Do NOT run \`beans update ${opts.beanId} -s completed\` as a separate step \u2014 the
+     status flip is part of the commit, not a precondition for it.
+4. Only AFTER the commit lands, signal done: \`hordr done ${opts.beanId}\`.
+5. Never leave the bean marked \`completed\` in the working tree uncommitted. If you
+   must stop mid-work, the bean stays \`in-progress\`.
 
 If you cannot proceed (blocked by unmet dependencies): \`hordr blocked ${opts.beanId}\` then stop.
 Then stop. Do not work on any other bean.`

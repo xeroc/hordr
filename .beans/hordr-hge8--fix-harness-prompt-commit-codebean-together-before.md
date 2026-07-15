@@ -1,11 +1,11 @@
 ---
 # hordr-hge8
 title: 'Fix harness prompt: commit code+bean together before signalling done'
-status: todo
+status: completed
 type: task
 priority: high
 created_at: 2026-07-15T13:01:23Z
-updated_at: 2026-07-15T13:01:23Z
+updated_at: 2026-07-15T13:24:16Z
 parent: hordr-4j5j
 ---
 
@@ -38,7 +38,7 @@ Make the wording unambiguous that the status flip is part of the commit, not a p
 - [ ] Add an explicit "never leave status: completed uncommitted" rule
 - [ ] Cross-reference the daemon-side guards (hordr-7zxr, hordr-wd46) so the prompt notes the daemon now requires a clean worktree to proceed
 - [ ] If there is a test/snapshot of the generated prompt, update it
-- [ ] `bun run lint` clean
+- [x] `bun run lint` clean
 
 ## Key references
 
@@ -50,3 +50,18 @@ Make the wording unambiguous that the status flip is part of the commit, not a p
 ## Notes
 
 This is the agent-side layer of a three-layer defense. On its own it relies on agent discipline; combined with the daemon-side guards it makes the completion contract unambiguous at every layer.
+
+## Summary of Changes
+
+Inverted the agent completion ordering from status-first-then-commit to commit-then-signal-done across every prompt template that drives single-task implementers. The bean status flip now rides INSIDE the commit, never as a separate step before it.
+
+Changed:
+- `src/dispatch/spawn.ts` (PRIMARY): rewrote the `## Completion` section of `buildInvocationPrompt` to the 5-step contract (edit → verify → commit code+bean together → signal done → never leave completed uncommitted). Cross-references hordr-7zxr / hordr-wd46 and notes the daemon requires a clean worktree to proceed.
+- `src/config/defaults.ts`: rewrote the implementer, reviewer, and tester default personas to the commit-then-signal-done contract.
+- `docs/fleet-guide.md`: rewrote the three role example personas (implementer/tester/reviewer).
+- `README.md`: rewrote the implementer persona example.
+- `test/dispatch/spawn.test.ts`: updated the prompt snapshot assertions to verify the new contract (commit-before-done ordering, the Do-NOT-run-as-separate-step prohibition, the never-leave-completed-uncommitted rule, and the clean-worktree requirement).
+
+Not changed (already lacked the status-first instruction): `.beans.yml`, `AGENTS.md`, `.agents/skills/hordr/SKILL.md`. Historical `.beans/*.md` records left untouched.
+
+Verification: `bun run lint` clean (0 errors, 4 pre-existing warnings); `bun test test/dispatch/spawn.test.ts` 7/7 pass; full suite 177 pass / 86 fail identical before and after (all 86 failures are the pre-existing better-sqlite3 native-binding error under bun, unrelated to this change).

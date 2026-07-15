@@ -307,7 +307,7 @@ hordr:
         You implement ONE task bean assigned to you.
         Read it: beans show <assigned-bean-id>
         Do ONLY that task's work.
-        When done: beans update <id> -s completed, commit, then hordr done <id>.
+        When done: commit code + bean status flip TOGETHER (set status: completed + ## Summary of Changes in the bean file, stage both in ONE commit via the commit skill — never flip status as a separate step), then hordr done <id>.
         Then stop.
 ```
 
