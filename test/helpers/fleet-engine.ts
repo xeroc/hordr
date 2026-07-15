@@ -54,6 +54,8 @@ export interface MockFleetData {
 export interface MockBehavior {
   /** Default bean status for unknown beans (default 'in-progress'). */
   defaultBeanStatus?: string
+  /** Dirty non-beans paths returned by the worktreeDirtyPaths seam (default []). */
+  dirtyPaths?: string[]
   /** Whether git merges produce conflicts (default false). */
   mergeConflict?: boolean
   /** Whether panes are alive (default true). */
@@ -85,6 +87,7 @@ export function createTestFleetEngine(opts: {behavior?: MockBehavior; config: Ho
   const data = opts.data ?? {}
   const behavior: Required<MockBehavior> = {
     defaultBeanStatus: opts.behavior?.defaultBeanStatus ?? 'in-progress',
+    dirtyPaths: opts.behavior?.dirtyPaths ?? [],
     mergeConflict: opts.behavior?.mergeConflict ?? false,
     paneAlive: opts.behavior?.paneAlive ?? true,
     worktreeExists: opts.behavior?.worktreeExists ?? true,
@@ -187,6 +190,7 @@ export function createTestFleetEngine(opts: {behavior?: MockBehavior; config: Ho
       paneAlive: () => behavior.paneAlive,
       removeWorktree,
       spawn: spawnFn,
+      worktreeDirtyPaths: () => behavior.dirtyPaths,
       worktreeExists: () => behavior.worktreeExists,
     }
   }
@@ -211,6 +215,7 @@ export function createTestFleetEngine(opts: {behavior?: MockBehavior; config: Ho
     setLanePane: (loc: LaneLoc, paneId: string) => setLanePane(db, loc, paneId),
     spawn: spawnFn,
     updateLaneStatus: (loc: LaneLoc, status: string) => updateLaneStatus(db, loc, status),
+    worktreeDirtyPaths: () => behavior.dirtyPaths,
   })
 
   // --- FleetEngine ---

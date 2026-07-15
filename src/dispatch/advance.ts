@@ -45,6 +45,12 @@ export interface AdvanceLaneDeps {
   setLanePane: (loc: LaneLoc, paneId: string) => void
   spawn: (opts: {harness: string; paneId: string; prompt: string}) => void
   updateLaneStatus: (loc: LaneLoc, status: string) => void
+  /**
+   * Dirty paths in a worktree OUTSIDE the beans data dir (beans-dir churn is
+   * ephemeral rollup status, tolerated). Empty array = clean / safe to remove.
+   * Injected so tests mock it instead of doing real git I/O (hordr-wd46).
+   */
+  worktreeDirtyPaths: (worktreePath: string) => string[]
 }
 
 export interface AdvanceLaneOpts {
@@ -207,6 +213,21 @@ function mergeEpicLane(opts: AdvanceLaneOpts, deps: AdvanceLaneDeps, loc: LaneLo
   if (result.conflict) {
     logger.error(`lane — needs human resolution`)
     deps.updateLaneStatus(loc, 'conflict')
+    return {action: 'blocked', taskId}
+  }
+
+  // Defense-in-depth: refuse to tear down a worktree with uncommitted non-beans
+  // changes (hordr-wd46). Beans-dir-only dirt is tolerated (ephemeral rollup
+  // status, committed by commitBeans before we get here). Keeping the worktree
+  // makes the work recoverable; the lane flips to 'uncommitted' for a human.
+  const dirty = deps.worktreeDirtyPaths(opts.lane.worktreePath)
+  if (dirty.length > 0) {
+    logger.error(
+      `lane ${opts.lane.epicBeanId}: refusing to remove worktree — uncommitted changes: ${dirty.join(', ')}. ` +
+        `Lane → uncommitted. Recover the work, then reset the lane.`,
+    )
+    deps.setLaneCurrentTask(loc, null)
+    deps.updateLaneStatus(loc, 'uncommitted')
     return {action: 'blocked', taskId}
   }
 

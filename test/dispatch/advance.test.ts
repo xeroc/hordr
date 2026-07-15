@@ -186,4 +186,49 @@ describe('dispatch/advance (via FleetEngine.advanceLane)', () => {
     expect(records.removedWorktrees).to.have.length(0)
     db.close()
   })
+
+  it('proceed + epic completed + DIRTY worktree (non-bean file) → NOT removed, lane→uncommitted, worktree kept', () => {
+    const db = freshDbWithLane({currentTaskBeanId: 'task-1'})
+    const {engine, records} = createTestFleetEngine({
+      behavior: {dirtyPaths: ['src/execute.ts']},
+      config,
+      data: {
+        ancestry: [{descendantsAllCompleted: true, id: 'epic-a', status: 'todo'}],
+        beans: {
+          'epic-a': {status: 'completed', type: 'epic'},
+          'task-1': {assigned: 'implementer', status: 'completed', type: 'task'},
+        },
+      },
+    })
+
+    const res = engine.advanceLane(db, FLEET, lane({currentTaskBeanId: 'task-1'}))
+
+    expect(res.action).to.equal('blocked')
+    expect(dbLane(db).status).to.equal('uncommitted')
+    expect(records.removedWorktrees).to.have.length(0)
+    expect(dbLane(db).currentTaskBeanId).to.equal(null)
+    db.close()
+  })
+
+  it('proceed + epic completed + clean worktree → removes + marks lane done (existing behavior preserved)', () => {
+    const db = freshDbWithLane({currentTaskBeanId: 'task-1'})
+    const {engine, records} = createTestFleetEngine({
+      behavior: {dirtyPaths: []},
+      config,
+      data: {
+        ancestry: [{descendantsAllCompleted: true, id: 'epic-a', status: 'todo'}],
+        beans: {
+          'epic-a': {status: 'completed', type: 'epic'},
+          'task-1': {assigned: 'implementer', status: 'completed', type: 'task'},
+        },
+      },
+    })
+
+    const res = engine.advanceLane(db, FLEET, lane({currentTaskBeanId: 'task-1'}))
+
+    expect(res.action).to.equal('epic-completed')
+    expect(records.removedWorktrees).to.deep.equal(['ms1/epic-a'])
+    expect(dbLane(db).status).to.equal('done')
+    db.close()
+  })
 })
