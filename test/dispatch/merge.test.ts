@@ -4,7 +4,7 @@ import {type GitFn, mergeBranch, mergeMilestoneToPrimary} from '../../src/dispat
 
 describe('dispatch/merge', () => {
   describe('mergeBranch', () => {
-    it('merges directly when already on target (no stash/checkout needed)', () => {
+    it('checks out target before merging (never merges on the wrong branch)', () => {
       const calls: string[][] = []
       const git: GitFn = (args) => {
         calls.push(args)
@@ -13,9 +13,53 @@ describe('dispatch/merge', () => {
       const result = mergeBranch({cwd: '/repo', source: 'epic-branch', target: 'hordr-ms1'}, {git})
 
       expect(result.conflict).to.be.false
-      // Just a merge — no stash, no checkout, no --no-ff (fast-forward allowed)
-      expect(calls).to.have.length(1)
-      expect(calls[0]).to.deep.equal(['merge', 'epic-branch'])
+      // checkout target must happen before merge
+      const checkoutIdx = calls.findIndex((c) => c[0] === 'checkout' && c[1] === 'hordr-ms1')
+      const mergeIdx = calls.findIndex((c) => c[0] === 'merge' && c.includes('epic-branch'))
+      expect(checkoutIdx).to.be.greaterThan(-1)
+      expect(mergeIdx).to.be.greaterThan(-1)
+      expect(checkoutIdx).to.be.lessThan(mergeIdx)
+    })
+
+    it('stashes before checkout and restores after', () => {
+      const calls: string[][] = []
+      const git: GitFn = (args) => {
+        calls.push(args)
+      }
+
+      mergeBranch({cwd: '/repo', source: 'x', target: 'y'}, {git})
+
+      const stashIdx = calls.findIndex((c) => c[0] === 'stash')
+      const checkoutIdx = calls.findIndex((c) => c[0] === 'checkout')
+      expect(stashIdx).to.be.lessThan(checkoutIdx)
+      // stash pop happens after merge
+      const popIdx = calls.findIndex((c) => c[0] === 'stash' && c[1] === 'pop')
+      const mergeIdx = calls.findIndex((c) => c[0] === 'merge')
+      expect(mergeIdx).to.be.lessThan(popIdx)
+    })
+
+    it('uses --no-ff when ff:false', () => {
+      const calls: string[][] = []
+      const git: GitFn = (args) => {
+        calls.push(args)
+      }
+
+      mergeBranch({cwd: '/repo', ff: false, source: 'ms1', target: 'develop'}, {git})
+
+      expect(calls.some((c) => c[0] === 'merge' && c.includes('--no-ff'))).to.be.true
+    })
+
+    it('allows fast-forward by default', () => {
+      const calls: string[][] = []
+      const git: GitFn = (args) => {
+        calls.push(args)
+      }
+
+      mergeBranch({cwd: '/repo', source: 'epic1', target: 'ms1'}, {git})
+
+      const mergeCall = calls.find((c) => c[0] === 'merge')
+      expect(mergeCall).to.exist
+      expect(mergeCall).to.not.include('--no-ff')
     })
 
     it('returns conflict:true when merge fails', () => {
@@ -33,19 +77,17 @@ describe('dispatch/merge', () => {
       expect(result.message).to.match(/CONFLICT/)
     })
 
-    it('falls through to checkout+merge when direct merge fails (wrong branch)', () => {
+    it('returns conflict:true when checkout target fails', () => {
       const calls: string[][] = []
       const git: GitFn = (args) => {
         calls.push(args)
-        // First merge fails (wrong branch) — checkout + retry merge succeeds
-        if (args[0] === 'merge' && calls.length === 1) throw new Error('not on the right branch')
+        if (args[0] === 'checkout' && args[1] === 'nonexistent') throw new Error('no such branch')
       }
 
-      const result = mergeBranch({cwd: '/repo', source: 'x', target: 'ms/y'}, {git})
+      const result = mergeBranch({cwd: '/repo', source: 'x', target: 'nonexistent'}, {git})
 
-      expect(result.conflict).to.be.false
-      // First merge failed → stash, checkout, second merge
-      expect(calls.some((c) => c[0] === 'checkout' && c[1] === 'ms/y')).to.be.true
+      expect(result.conflict).to.be.true
+      expect(result.message).to.match(/checkout.*failed/)
     })
 
     it('uses the provided cwd for all git operations', () => {
@@ -60,7 +102,7 @@ describe('dispatch/merge', () => {
   })
 
   describe('mergeMilestoneToPrimary', () => {
-    it('attempts merge of ms/<id>', () => {
+    it('checks out develop then merges ms branch with --no-ff', () => {
       const calls: string[][] = []
       const git: GitFn = (args) => {
         calls.push(args)
@@ -68,8 +110,11 @@ describe('dispatch/merge', () => {
 
       mergeMilestoneToPrimary({cwd: '/repo', milestoneId: 'hordr-nh1h', primaryBranch: 'develop'}, {git})
 
-      // mergeBranch is called with source hordr-nh1h
-      expect(calls.some((c) => c[0] === 'merge' && c.includes('hordr-nh1h'))).to.be.true
+      const checkoutIdx = calls.findIndex((c) => c[0] === 'checkout' && c[1] === 'develop')
+      const mergeIdx = calls.findIndex((c) => c[0] === 'merge' && c.includes('hordr-nh1h') && c.includes('--no-ff'))
+      expect(checkoutIdx).to.be.greaterThan(-1)
+      expect(mergeIdx).to.be.greaterThan(-1)
+      expect(checkoutIdx).to.be.lessThan(mergeIdx)
     })
   })
 })
