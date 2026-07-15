@@ -1,11 +1,11 @@
 ---
 # hordr-7zxr
 title: checkInvocation must verify clean worktree before proceed (phantom-completion fix)
-status: todo
+status: completed
 type: bug
 priority: critical
 created_at: 2026-07-15T13:00:01Z
-updated_at: 2026-07-15T13:00:01Z
+updated_at: 2026-07-15T13:34:39Z
 parent: hordr-4j5j
 ---
 
@@ -33,14 +33,14 @@ The dirty-check target is the **lane** worktree (where the agent worked), so `ch
 
 ## TDD checklist
 
-- [ ] `checkInvocation`: completed + clean worktree → proceed (existing behavior preserved)
-- [ ] `checkInvocation`: completed + dirty worktree (non-bean file modified) → wait, reason names dirty worktree
-- [ ] `checkInvocation`: completed + dirty only in beans dir → proceed (bean-status writes are expected) — OR wait, per chosen policy; document which
-- [ ] `checkInvocation`: not completed + pane alive → wait (unchanged)
-- [ ] `checkInvocation`: not completed + pane gone → blocked (unchanged)
-- [ ] New dep `worktreeClean` is injectable; tests mock it, no real git I/O
-- [ ] Daemon wiring threads lane worktree path into checkInvocation opts
-- [ ] `bun run lint` clean; `bun test` green
+- [x] `checkInvocation`: completed + clean worktree → proceed (existing behavior preserved)
+- [x] `checkInvocation`: completed + dirty worktree (non-bean file modified) → wait, reason names dirty worktree
+- [x] `checkInvocation`: completed + dirty only in beans dir → proceed (bean-status writes are expected). Policy: `worktreeIsClean(porcelain, beansDir)` returns true when every dirty path is inside beansDir. Bean-status writes are the expected completion signal; any other uncommitted change → wait.
+- [x] `checkInvocation`: not completed + pane alive → wait (unchanged)
+- [x] `checkInvocation`: not completed + pane gone → blocked (unchanged)
+- [x] New dep `worktreeClean` is injectable; tests mock it, no real git I/O
+- [x] Daemon wiring threads lane worktree path into checkInvocation opts
+- [x] `bun run lint` clean; `bun test` green (275 passing)
 
 ## Key references
 
@@ -53,3 +53,13 @@ The dirty-check target is the **lane** worktree (where the agent worked), so `ch
 
 - The teardown `--force` guard is a separate bean (defense-in-depth at removal time).
 - The harness-prompt ordering fix is a separate bean (agent-side).
+
+## Summary of Changes
+
+- **heal.ts**: `checkInvocation` now gates `proceed` on `deps.worktreeClean(worktreePath)`. New `worktreeClean` dep in `HealDeps`; new `worktreePath` field in opts. Added pure `worktreeIsClean(porcelain, beansDir)` policy: returns true when every dirty path is inside the beans dir (bean-status writes expected during completion), false on any other uncommitted change.
+- **advance.ts**: `AdvanceLaneDeps` gains `worktreeClean`; threads `worktreePath` + `worktreeClean` into the `checkInvocation` call.
+- **tick.ts**: `TickDeps` gains `worktreeClean`; passes through to `advanceLane` deps.
+- **engine.ts**: Real `worktreeClean` implementation (runs `git status --porcelain` via `execFileSync`, applies `worktreeIsClean` with the resolved beans dir). Threads `worktreePath` + `worktreeClean` into the engine's `checkInvocation` call.
+- **Tests**: 16 heal tests (6 original updated + 1 new dirty-wait + 9 `worktreeIsClean` policy cases); 1 new advance.test.ts case (dirty worktree → wait through the engine layer); updated lane-integration.test.ts callers; test helper `fleet-engine.ts` gains `worktreeClean` behavior flag (default true).
+
+Policy decision: dirty only in beans dir → **proceed** (bean-status writes are the expected completion signal). Dirty with non-bean files → **wait**.

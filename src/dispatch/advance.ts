@@ -45,6 +45,7 @@ export interface AdvanceLaneDeps {
   setLanePane: (loc: LaneLoc, paneId: string) => void
   spawn: (opts: {harness: string; paneId: string; prompt: string}) => void
   updateLaneStatus: (loc: LaneLoc, status: string) => void
+  worktreeClean: (worktreePath: string) => boolean
   /**
    * Dirty paths in a worktree OUTSIDE the beans data dir (beans-dir churn is
    * ephemeral rollup status, tolerated). Empty array = clean / safe to remove.
@@ -152,8 +153,8 @@ export function advanceLane(opts: AdvanceLaneOpts, deps: AdvanceLaneDeps): Advan
   )
 
   const heal = checkInvocation(
-    {paneId: opts.lane.paneId ?? '', taskId: taskBeanId},
-    {beanStatus: deps.beanStatus, paneAlive: deps.paneAlive},
+    {paneId: opts.lane.paneId ?? '', taskId: taskBeanId, worktreePath: opts.lane.worktreePath},
+    {beanStatus: deps.beanStatus, paneAlive: deps.paneAlive, worktreeClean: deps.worktreeClean},
   )
 
   if (heal.action === 'wait') {

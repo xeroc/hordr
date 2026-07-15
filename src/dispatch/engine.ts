@@ -43,7 +43,7 @@ import {
   updateLaneStatus,
 } from '../storage/fleets.js'
 import {fetchAncestorChain, fetchAncestry, fetchDependencyStatus, fetchEpics, getDispatchable} from './dispatch.js'
-import {checkInvocation} from './heal.js'
+import {checkInvocation, worktreeIsClean} from './heal.js'
 import {createLaneForEpic} from './lane-create.js'
 import {dispatchNext} from './loop.js'
 import {mergeBranch} from './merge.js'
@@ -93,6 +93,29 @@ function commitBeans(worktreePath: string): void {
   const git = getGitRunner()
   git(['add', beansDir], {cwd: worktreePath})
   git(['commit', '-m', 'chore(beans): rollup status changes'], {cwd: worktreePath})
+}
+
+/**
+/**
+ * True if the lane worktree has no uncommitted non-beans changes.
+ * Runs `git status --porcelain` and applies the beans-dir exclusion policy
+ * from {@link worktreeIsClean}. On git failure (broken worktree) returns true
+ * — the merge step surfaces real breakage, and false positives here would
+ * stall a healthy lane forever.
+ */
+function worktreeClean(worktreePath: string): boolean {
+  const beansDir = resolveBeansDir(worktreePath)
+  let porcelain = ''
+  try {
+    porcelain = execFileSync('git', ['-C', worktreePath, 'status', '--porcelain'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+  } catch {
+    return true
+  }
+
+  return worktreeIsClean(porcelain, beansDir)
 }
 
 /**
@@ -281,10 +304,11 @@ export function createFleetEngine(config: HordrConfig): FleetEngine {
 
     // --- active: heal the in-flight invocation ---
     const heal = checkInvocation(
-      {paneId: lane.paneId ?? '', taskId: lane.currentTaskBeanId},
+      {paneId: lane.paneId ?? '', taskId: lane.currentTaskBeanId, worktreePath: lane.worktreePath},
       {
         beanStatus: (id) => getBean(id, {cwd: beansCwd}).status as string | undefined,
         paneAlive: (p) => paneExists(p),
+        worktreeClean,
       },
     )
 

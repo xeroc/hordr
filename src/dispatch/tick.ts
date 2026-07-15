@@ -56,6 +56,7 @@ export interface TickDeps {
   paneAlive: (paneId: string) => boolean
   removeWorktree: (branch: string) => void
   spawn: (opts: {harness: string; paneId: string; prompt: string}) => void
+  worktreeClean: (worktreePath: string) => boolean
   worktreeDirtyPaths: (worktreePath: string) => string[]
   worktreeExists: (path: string) => boolean
 }
@@ -234,6 +235,7 @@ function advanceActiveLane(
       setLanePane: (l, paneId) => setLanePane(db, l, paneId),
       spawn: deps.spawn,
       updateLaneStatus: (l, status) => updateLaneStatus(db, l, status),
+      worktreeClean: deps.worktreeClean,
       worktreeDirtyPaths: deps.worktreeDirtyPaths,
     },
   )
