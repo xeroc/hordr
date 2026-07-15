@@ -58,6 +58,12 @@ export interface MockBehavior {
   mergeConflict?: boolean
   /** Whether panes are alive (default true). */
   paneAlive?: boolean
+  /**
+   * Whether the lane worktree is clean (no uncommitted non-beans changes).
+   * Default true — the normal completion path. Set false to simulate an
+   * agent that flipped bean status without committing its work.
+   */
+  worktreeClean?: boolean
   /** Whether worktree paths exist on disk (default true). */
   worktreeExists?: boolean
 }
@@ -87,6 +93,7 @@ export function createTestFleetEngine(opts: {behavior?: MockBehavior; config: Ho
     defaultBeanStatus: opts.behavior?.defaultBeanStatus ?? 'in-progress',
     mergeConflict: opts.behavior?.mergeConflict ?? false,
     paneAlive: opts.behavior?.paneAlive ?? true,
+    worktreeClean: opts.behavior?.worktreeClean ?? true,
     worktreeExists: opts.behavior?.worktreeExists ?? true,
   }
 
@@ -187,6 +194,7 @@ export function createTestFleetEngine(opts: {behavior?: MockBehavior; config: Ho
       paneAlive: () => behavior.paneAlive,
       removeWorktree,
       spawn: spawnFn,
+      worktreeClean: () => behavior.worktreeClean,
       worktreeExists: () => behavior.worktreeExists,
     }
   }
@@ -211,6 +219,7 @@ export function createTestFleetEngine(opts: {behavior?: MockBehavior; config: Ho
     setLanePane: (loc: LaneLoc, paneId: string) => setLanePane(db, loc, paneId),
     spawn: spawnFn,
     updateLaneStatus: (loc: LaneLoc, status: string) => updateLaneStatus(db, loc, status),
+    worktreeClean: () => behavior.worktreeClean,
   })
 
   // --- FleetEngine ---

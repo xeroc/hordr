@@ -187,4 +187,28 @@ describe('dispatch/advance (via FleetEngine.advanceLane)', () => {
     expect(records.removedWorktrees).to.have.length(0)
     db.close()
   })
+
+  it('completed + dirty worktree → wait (phantom-completion guard)', () => {
+    const db = freshDbWithLane({currentTaskBeanId: 'task-1'})
+    const {engine, records} = createTestFleetEngine({
+      behavior: {worktreeClean: false},
+      config,
+      data: {
+        beans: {
+          'epic-a': {status: 'todo', type: 'epic'},
+          'task-1': {assigned: 'implementer', status: 'completed', type: 'task'},
+        },
+      },
+    })
+
+    const res = engine.advanceLane(db, FLEET, lane({currentTaskBeanId: 'task-1'}))
+
+    expect(res.action).to.equal('wait')
+    // no rollup, no merge, no teardown — lane stays alive
+    expect(records.markedCompleted).to.deep.equal([])
+    expect(records.merge).to.have.length(0)
+    expect(records.removedWorktrees).to.have.length(0)
+    expect(dbLane(db).currentTaskBeanId).to.equal('task-1')
+    db.close()
+  })
 })

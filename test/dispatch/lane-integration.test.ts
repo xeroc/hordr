@@ -57,15 +57,15 @@ describe('dispatch (lane flow integration)', () => {
 
     // --- 3. Heal: task not done yet, pane alive → wait ---
     let healResult = checkInvocation(
-      {paneId: 'w1:p1', taskId: 'task-1'},
-      {beanStatus: () => 'in-progress', paneAlive: () => true},
+      {paneId: 'w1:p1', taskId: 'task-1', worktreePath: '/wt/epic-1'},
+      {beanStatus: () => 'in-progress', paneAlive: () => true, worktreeClean: () => true},
     )
     expect(healResult.action).to.equal('wait')
 
     // --- 4. Heal: task completed → proceed (self-heal or /done) ---
     healResult = checkInvocation(
-      {paneId: 'w1:p1', taskId: 'task-1'},
-      {beanStatus: () => 'completed', paneAlive: () => true},
+      {paneId: 'w1:p1', taskId: 'task-1', worktreePath: '/wt/epic-1'},
+      {beanStatus: () => 'completed', paneAlive: () => true, worktreeClean: () => true},
     )
     expect(healResult.action).to.equal('proceed')
 
@@ -95,8 +95,8 @@ describe('dispatch (lane flow integration)', () => {
 
   it('crash recovery: pane gone + task not completed → blocked', () => {
     const result = checkInvocation(
-      {paneId: 'w1:p1', taskId: 'task-1'},
-      {beanStatus: () => 'in-progress', paneAlive: () => false},
+      {paneId: 'w1:p1', taskId: 'task-1', worktreePath: '/wt/epic-1'},
+      {beanStatus: () => 'in-progress', paneAlive: () => false, worktreeClean: () => true},
     )
     expect(result.action).to.equal('blocked')
   })
