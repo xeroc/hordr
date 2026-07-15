@@ -26,9 +26,9 @@ export function ensureProject(db: Database.Database, row: ProjectRow): void {
 
 /** Read the main repo path (beans_path) for a project. Returns undefined if not registered. */
 export function getProjectPath(db: Database.Database, projectKey: string): string | undefined {
-  const row = db
-    .prepare('SELECT beans_path FROM projects WHERE project_key = ?')
-    .get(projectKey) as undefined | {beans_path?: string}
+  const row = db.prepare('SELECT beans_path FROM projects WHERE project_key = ?').get(projectKey) as
+    | undefined
+    | {beans_path?: string}
   return row?.beans_path
 }
 
@@ -154,6 +154,11 @@ export function listLanes(db: Database.Database, projectKey: string, milestoneId
     .prepare('SELECT * FROM lanes WHERE project_key = ? AND fleet_milestone_bean_id = ? ORDER BY created_at')
     .all(projectKey, milestoneId) as LaneDbRow[]
   return rows.map((r) => toLaneRow(r))
+}
+
+export function getLane(db: Database.Database, epicId: string): LaneRow | undefined {
+  const row = db.prepare('SELECT * FROM lanes WHERE epic_bean_id = ?').get(epicId) as LaneDbRow | undefined
+  return row ? toLaneRow(row) : undefined
 }
 
 export function deleteLanes(db: Database.Database, projectKey: string, milestoneId: string): void {
