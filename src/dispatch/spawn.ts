@@ -1,4 +1,4 @@
-import {shellQuote} from '../harness/launcher.js'
+import {buildHarnessCommand} from '../harness/launcher.js'
 /**
  * Ephemeral invocation spawn (ADR-0009).
  *
@@ -122,6 +122,5 @@ Then stop. Do not work on any other bean.`
 }
 
 export function spawnInvocation(opts: {harness: string; paneId: string; prompt: string}): void {
-  const command = `${opts.harness} run --interactive ${shellQuote(opts.prompt)}`
-  runInPane(opts.paneId, command)
+  runInPane(opts.paneId, buildHarnessCommand(opts.harness, opts.prompt))
 }

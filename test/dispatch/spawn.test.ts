@@ -131,5 +131,11 @@ describe('dispatch/spawn', () => {
       spawnInvocation({harness: 'claude', paneId: 'p1', prompt: 'review it'})
       expect(paneCalls[0]!.join(' ')).to.contain('claude run --interactive')
     })
+
+    it('omp: includes @AGENTS.md in the invocation (no run --interactive)', () => {
+      spawnInvocation({harness: 'omp', paneId: 'w1:p1', prompt: 'do the thing'})
+      expect(paneCalls[0]!.join(' ')).to.contain('omp @AGENTS.md')
+      expect(paneCalls[0]!.join(' ')).to.not.contain('run --interactive')
+    })
   })
 })

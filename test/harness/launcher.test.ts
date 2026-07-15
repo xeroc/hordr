@@ -15,6 +15,7 @@ import {
 import {
   _resetWhich,
   _setWhichForTesting,
+  buildHarnessCommand,
   buildPrompt,
   HarnessError,
   launchAgent,
@@ -154,6 +155,23 @@ describe('harness/launcher', () => {
       expect(prompt).to.contain('Task body')
       // Ancestor before leaf
       expect(prompt.indexOf('Epic body')).to.be.lessThan(prompt.indexOf('Task body'))
+    })
+  })
+
+  describe('buildHarnessCommand', () => {
+    it('opencode: run --interactive with shell-quoted prompt', () => {
+      const cmd = buildHarnessCommand('opencode', 'do the thing')
+      expect(cmd).to.equal("opencode run --interactive 'do the thing'")
+    })
+
+    it('omp: includes @AGENTS.md (omp does not auto-load it)', () => {
+      const cmd = buildHarnessCommand('omp', 'do the thing')
+      expect(cmd).to.equal("omp @AGENTS.md 'do the thing'")
+    })
+
+    it('unknown harness defaults to run --interactive (backward compat)', () => {
+      const cmd = buildHarnessCommand('claude', 'review it')
+      expect(cmd).to.equal("claude run --interactive 'review it'")
     })
   })
 
