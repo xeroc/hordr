@@ -20,7 +20,14 @@ describe('dispatch/spawn', () => {
       expect(prompt).to.contain('## Requirement')
       expect(prompt).to.contain('Do the thing.')
       expect(prompt).to.contain('hordr done hordr-1234')
-      expect(prompt).to.contain('beans update hordr-1234 -s completed')
+      // Commit-then-signal-done contract (hordr-hge8): the status flip rides
+      // INSIDE the commit, never as a separate step before it.
+      expect(prompt).to.contain('status flip rides INSIDE the commit')
+      expect(prompt).to.contain('Do NOT run `beans update hordr-1234 -s completed` as a separate step')
+      expect(prompt).to.contain('Never leave the bean marked `completed` in the working tree uncommitted')
+      expect(prompt).to.contain('clean worktree to proceed')
+      // Ordering: commit must be instructed before `hordr done`.
+      expect(prompt.indexOf('commit')).to.be.lessThan(prompt.indexOf('hordr done hordr-1234'))
     })
 
     it('tells the agent to stop after done (one task, one invocation)', () => {

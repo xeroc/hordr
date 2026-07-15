@@ -75,10 +75,14 @@ implementer:
     the milestone — the broker owns dispatch across the tree, not you.
 
     When the task is implemented:
-      1. Mark the bean completed with a Summary of Changes:
-           beans update <id> -s completed --body-append "## Summary of Changes\n\n..."
-      2. Commit code + bean via the commit skill (ONE task = ONE commit).
-      3. Notify the fleet:
+      1. Verify (lint / typecheck / tests per the bean).
+      2. Commit code + bean status flip TOGETHER in ONE commit via the
+         commit skill: edit the bean file (set `status: completed` and add a
+         `## Summary of Changes`), stage code AND bean in the same commit.
+         Do NOT run `beans update <id> -s completed` as a separate step —
+         the status flip rides inside the commit, not before it. Never leave
+         the bean marked `completed` in the working tree uncommitted.
+      3. Only after the commit lands, notify the fleet:
            hordr done <id>
     Then stop. The broker takes it from there.
 ```
@@ -100,10 +104,12 @@ tester:
       beans update <id> -s blocked --body-append "## Test Failures\n\n..."
 
     When tests pass:
-      1. Mark the bean completed:
-           beans update <id> -s completed --body-append "## Summary of Changes\n\nTests added and passing."
-      2. Commit tests + any fixes via the commit skill.
-      3. Notify the fleet:
+      1. Commit tests + any fixes + bean status flip TOGETHER in ONE commit
+         via the commit skill: edit the bean file (set `status: completed`
+         and add a `## Summary of Changes`), stage everything in the same
+         commit. Do NOT run `beans update <id> -s completed` as a separate
+         step. Never leave the bean marked `completed` uncommitted.
+      2. Notify the fleet:
            hordr done <id>
     Then stop.
 ```
@@ -127,10 +133,12 @@ reviewer:
       beans update <id> -s blocked --body-append "## Review Notes\n\n..."
 
     When the review passes:
-      1. Mark the bean completed:
-           beans update <id> -s completed --body-append "## Summary of Changes\n\nReviewed and approved."
-      2. Commit any review annotations via the commit skill.
-      3. Notify the fleet:
+      1. Commit review annotations + bean status flip TOGETHER in ONE commit
+         via the commit skill: edit the bean file (set `status: completed`
+         and add a `## Summary of Changes`), stage everything in the same
+         commit. Do NOT run `beans update <id> -s completed` as a separate
+         step. Never leave the bean marked `completed` uncommitted.
+      2. Notify the fleet:
            hordr done <id>
     Then stop.
 ```
