@@ -213,6 +213,7 @@ describe('fleet/lifecycle', () => {
     let milestoneStatus: string
     let epicStatuses: Array<{id: string; status: string}>
     let gitThrows: boolean
+    let removedBranches: string[]
 
     beforeEach(() => {
       db = openDb(':memory:')
@@ -233,6 +234,7 @@ describe('fleet/lifecycle', () => {
         {id: 'epic-2', status: 'completed'},
       ]
       gitThrows = false
+      removedBranches = []
     })
 
     afterEach(() => {
@@ -251,6 +253,9 @@ describe('fleet/lifecycle', () => {
           if (gitThrows) throw new Error('merge conflict')
           gitCalls.push({args, cwd: opts.cwd})
         },
+        removeWorktree(branch: string): void {
+          removedBranches.push(branch)
+        },
       }
     }
 
@@ -260,6 +265,13 @@ describe('fleet/lifecycle', () => {
       expect(gitCalls.some((c) => c.args[0] === 'merge' && c.args.includes('hordr-ms1'))).to.be.true
       // merge now stashes first — check by content not position
 
+      expect(getFleet(db, PK, MS)).to.be.undefined
+    })
+
+    it('tears down the ms worktree after a successful merge', () => {
+      finishFleet(db, MS, {cwd: '/repo', primaryBranch: PRIMARY, projectKey: PK}, deps())
+
+      expect(removedBranches).to.deep.equal([MS])
       expect(getFleet(db, PK, MS)).to.be.undefined
     })
 

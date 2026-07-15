@@ -125,6 +125,12 @@ export interface FinishFleetDeps {
   /** The milestone's direct children (epics) with their status. */
   fetchEpicStatuses: (id: string) => Array<{id: string; status: string}>
   git: GitFn
+  /**
+   * Remove the milestone worktree by its branch. Tolerant of an already-gone
+   * worktree (e.g. aborted mid-flight). Wired to removeWorktreeByBranch in the
+   * command, which resolves the main repo cwd.
+   */
+  removeWorktree: (branch: string) => void
 }
 
 export interface FinishFleetResult {
@@ -134,12 +140,14 @@ export interface FinishFleetResult {
 
 /**
  * Finish a fleet: assert the milestone + all its epics are completed, merge
- * ms/<id> into primary (--no-ff), then delete the lane + fleet rows. Refuses
- * if the milestone isn't complete or any epic is still open. On a merge
- * conflict it throws (human must resolve in the milestone branch).
+ * ms/<id> into primary (--no-ff), tear down the milestone worktree, then
+ * delete the lane + fleet rows. Refuses if the milestone isn't complete or
+ * any epic is still open. On a merge conflict it throws (human must resolve
+ * in the milestone branch).
  *
- * Worktrees are torn down by the daemon when each epic merges (lane → done);
- * finish only drops the bookkeeping rows.
+ * Lane worktrees are torn down by the daemon's tick as each epic merges
+ * (lane → done); finish tears down the milestone worktree itself + drops the
+ * bookkeeping rows.
  */
 export function finishFleet(
   db: Database.Database,
@@ -168,6 +176,7 @@ export function finishFleet(
     throw new FleetError(`merge of ${milestoneId} into ${opts.primaryBranch} conflicted — resolve manually`)
   }
 
+  deps.removeWorktree(fleet.branch)
   deleteLanes(db, opts.projectKey, milestoneId)
   deleteFleet(db, opts.projectKey, milestoneId)
   return {branch: fleet.branch, merged: true}

@@ -212,7 +212,11 @@ export function removeWorktreeByBranch(branch: string, cwd: string): void {
     const result = openWorktree({branch, cwd: mainRepo})
     workspaceId = result.workspace_id
   } catch (error) {
-    if (!(error instanceof HerdrError) || !/worktree_not_found/.test(error.message)) throw error
+    // ponytail: tolerate "no worktree here" in all forms — worktree_not_found
+    // (branch has no worktree) and not_git_worktree (cwd isn't a worktree at
+    // all, e.g. a test env or an already-torn-down fleet). Both mean nothing
+    // to remove.
+    if (!(error instanceof HerdrError) || !/worktree_not_found|not_git_worktree/.test(error.message)) throw error
     return // already gone
   }
 
