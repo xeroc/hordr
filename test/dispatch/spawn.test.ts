@@ -5,15 +5,18 @@ import {_resetShell as _resetPaneShell, _setShellForTesting as _setPaneShell} fr
 
 describe('dispatch/spawn', () => {
   describe('buildInvocationPrompt', () => {
-    it('includes persona, bean body, and the hordr-done completion instructions', () => {
+    it('includes persona, role, bean body, and the hordr-done completion instructions', () => {
       const prompt = buildInvocationPrompt({
         beanBody: '## Requirement\n\nDo the thing.',
         beanId: 'hordr-1234',
         persona: 'You implement tasks.',
+        role: 'implementer',
       })
 
       expect(prompt).to.contain('You implement tasks.')
-      expect(prompt).to.contain('# IMPLEMENT THIS — Bean hordr-1234')
+      expect(prompt).to.contain('# Bean hordr-1234')
+      expect(prompt).to.contain('assigned role: implementer')
+      expect(prompt).to.not.match(/implement this/i)
       expect(prompt).to.contain('## Requirement')
       expect(prompt).to.contain('Do the thing.')
       expect(prompt).to.contain('hordr done hordr-1234')
@@ -25,6 +28,7 @@ describe('dispatch/spawn', () => {
         beanBody: 'body',
         beanId: 'x',
         persona: 'p',
+        role: 'implementer',
       })
 
       expect(prompt).to.match(/Then stop/i)
@@ -40,7 +44,13 @@ describe('dispatch/spawn', () => {
         beanBody: '## Requirement\n\nImplement the card rewrite.',
         beanId: 'task-1',
         persona: 'You implement tasks.',
+        role: 'implementer',
       })
+
+      // The milestone is singled out into its own section, ahead of other ancestors
+      expect(prompt).to.contain('# Context — Milestone')
+      expect(prompt).to.contain('# Context — Ancestors')
+      expect(prompt.indexOf('# Context — Milestone')).to.be.lessThan(prompt.indexOf('# Context — Ancestors'))
 
       // Ancestors appear before the leaf
       const msPos = prompt.indexOf('Milestone design decisions')
@@ -60,17 +70,19 @@ describe('dispatch/spawn', () => {
       expect(prompt).to.contain('feature')
     })
 
-    it('clearly labels the leaf as IMPLEMENT THIS and ancestors as context only', () => {
+    it('labels ancestors as context-only (do not act on) and the leaf by role', () => {
       const prompt = buildInvocationPrompt({
         ancestors: [{body: 'ctx', id: 'ep-1', title: 'Epic', type: 'epic'}],
         beanBody: 'Do the work.',
         beanId: 'task-1',
         persona: 'p',
+        role: 'reviewer',
       })
 
       expect(prompt).to.match(/context only/i)
-      expect(prompt).to.match(/do not implement/i)
-      expect(prompt).to.match(/implement this/i)
+      expect(prompt).to.match(/do not act on/i)
+      expect(prompt).to.contain('assigned role: reviewer')
+      expect(prompt).to.not.match(/implement this/i)
     })
 
     it('works without ancestors (backward compat)', () => {
@@ -78,10 +90,11 @@ describe('dispatch/spawn', () => {
         beanBody: 'body',
         beanId: 'x',
         persona: 'p',
+        role: 'implementer',
       })
 
       expect(prompt).to.not.match(/context only/i)
-      expect(prompt).to.contain('# IMPLEMENT THIS — Bean x')
+      expect(prompt).to.contain('# Bean x')
       expect(prompt).to.contain('body')
     })
   })

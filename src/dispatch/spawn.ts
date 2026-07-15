@@ -74,22 +74,37 @@ export function buildInvocationPrompt(opts: {
   beanId: string
   dependencies?: DependencyStatus
   persona: string
+  role: string
 }): string {
-  const contextSection =
-    (opts.ancestors ?? []).length > 0
-      ? `\n---\n\n# Context \u2014 Ancestor Beans (READ ONLY: for context only, do NOT implement these)\n\n${opts
-          .ancestors!.map((a) => `## ${a.type}: ${a.title} (${a.id})\n\n${a.body}`)
+  const ancestors = opts.ancestors ?? []
+  // Surface the milestone separately: its body carries the planning HANDOFF
+  // that every descendant task must honour. Other ancestors (epic/feature)
+  // stay in a generic context block.
+  const milestones = ancestors.filter((a) => a.type === 'milestone')
+  const others = ancestors.filter((a) => a.type !== 'milestone')
+
+  const milestoneSection =
+    milestones.length > 0
+      ? `\n---\n\n# Context \u2014 Milestone (read only: for context only, do not act on this)\n\n${milestones
+          .map((a) => `## ${a.type}: ${a.title} (${a.id})\n\n${a.body}`)
+          .join('\n\n')}\n`
+      : ''
+
+  const ancestorSection =
+    others.length > 0
+      ? `\n---\n\n# Context \u2014 Ancestors (read only: for context only, do not act on these)\n\n${others
+          .map((a) => `## ${a.type}: ${a.title} (${a.id})\n\n${a.body}`)
           .join('\n\n')}\n`
       : ''
 
   const depSection = opts.dependencies ? renderDependencyStatus(opts.dependencies) : ''
 
   return `${opts.persona}
-${contextSection}
+${milestoneSection}${ancestorSection}
 ${depSection}
 ---
 
-# IMPLEMENT THIS \u2014 Bean ${opts.beanId}
+# Bean ${opts.beanId} \u2014 assigned role: ${opts.role}
 
 ${opts.beanBody}
 
@@ -97,7 +112,7 @@ ${opts.beanBody}
 
 ## Completion
 
-When you have implemented the changes described in this bean:
+When you have completed your assigned role for this bean:
 1. Update the bean status: \`beans update ${opts.beanId} -s completed\`
 2. Commit all your changes (code + bean) using the commit skill
 3. Notify the fleet: \`hordr done ${opts.beanId}\`
