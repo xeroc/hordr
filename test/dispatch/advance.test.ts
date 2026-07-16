@@ -160,6 +160,7 @@ describe('dispatch/advance (via FleetEngine.advanceLane)', () => {
     expect(records.markedCompleted).to.deep.equal(['epic-a'])
     expect(records.merge).to.deep.equal([{cwd: '/repo', source: 'ms1/epic-a', target: 'ms1'}])
     expect(records.removedWorktrees).to.deep.equal(['ms1/epic-a'])
+    expect(records.removedBranches).to.deep.equal(['ms1/epic-a'])
     expect(dbLane(db).status).to.equal('done')
     expect(dbLane(db).currentTaskBeanId).to.equal(null)
     db.close()
@@ -184,6 +185,7 @@ describe('dispatch/advance (via FleetEngine.advanceLane)', () => {
     expect(res.action).to.equal('blocked')
     expect(dbLane(db).status).to.equal('conflict')
     expect(records.removedWorktrees).to.have.length(0)
+    expect(records.removedBranches).to.have.length(0)
     db.close()
   })
 
@@ -228,6 +230,7 @@ describe('dispatch/advance (via FleetEngine.advanceLane)', () => {
 
     expect(res.action).to.equal('epic-completed')
     expect(records.removedWorktrees).to.deep.equal(['ms1/epic-a'])
+    expect(records.removedBranches).to.deep.equal(['ms1/epic-a'])
     expect(dbLane(db).status).to.equal('done')
     db.close()
   })

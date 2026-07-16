@@ -80,6 +80,8 @@ export interface FleetEngineRecords {
   gitCommits: string[]
   markedCompleted: string[]
   merge: Array<{cwd: string; source: string; target: string}>
+  /** Lane branches deleted after a successful epic→ms merge (hordr-6vf0). */
+  removedBranches: string[]
   removedWorktrees: string[]
   spawn: Array<{harness: string; paneId: string; prompt: string}>
 }
@@ -107,6 +109,7 @@ export function createTestFleetEngine(opts: {behavior?: MockBehavior; config: Ho
     gitCommits: [],
     markedCompleted: [],
     merge: [],
+    removedBranches: [],
     removedWorktrees: [],
     spawn: [],
   }
@@ -167,6 +170,10 @@ export function createTestFleetEngine(opts: {behavior?: MockBehavior; config: Ho
     records.removedWorktrees.push(branch)
   }
 
+  const removeBranch = (branch: string): void => {
+    records.removedBranches.push(branch)
+  }
+
   const commitBeans = (worktreePath: string): void => {
     records.gitCommits.push(worktreePath)
   }
@@ -195,6 +202,7 @@ export function createTestFleetEngine(opts: {behavior?: MockBehavior; config: Ho
       markCompleted,
       mergeBranch,
       paneAlive: () => behavior.paneAlive,
+      removeBranch,
       removeWorktree,
       spawn: spawnFn,
       worktreeClean: () => behavior.worktreeClean,
@@ -218,6 +226,7 @@ export function createTestFleetEngine(opts: {behavior?: MockBehavior; config: Ho
     markCompleted,
     mergeBranch,
     paneAlive: () => behavior.paneAlive,
+    removeBranch,
     removeWorktree,
     setLaneCurrentTask: (loc: LaneLoc, taskId: null | string) => setLaneCurrentTask(db, loc, taskId),
     setLanePane: (loc: LaneLoc, paneId: string) => setLanePane(db, loc, paneId),

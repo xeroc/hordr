@@ -40,6 +40,8 @@ export interface AdvanceLaneDeps {
   // epic-complete
   mergeBranch: (opts: {cwd: string; source: string; target: string}) => MergeResult
   paneAlive: (paneId: string) => boolean
+  /** Delete the lane's git branch after a successful epic→ms merge (hordr-6vf0). */
+  removeBranch: (branch: string) => void
   removeWorktree: (branch: string) => void
   setLaneCurrentTask: (loc: LaneLoc, taskId: null | string) => void
   setLanePane: (loc: LaneLoc, paneId: string) => void
@@ -232,8 +234,11 @@ function mergeEpicLane(opts: AdvanceLaneOpts, deps: AdvanceLaneDeps, loc: LaneLo
     return {action: 'blocked', taskId}
   }
 
-  logger.info(`lane, removing worktree, lane → done`)
+  logger.info(`lane, removing worktree + branch, lane → done`)
   deps.removeWorktree(opts.lane.branch)
+  // Only reached after a successful merge (conflict/dirty return early above),
+  // so the branch content is in the ms branch — safe to force-delete the ref.
+  deps.removeBranch(opts.lane.branch)
   deps.setLaneCurrentTask(loc, null)
   deps.updateLaneStatus(loc, 'done')
   return {action: 'epic-completed', taskId}

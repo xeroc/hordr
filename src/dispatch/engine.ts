@@ -243,8 +243,13 @@ function mergeEpicLane(db: Database.Database, fleet: FleetRow, lane: LaneRow, ta
     return {action: 'blocked', taskId}
   }
 
-  logger.info(`lane, removing worktree, lane → done`)
+  logger.info(`lane, removing worktree + branch, lane → done`)
   removeWorktreeByBranch(lane.branch, mainRepoCwd)
+  // Only reached after a successful merge (conflict/dirty return early above),
+  // so the branch content is in fleet.branch — safe to force-delete the ref.
+  // -D (not -d): from mainRepoCwd the lane branch isn't merged into HEAD; the
+  // merge into fleet.branch is already confirmed by mergeBranch above.
+  getGitRunner()(['branch', '-D', lane.branch], {cwd: mainRepoCwd})
   setLaneCurrentTask(db, loc, null)
   updateLaneStatus(db, loc, 'done')
   return {action: 'epic-completed', taskId}

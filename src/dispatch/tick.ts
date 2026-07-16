@@ -54,6 +54,7 @@ export interface TickDeps {
   markCompleted: (beanId: string) => void
   mergeBranch: (opts: {cwd: string; source: string; target: string}) => MergeResult
   paneAlive: (paneId: string) => boolean
+  removeBranch: (branch: string) => void
   removeWorktree: (branch: string) => void
   spawn: (opts: {harness: string; paneId: string; prompt: string}) => void
   worktreeClean: (worktreePath: string) => boolean
@@ -230,6 +231,7 @@ function advanceActiveLane(
       markCompleted: deps.markCompleted,
       mergeBranch: deps.mergeBranch,
       paneAlive: deps.paneAlive,
+      removeBranch: deps.removeBranch,
       removeWorktree: deps.removeWorktree,
       setLaneCurrentTask: (l, taskId) => setLaneCurrentTask(db, l, taskId),
       setLanePane: (l, paneId) => setLanePane(db, l, paneId),
