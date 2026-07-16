@@ -18,7 +18,8 @@ export interface HealDeps {
   paneAlive: (paneId: string) => boolean
   /**
    * True if the lane worktree has no uncommitted non-beans changes. The
-   * implementation (wired by the daemon/engine) runs `git status --porcelain`
+   * implementation (wired by the engine; called from `hordr fleet check` and
+   * `hordr done`) runs `git status --porcelain`
    * and applies the beans-dir exclusion policy via {@link worktreeIsClean}.
    */
   worktreeClean: (worktreePath: string) => boolean

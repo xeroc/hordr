@@ -3,7 +3,7 @@
 A herdr plugin that gives coding agents isolated git worktrees and panes, with
 beans as their briefs. Two modes: **single-bean** (one agent, one task,
 fire-and-forget) and **fleet** (a team of agents working a milestone in
-parallel, each epic in its own worktree, coordinated by a daemon broker).
+parallel, each epic in its own worktree, advanced by `hordr fleet check`).
 
 ```bash
 npx skills@latest xeroc/hordr   # skill for coding agents
@@ -164,9 +164,9 @@ EOF
 ```bash
 hordr fleet create hordr-MS
 # → created ms/hordr-MS from develop
-# → lane 1: epic hordr-EPIC1 (login flow) — worktree, dispatch loop
-# → lane 2: epic hordr-EPIC2 (session mgmt) — worktree, dispatch loop
-# → daemon running, 2 parallel lanes
+# → lane 1: epic hordr-EPIC1 (login flow) — worktree, dispatched
+# → lane 2: epic hordr-EPIC2 (session mgmt) — worktree, dispatched
+# (fleet create runs one check pass to start lanes; cron 'hordr fleet check' keeps them going)
 ```
 
 **Step 3: Observe:**
@@ -369,7 +369,7 @@ to `implementer`. See [docs/fleet-guide.md](docs/fleet-guide.md) for details.
 | `hordr run <bean>`     | Create a worktree, spawn the agent harness in a fresh pane. Fire-and-forget. |
 | `hordr finish <bean>`  | Verify the bean is `completed`, merge its branch, remove the worktree.       |
 | `hordr cleanup <bean>` | Remove the worktree for a bean. `--force` for unmerged changes.              |
-| `hordr daemon`         | Run the daemon broker (unix socket). Auto-started by fleet commands.         |
+| `hordr done <task>`    | Agent-facing: verify a task done, roll up, return the next bean in the lane. |
 
 #### `hordr run`
 
@@ -401,12 +401,25 @@ hordr cleanup <bean> [--force] [--json]
 
 ### Fleet mode (in development)
 
-| Command                          | Description                                                                     |
-| -------------------------------- | ------------------------------------------------------------------------------- |
-| `hordr fleet create <milestone>` | Create the milestone integration branch, scan for unblocked epics, start lanes. |
-| `hordr fleet status <milestone>` | Show fleet state + all lanes (active/pending/merging/conflict/done).            |
-| `hordr fleet finish <milestone>` | Assert all epics merged, merge `ms/<id>` into primary, teardown.                |
-| `hordr fleet abort <milestone>`  | Stop all lanes. `--force` removes all worktrees + milestone branch.             |
+| Command                          | Description                                                                                  |
+| -------------------------------- | -------------------------------------------------------------------------------------------- |
+| `hordr fleet create <milestone>` | Create the milestone integration branch, scan for unblocked epics, start lanes.              |
+| `hordr fleet check`              | Advance every active fleet one step (scan + heal + merge + spawn). Run manually or via cron. |
+| `hordr fleet status <milestone>` | Show fleet state + all lanes (active/pending/merging/conflict/done).                         |
+| `hordr fleet finish <milestone>` | Assert all epics merged, merge `ms/<id>` into primary, teardown.                             |
+| `hordr fleet abort <milestone>`  | Stop all lanes. `--force` removes all worktrees + milestone branch.                          |
+
+There is **no long-running daemon** (ADR-0015). A fleet makes progress when `hordr
+fleet check` runs. Run it by hand when you're watching, or cron it for autonomy:
+
+```
+*/5 * * * * hordr fleet check >> ~/.hordr/fleet.log 2>&1
+```
+
+The check is idempotent and guarded by a PID-file lock (`~/.hordr/fleet.lock`), so
+overlapping runs (cron + manual) skip cleanly. The agent-facing command is just
+`hordr done <task>` — it verifies the task, rolls up ancestry, and returns the next
+bean in the lane so the agent continues in-place.
 
 ---
 
@@ -414,30 +427,30 @@ hordr cleanup <bean> [--force] [--json]
 
 ```
 src/
-├── commands/          # OCLIF command classes (run, finish, cleanup, daemon, fleet/*)
+├── commands/          # OCLIF command classes (run, finish, cleanup, done, fleet/*)
 ├── beans/             # beans CLI client (read-only: getBean, getBody)
 ├── config/            # schema (Zod), loader, defaults
 ├── company/           # Agent Companies manifest parsing
-├── daemon/            # unix-socket server (extensible route registry)
-├── dispatch/          # the fleet dispatch core:
+├── dispatch/          # the fleet dispatch core (pure functions, injected deps):
 │   ├── dispatch.ts    #   getDispatchable (subtree ∩ --ready, priority sort)
 │   ├── role.ts        #   resolveRole (bean's assigned: → persona + harness)
 │   ├── spawn.ts       #   buildInvocationPrompt + spawnInvocation
 │   ├── loop.ts        #   dispatchNext (the per-lane step function)
-│   ├── done.ts        #   handleDone (/done route: verify + acknowledge)
-│   ├── heal.ts        #   checkInvocation (self-heal poll: done? crash? wait?)
+│   ├── done.ts        #   runDoneChecks + handleDone (done acceptance gate)
+│   ├── heal.ts        #   checkInvocation (self-heal: done? crash? wait?)
 │   ├── rollup.ts      #   rollup (ancestry walk) + isMilestoneComplete + areAllEpicsCompleted
 │   ├── squash.ts      #   squashRollup (fixup + autosquash into work commit)
-│   ├── scan.ts        #   scanForNewLanes (tick-driven lazy worktree creation)
+│   ├── scan.ts        #   scanForNewLanes (lazy worktree creation)
 │   └── merge.ts       #   mergeBranch + mergeMilestoneToPrimary (conflict detection)
 ├── harness/           # buildPrompt, launchAgent, shellQuote
 ├── herdr/             # pane + worktree wrappers (shells out to herdr CLI)
-├── storage/           # SQLite (db.ts: schema + pragmas; project.ts: git-common-dir key)
+├── storage/           # SQLite (db.ts: schema + pragmas; project.ts: git-common-dir key; lock.ts: fleet-check mutex)
 └── runtime.ts         # HordrDeps + gitMergeBranch + test seams
 ```
 
 Every dispatch module is a **pure function with injected dependencies** —
-testable in isolation, wired to real I/O by the daemon and command classes.
+testable in isolation, wired to real I/O by the command classes (`hordr done`,
+`hordr fleet check`). There is no long-running process (ADR-0015).
 
 ---
 
@@ -458,12 +471,14 @@ Features are **optional** — use them when an epic needs sub-grouping, skip the
 for simple epics. Only `task` and `bug` beans are dispatched to agents;
 features, epics, and milestones are containers that complete via rollup.
 
-### Fleet = milestone + team + daemon broker
+### Fleet = milestone + team + check loop
 
 A fleet is the runtime instance of a team working a milestone. It is bounded
 1:1:1 — one milestone → one fleet → one milestone integration branch
-(`ms/<milestone-id>`). The daemon is the broker: it dispatches, rolls up, merges,
-and self-heals. There is no Director agent — planning is external.
+(`ms/<milestone-id>`). Progress is driven by `hordr fleet check`, which
+dispatches, rolls up, merges, and self-heals. There is no Director agent and no
+long-running daemon — planning is external, the check loop is explicit
+(ADR-0015).
 
 ### Per-epic lanes (parallel)
 
@@ -494,40 +509,43 @@ Worktrees are created **only when the epic becomes unblocked** — not at fleet
 create. The milestone integration branch accumulates completed epics' merged
 code. When an epic unblocks, its worktree branches from the current branch
 state, so it **auto-inherits** earlier epics' code. No explicit merge-forward.
+The unblock is detected on the next `hordr fleet check`.
 
 ### One task = one commit
 
 Each task bean produces exactly one commit. The agent commits code + bean
-status; the daemon folds any rollup status changes into the same commit via
+status; `hordr done` folds any rollup status changes into the same commit via
 `git commit --fixup` + `GIT_SEQUENCE_EDITOR=true git rebase -i --autosquash`.
 The commit SHA is rewritten (autosquash); the audit row records the post-squash
 SHA.
 
 ### Self-heal, no timeouts
 
-The daemon polls each active lane's current task on a tick (default 5s). If the
-bean flipped to `completed` (whether via `/done` or forgotten), the daemon
-proceeds. If the pane is gone and the bean isn't completed (crash), it marks the
-task `blocked`. **No wall-clock timeouts** — the daemon never kills an agent for
-taking too long. The human decides what's stuck.
+`hordr fleet check` inspects each active lane's current task. If the bean
+flipped to `completed` (whether via `hordr done` or forgotten), the check
+proceeds. If the pane is gone and the bean isn't completed (crash), it resets
+the task to `todo` for re-dispatch. **No wall-clock timeouts** — nothing kills
+an agent for taking too long. The human decides what's stuck. Between checks, a
+crashed lane simply waits.
 
 ### Merge conflicts → block, don't auto-resolve
 
 If an epic→milestone merge conflicts, the lane enters `conflict` status. The
-human resolves manually. The daemon detects the resolution on the next tick.
+human resolves manually. The next `hordr fleet check` detects the resolution.
 No agentic conflict resolution — it needs human judgment.
 
 ### Storage boundary
 
-| Lives in **beans** (in-repo, committed)     | Lives in **SQLite** (daemon, machine-scoped)      |
+| Lives in **beans** (in-repo, committed)     | Lives in **SQLite** (machine-scoped)              |
 | ------------------------------------------- | ------------------------------------------------- |
 | Bean bodies, types, statuses, assignments   | Project registry (git-common-dir keys)            |
 | Milestone's work contract + child task tree | Fleet rows (milestone, integration branch)        |
 | Status rollup (task → epic → milestone)     | Lane rows (per-epic: worktree, pane, status)      |
 | Dynamic beans (created mid-work)            | Invocation audit (task → commit sha → timestamps) |
 
-The daemon **never mirrors bean status into SQLite**. It re-reads `.beans/` in
-the worktree whenever it needs work-state. Crash recovery = restart and re-derive.
+Nothing mirrors bean status into SQLite. The check re-reads `.beans/` in the
+worktree whenever it needs work-state. Crash recovery = run `hordr fleet check`
+again and re-derive.
 
 ---
 
@@ -547,22 +565,23 @@ suite.
 
 ## Architecture Decision Records
 
-| ADR                                                          | Title                                      | Status                             |
-| ------------------------------------------------------------ | ------------------------------------------ | ---------------------------------- |
-| [0001](docs/adr/0001-standalone-herdr-plugin.md)             | Standalone OCLIF binary as a herdr plugin  | Active                             |
-| [0002](docs/adr/0002-typescript-oclif-zod.md)                | TypeScript + OCLIF + Zod                   | Active                             |
-| [0003](docs/adr/0003-fire-and-forget-run.md)                 | Fire-and-forget run model                  | Superseded by 0009 (fleet)         |
-| [0004](docs/adr/0004-unix-socket-daemon-stub.md)             | Unix-socket daemon stub                    | Superseded by 0012 (broker)        |
-| [0005](docs/adr/0005-worktree-per-bean.md)                   | Worktree-per-bean                          | Superseded by 0009 (per-milestone) |
-| [0006](docs/adr/0006-bean-body-is-prompt.md)                 | Bean body is the agent prompt              | Active                             |
-| [0007](docs/adr/0007-agent-companies.md)                     | Agent Companies support                    | Active                             |
-| [0008](docs/adr/0008-no-lifecycle-state.md)                  | Hordr owns no lifecycle state              | Superseded by 0009 + 0012          |
-| [0009](docs/adr/0009-fleet-serialized-milestone-dispatch.md) | Fleet: milestone-scoped team dispatch      | Active                             |
-| [0010](docs/adr/0010-bean-projection-broker-no-timeouts.md)  | Bean-state-projection broker, no timeouts  | Active                             |
-| [0011](docs/adr/0011-rollup-via-fixup-autosquash.md)         | Broker-owned rollup via fixup + autosquash | Active                             |
-| [0012](docs/adr/0012-daemon-as-broker-with-sqlite.md)        | Daemon-as-broker with SQLite process state | Active                             |
-| [0013](docs/adr/0013-dynamic-beans-draft-gated.md)           | Dynamic beans: draft-gated                 | Active                             |
-| [0014](docs/adr/0014-per-epic-worktrees-lazy-creation.md)    | Per-epic worktrees with lazy creation      | Active                             |
+| ADR                                                          | Title                                       | Status                             |
+| ------------------------------------------------------------ | ------------------------------------------- | ---------------------------------- |
+| [0001](docs/adr/0001-standalone-herdr-plugin.md)             | Standalone OCLIF binary as a herdr plugin   | Active                             |
+| [0002](docs/adr/0002-typescript-oclif-zod.md)                | TypeScript + OCLIF + Zod                    | Active                             |
+| [0003](docs/adr/0003-fire-and-forget-run.md)                 | Fire-and-forget run model                   | Superseded by 0009 (fleet)         |
+| [0004](docs/adr/0004-unix-socket-daemon-stub.md)             | Unix-socket daemon stub                     | Superseded by 0012 (broker)        |
+| [0005](docs/adr/0005-worktree-per-bean.md)                   | Worktree-per-bean                           | Superseded by 0009 (per-milestone) |
+| [0006](docs/adr/0006-bean-body-is-prompt.md)                 | Bean body is the agent prompt               | Active                             |
+| [0007](docs/adr/0007-agent-companies.md)                     | Agent Companies support                     | Active                             |
+| [0008](docs/adr/0008-no-lifecycle-state.md)                  | Hordr owns no lifecycle state               | Superseded by 0009 + 0012          |
+| [0009](docs/adr/0009-fleet-serialized-milestone-dispatch.md) | Fleet: milestone-scoped team dispatch       | Active                             |
+| [0010](docs/adr/0010-bean-projection-broker-no-timeouts.md)  | Bean-state-projection broker, no timeouts   | Superseded by 0015 (daemonless)    |
+| [0011](docs/adr/0011-rollup-via-fixup-autosquash.md)         | Broker-owned rollup via fixup + autosquash  | Active                             |
+| [0012](docs/adr/0012-daemon-as-broker-with-sqlite.md)        | Daemon-as-broker with SQLite process state  | Superseded by 0015 (daemonless)    |
+| [0013](docs/adr/0013-dynamic-beans-draft-gated.md)           | Dynamic beans: draft-gated                  | Active                             |
+| [0014](docs/adr/0014-per-epic-worktrees-lazy-creation.md)    | Per-epic worktrees with lazy creation       | Amended by 0015 (daemonless)       |
+| [0015](docs/adr/0015-daemonless-fleet-check.md)              | Daemonless fleet: inline done + fleet check | Active                             |
 
 ---
 

@@ -2,21 +2,24 @@ import {Args, Command, Flags} from '@oclif/core'
 
 import {getBean} from '../../beans/client.js'
 import {loadConfig} from '../../config/loader.js'
-import {ensureDaemon} from '../../daemon/ensure.js'
+import {createFleetEngine} from '../../dispatch/engine.js'
 import {createFleet} from '../../fleet/lifecycle.js'
 import {createWorktree, openWorktree} from '../../herdr/worktree.js'
+import {logger} from '../../logger.js'
 import {getGitRunner} from '../../runtime.js'
 import {openFleetDb} from '../../storage/db.js'
+import {acquireFleetLock} from '../../storage/lock.js'
 import {resolveProjectKeyOrMock} from '../../storage/project.js'
+import {runFleetCheck} from './check.js'
 
 /**
  * hordr fleet create <milestone-id>
  *
  * Bootstrap a fleet for a milestone bean: validate it's a milestone, create the
- * ms/<id> integration branch from primary, register the fleet row, and require
- * the daemon to already be running (throws if not — never spawns). Per-epic
- * lanes are created lazily by the daemon tick (ADR-0014). Refuses if a fleet
- * is already active for the milestone.
+ * ms/<id> integration branch from primary, register the fleet row, then run one
+ * `fleet check` pass so lanes spawn immediately. Per-epic lanes are otherwise
+ * created lazily by `hordr fleet check` (ADR-0014/0015). Refuses if a fleet is
+ * already active for the milestone.
  */
 export default class FleetCreate extends Command {
   static args = {milestone: Args.string({description: 'Milestone bean id', required: true})}
@@ -58,7 +61,6 @@ export default class FleetCreate extends Command {
             const wt = createWorktree({base: opts.base, branch: opts.branch, cwd: opts.cwd})
             return {path: wt.path ?? wt.workspace_id, workspaceId: wt.workspace_id}
           },
-          ensureDaemon,
           fetchBean: (id) => getBean(id),
           git: getGitRunner(),
           openWorktree(opts) {
@@ -67,6 +69,17 @@ export default class FleetCreate extends Command {
           },
         },
       )
+
+      // Kick the fleet off: one check pass creates initial lanes + spawns them.
+      const check = runFleetCheck(db, {
+        acquireLock: () => acquireFleetLock(),
+        scan: (d) => createFleetEngine(config).scanFleet(d),
+      })
+      if (check.ran) {
+        logger.info(
+          `fleet check: ${check.result?.advanced ?? 0} lane(s) advanced, ${check.result?.lanesCreated ?? 0} lane(s) created`,
+        )
+      }
 
       if (flags.json) {
         this.log(

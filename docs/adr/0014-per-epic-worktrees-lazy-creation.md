@@ -1,5 +1,7 @@
 # Per-epic worktrees with lazy creation
 
+> **Amended by ADR-0015 (daemonless fleet check) on 2026-07-16:** the lazy-creation mechanics are retained, but the _trigger_ is no longer the daemon tick — it is `hordr fleet check` (manual or cron).
+
 **Amends:** ADR-0009 (fleet model) — refines the worktree model from one-shared-worktree to per-epic lanes.
 
 A fleet (milestone-level) does NOT use one shared worktree. Each unblocked **epic** under the milestone gets its own **lane**: a worktree branched from the milestone integration branch, a pane, and a serialized dispatch loop. Lanes are parallel across epics; tasks are serialized within each lane.

@@ -36,11 +36,11 @@ Build the frobnicator module ...
   The planner reads the team's role definitions from the agentcompany manifests
   and produces role-tagged tasks: an "implement X" task `assigned: implementer`,
   a "test X" task `assigned: tester`, etc.
-- **The daemon reads `assigned:` at dispatch time** to resolve the
+- **`hordr fleet check` reads `assigned:` at dispatch time** to resolve the
   persona+harness. It does not scan per-role — it picks the next ready bean and
   derives the role from the bean itself.
 - **Missing `assigned:`** defaults to `implementer` (with a warning).
-- **Unresolvable `assigned:`** (role not in the company/config) → the daemon
+- **Unresolvable `assigned:`** (role not in the company/config) → the check
   marks the bean `blocked` and skips to the next ready bean.
 - **Dynamic beans** (created by a member mid-work) should land in `draft` status
   with `assigned:` set; the human reviews and flips to `todo` to dispatch.
@@ -57,7 +57,7 @@ work.
 ## Fleet-shaped personas
 
 The old v3 persona (tree-walking implementer that enumerates descendants and
-propagates status) is **dead** under the fleet model. The broker owns dispatch
+propagates status) is **dead** under the fleet model. The check loop owns dispatch
 and rollup; the agent owns exactly one task. Every role's persona shrinks to:
 read your assigned bean, do the work, commit, signal done.
 
@@ -67,12 +67,12 @@ read your assigned bean, do the work, commit, signal done.
 implementer:
   harness: opencode
   persona: |
-    You implement ONE task bean. The broker has woken your pane and
+    You implement ONE task bean. `hordr fleet check` has woken your pane and
     named your assignment. Read it:
       beans show <assigned-bean-id>
 
     Do ONLY that task's work. Do not enumerate siblings, parents, or
-    the milestone — the broker owns dispatch across the tree, not you.
+    the milestone — the check loop owns dispatch across the tree, not you.
 
     When the task is implemented:
       1. Verify (lint / typecheck / tests per the bean).
@@ -84,7 +84,7 @@ implementer:
          the bean marked `completed` in the working tree uncommitted.
       3. Only after the commit lands, notify the fleet:
            hordr done <id>
-    Then stop. The broker takes it from there.
+    Then stop. The next `hordr fleet check` takes it from there.
 ```
 
 ### Tester
@@ -93,7 +93,7 @@ implementer:
 tester:
   harness: claude
   persona: |
-    You test ONE task bean. The broker has woken your pane and named
+    You test ONE task bean. `hordr fleet check` has woken your pane and named
     your assignment — a task whose implementation needs testing.
     Read it:
       beans show <assigned-bean-id>
@@ -120,7 +120,7 @@ tester:
 reviewer:
   harness: opencode
   persona: |
-    You review ONE task bean's implementation. The broker has woken your
+    You review ONE task bean's implementation. `hordr fleet check` has woken your
     pane and named your assignment — a task whose diff needs review.
     Read the bean:
       beans show <assigned-bean-id>
@@ -145,17 +145,19 @@ reviewer:
 
 ---
 
-## What the agent does NOT do (the broker does)
+## What the agent does NOT do (the check loop does)
 
-These responsibilities moved from the agent persona to the daemon broker
-(ADR-0009, ADR-0010, ADR-0011):
+These responsibilities moved from the agent persona to the fleet-check loop
+(ADR-0009, ADR-0010, ADR-0011, ADR-0015):
 
-| Old v3 agent responsibility       | New owner                    |
-| --------------------------------- | ---------------------------- |
-| Enumerate descendant beans        | Broker (getDispatchable)     |
-| Pick the next task to work        | Broker (dispatchNext)        |
-| Propagate status upward (rollup)  | Broker (rollup)              |
-| Traverse the bean tree            | Broker (beans query)         |
-| Decide when the milestone is done | Broker (isMilestoneComplete) |
+| Old v3 agent responsibility       | New owner                                   |
+| --------------------------------- | ------------------------------------------- |
+| Enumerate descendant beans        | `hordr fleet check` (getDispatchable)       |
+| Pick the next task to work        | `hordr fleet check` (dispatchNext)          |
+| Propagate status upward (rollup)  | `hordr fleet check` + `hordr done` (rollup) |
+| Traverse the bean tree            | `hordr fleet check` (beans query)           |
+| Decide when the milestone is done | `hordr fleet check` (isMilestoneComplete)   |
 
 The agent is a worker, not a planner. One task, one commit, one `hordr done`.
+The check loop is driven by `hordr fleet check` (run manually or via cron) —
+there is no long-running daemon (ADR-0015).

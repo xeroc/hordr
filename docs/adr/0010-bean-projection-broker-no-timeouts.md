@@ -1,5 +1,7 @@
 # Bean-state-projection broker with self-heal, no timeouts
 
+> **Superseded by ADR-0015 (daemonless fleet check) on 2026-07-16.** The broker's pure dispatch functions (dispatchable set = descendants-of-milestone ∩ `beans list --ready`, priority sort, self-heal, no timeouts) are retained verbatim and reused by `hordr fleet check`; only the long-running _process_ and socket are gone. Kept for history.
+
 The daemon's dispatch protocol projects over bean state rather than mirroring it. The dispatchable set for a fleet is **descendants-of-the-milestone ∩ `beans list --ready`** (readiness — status, dependencies, blockers — is beans' job; hordr recomputes nothing). When multiple beans are dispatchable, sort by `priority` desc then `id` asc. There is no message bus, no `tasks` table, no poll/ack protocol — beans hold work + work-state, the daemon reads them as a projector, never writes work-state itself.
 
 Completion is signalled two ways, both bean-mediated:
