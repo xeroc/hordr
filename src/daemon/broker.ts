@@ -1,7 +1,7 @@
 import type Database from 'better-sqlite3'
 
 import {handleBlocked} from '../dispatch/blocked.js'
-import {handleDone} from '../dispatch/done.js'
+import {handleDone, type VerifyResult} from '../dispatch/done.js'
 import {type FleetEngine} from '../dispatch/engine.js'
 import {logger} from '../logger.js'
 import {addRoute, type DaemonRequest, type DaemonResponse} from './server.js'
@@ -47,9 +47,9 @@ export function blockedRouteHandler(releaseTask: (taskId: string) => boolean) {
   return (req: DaemonRequest): DaemonResponse => handleBlocked(req.body, {releaseTask})
 }
 
-/** POST /done route: verify the task is completed, return the handler response. */
-export function doneRouteHandler(verifyCompleted: (taskId: string) => boolean) {
-  return (req: DaemonRequest): DaemonResponse => handleDone(req.body, {verifyCompleted})
+/** POST /done route: run the acceptance checks, return the handler response. */
+export function doneRouteHandler(verify: (taskId: string) => VerifyResult) {
+  return (req: DaemonRequest): DaemonResponse => handleDone(req.body, {verify})
 }
 
 /**
@@ -62,9 +62,9 @@ export function wireDaemon(opts: {
   intervalMs?: number
   releaseTask: (taskId: string) => boolean
   tickFn?: (db: Database.Database, engine: FleetEngine) => void
-  verifyCompleted: (taskId: string) => boolean
+  verify: (taskId: string) => VerifyResult
 }): BrokerHandle {
   addRoute('POST', '/blocked', blockedRouteHandler(opts.releaseTask))
-  addRoute('POST', '/done', doneRouteHandler(opts.verifyCompleted))
+  addRoute('POST', '/done', doneRouteHandler(opts.verify))
   return startBroker(opts)
 }

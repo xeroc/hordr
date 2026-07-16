@@ -1,10 +1,12 @@
 import {Command, Flags} from '@oclif/core'
-import {spawn} from 'node:child_process'
+import {execFileSync, spawn} from 'node:child_process'
 
+import {getBean} from '../beans/client.js'
 import {loadConfig} from '../config/loader.js'
 import {type BrokerHandle, wireDaemon} from '../daemon/broker.js'
 import {installSignalHandlers, startServer} from '../daemon/server.js'
 import {socketPath} from '../daemon/socket.js'
+import {runDoneChecks} from '../dispatch/done.js'
 import {createFleetEngine} from '../dispatch/engine.js'
 import {configureLogger, logger} from '../logger.js'
 import {openFleetDb} from '../storage/db.js'
@@ -76,12 +78,17 @@ export default class Daemon extends Command {
         logger.info(`lane ${lane.epicBeanId}: task ${taskId} released (agent reported blocked) — lane stays active`)
         return true
       },
-      verifyCompleted() {
-        // /done is a notification, not a gate. Always accept — the self-heal
-        // poll on the next tick does the real verification and rollup.
-        // Returning 409 causes the agent to think it failed (the self-heal
-        // may have already cleared current_task_bean_id).
-        return true
+      // /done acceptance gate (hordr-w8w2): verify the worktree is clean and
+      // the bean is completed before acking. Specific failures are surfaced to
+      // the agent via the 409 body so it can fix and retry. If no lane owns the
+      // task, the heal poll already verified clean+completed → runDoneChecks
+      // acks OK (idempotent).
+      verify(taskId) {
+        return runDoneChecks(taskId, {
+          beanStatus: (id, cwd) => String(getBean(id, {cwd}).status ?? ''),
+          dirtyPaths: (cwd) => gitStatusPorcelain(cwd),
+          worktreePath: (id) => findLaneByTask(db, id)?.worktreePath,
+        })
       },
     })
     installBrokerShutdown(broker)
@@ -100,4 +107,23 @@ function installBrokerShutdown(broker: BrokerHandle): void {
   const stop = () => broker.stop()
   process.on('SIGINT', stop)
   process.on('SIGTERM', stop)
+}
+
+/**
+ * Non-empty `git status --porcelain` lines in a worktree (empty = clean). On
+ * git failure (broken/missing worktree) returns a sentinel so /done fails loud
+ * instead of silently acking a broken state — mirrors dirtyNonBeansPaths.
+ */
+function gitStatusPorcelain(cwd: string): string[] {
+  let raw = ''
+  try {
+    raw = execFileSync('git', ['-C', cwd, 'status', '--porcelain'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+  } catch {
+    return ['<git status failed>']
+  }
+
+  return raw.split('\n').filter((l) => l.trim().length > 0)
 }

@@ -94,7 +94,9 @@ describe('daemon/broker', () => {
   })
 
   describe('doneRouteHandler', () => {
-    const handler = doneRouteHandler((id) => id === 'task-done')
+    const handler = doneRouteHandler((id) =>
+      id === 'task-done' ? {errors: [], ok: true} : {errors: [`bean ${id} not completed`], ok: false},
+    )
 
     it('returns 400 when task_id is missing', () => {
       const res = handler({body: {}, method: 'POST', path: '/done'})
@@ -107,9 +109,10 @@ describe('daemon/broker', () => {
       expect(res.body).to.deep.equal({ok: true, task_id: 'task-done'})
     })
 
-    it('returns 409 when the task is not completed', () => {
+    it('returns 409 with the failure reason when the task is not completed', () => {
       const res = handler({body: {task_id: 'task-open'}, method: 'POST', path: '/done'})
       expect(res.status).to.equal(409)
+      expect((res.body as {error: string}).error).to.contain('task-open')
     })
   })
 })
