@@ -27,8 +27,8 @@ import {parse} from 'yaml'
 import type {HordrConfig} from '../config/schema.js'
 import type {FleetRow, LaneLoc, LaneRow} from '../storage/fleets.js'
 
-import {getBean, markBeanCompleted} from '../beans/client.js'
-import {createTab, paneExists} from '../herdr/pane.js'
+import {getBean, markBeanCompleted, resetBeanToTodo} from '../beans/client.js'
+import {agentActiveInPane, createTab, paneExists} from '../herdr/pane.js'
 import {createWorktree, HerdrError, openWorktree, removeWorktreeByBranch} from '../herdr/worktree.js'
 import {logger} from '../logger.js'
 import {getGitRunner} from '../runtime.js'
@@ -333,20 +333,22 @@ export function createFleetEngine(config: HordrConfig): FleetEngine {
       {paneId: lane.paneId ?? '', taskId: lane.currentTaskBeanId, worktreePath: lane.worktreePath},
       {
         beanStatus: (id) => getBean(id, {cwd: beansCwd}).status as string | undefined,
-        paneAlive: (p) => paneExists(p),
+        paneAlive: (p) => agentActiveInPane(p),
         worktreeClean,
       },
     )
 
     if (heal.action === 'wait') return {action: 'wait'}
     if (heal.action === 'blocked') {
-      logger.warn(
-        `lane ${lane.epicBeanId}: CONFLICT — task ${lane.currentTaskBeanId} ${heal.reason}.` +
-          ` The agent may have crashed or stopped without calling 'hordr done' or 'hordr blocked'.` +
-          ` Lane is now paused. To retry: ensure the task is ready, then run 'hordr fleet reset' or manually set the lane back to active.`,
+      const crashedTaskId = lane.currentTaskBeanId!
+      logger.info(
+        `lane ${lane.epicBeanId}: agent gone (task ${crashedTaskId} still in-progress) — ` +
+          `resetting bean to todo, re-dispatching next tick`,
       )
-      updateLaneStatus(db, loc, 'conflict')
-      return {action: 'blocked', taskId: lane.currentTaskBeanId}
+      resetBeanToTodo(crashedTaskId, {cwd: beansCwd})
+      commitBeans(lane.worktreePath)
+      setLaneCurrentTask(db, loc, null)
+      return {action: 'blocked', taskId: crashedTaskId}
     }
 
     // proceed: bean completed → roll up the ancestry.
@@ -362,9 +364,9 @@ export function createFleetEngine(config: HordrConfig): FleetEngine {
     }
 
     // task done, epic still has work.
-    // If the pane is alive, the agent will call /done which handles
+    // If the agent is still active, it will call /done which handles
     // continuation (hordr-thjh). Don't free the lane — /done owns it.
-    if (lane.paneId && paneExists(lane.paneId)) {
+    if (lane.paneId && agentActiveInPane(lane.paneId)) {
       return {action: 'wait', taskId}
     }
 

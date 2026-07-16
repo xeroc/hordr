@@ -95,19 +95,46 @@ export function runInPane(paneId: string, command: string): void {
   herdr(['pane', 'run', paneId, command])
 }
 
+interface PaneListEntry {
+  agent?: string
+  agent_status?: string
+  pane_id?: string
+}
+
 /**
- * Whether a pane still exists. Best-effort: if herdr has no pane-list or the
- * call errors, return true (don't false-block a lane on a missing API).
+ * Fetch all panes from herdr. Returns null if herdr can't confirm (error or
+ * unexpected response shape). A valid empty list returns [].
+ */
+function fetchPanes(): null | PaneListEntry[] {
+  try {
+    const raw = herdr(['pane', 'list'])
+    const data = parseJSON<{result?: {panes?: PaneListEntry[]}}>(raw, 'pane list')
+    return data.result?.panes ?? null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Whether a pane still exists. Returns false if herdr can't confirm — a
+ * broken pane-list API must not mask a dead agent.
  */
 export function paneExists(paneId: string): boolean {
-  try {
-    const raw = herdr(['pane', 'list', '--json'])
-    const data = parseJSON<{panes?: Array<{pane_id?: string}>}>(raw, 'pane list')
-    const panes = data.panes ?? []
-    return panes.some((p) => p.pane_id === paneId)
-  } catch {
-    // ponytail: trust the pane is alive when herdr can't confirm — crash
-    // detection via pane-gone degrades gracefully rather than false-blocking.
-    return true
-  }
+  const panes = fetchPanes()
+  if (panes === null) return false
+  return panes.some((p) => p.pane_id === paneId)
+}
+
+/**
+ * Whether a pane exists AND has an agent session registered in it. The heal
+ * check uses this instead of {@link paneExists}: a pane can survive as a
+ * terminal tab after the agent exits — the `agent` field disappears, and
+ * that's the signal the invocation is dead.
+ */
+export function agentActiveInPane(paneId: string): boolean {
+  const panes = fetchPanes()
+  if (panes === null) return false
+  const pane = panes.find((p) => p.pane_id === paneId)
+  if (!pane) return false
+  return pane.agent !== undefined
 }
