@@ -241,11 +241,26 @@ function mergeEpicLane(opts: AdvanceLaneOpts, deps: AdvanceLaneDeps, loc: LaneLo
     return {action: 'blocked', taskId}
   }
 
-  logger.info(`lane, removing worktree + branch, lane → done`)
-  deps.removeWorktree(opts.lane.branch)
-  // Only reached after a successful merge (conflict/dirty return early above),
-  // so the branch content is in the ms branch — safe to force-delete the ref.
-  deps.removeBranch(opts.lane.branch)
+  logger.info(`lane ${opts.lane.epicBeanId}: epic completed → merge landed in ${opts.fleet.msBranch}, cleaning up`)
+
+  // Worktree removal: best-effort. Caller's implementation may fail.
+  try {
+    deps.removeWorktree(opts.lane.branch)
+  } catch (error) {
+    logger.warn(`lane ${opts.lane.epicBeanId}: worktree removal failed: ${(error as Error).message}`)
+  }
+
+  // Branch deletion: best-effort. The merge already landed; orphaned refs
+  // are manual cleanup, not a blocker for lane completion (hordr-thjh).
+  try {
+    deps.removeBranch(opts.lane.branch)
+  } catch (error) {
+    logger.warn(
+      `lane ${opts.lane.epicBeanId}: branch '${opts.lane.branch}' not deleted: ${(error as Error).message}. ` +
+        `Merge landed; orphaned ref needs manual cleanup.`,
+    )
+  }
+
   deps.setLaneCurrentTask(loc, null)
   deps.updateLaneStatus(loc, 'done')
   return {action: 'epic-completed', taskId}

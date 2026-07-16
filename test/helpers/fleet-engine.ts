@@ -52,6 +52,8 @@ export interface MockFleetData {
 }
 
 export interface MockBehavior {
+  /** Whether branch deletion throws (default false). Tests graceful degradation. */
+  branchDeleteFails?: boolean
   /** Default bean status for unknown beans (default 'in-progress'). */
   defaultBeanStatus?: string
   /** Dirty non-beans paths returned by the worktreeDirtyPaths seam (default []). */
@@ -68,6 +70,8 @@ export interface MockBehavior {
   worktreeClean?: boolean
   /** Whether worktree paths exist on disk (default true). */
   worktreeExists?: boolean
+  /** Whether worktree removal throws (default false). Tests graceful degradation. */
+  worktreeRemoveFails?: boolean
 }
 
 // --- records ---
@@ -94,12 +98,14 @@ export function createTestFleetEngine(opts: {behavior?: MockBehavior; config: Ho
 } {
   const data = opts.data ?? {}
   const behavior: Required<MockBehavior> = {
+    branchDeleteFails: opts.behavior?.branchDeleteFails ?? false,
     defaultBeanStatus: opts.behavior?.defaultBeanStatus ?? 'in-progress',
     dirtyPaths: opts.behavior?.dirtyPaths ?? [],
     mergeConflict: opts.behavior?.mergeConflict ?? false,
     paneAlive: opts.behavior?.paneAlive ?? true,
     worktreeClean: opts.behavior?.worktreeClean ?? true,
     worktreeExists: opts.behavior?.worktreeExists ?? true,
+    worktreeRemoveFails: opts.behavior?.worktreeRemoveFails ?? false,
   }
 
   const records: FleetEngineRecords = {
@@ -167,10 +173,12 @@ export function createTestFleetEngine(opts: {behavior?: MockBehavior; config: Ho
   }
 
   const removeWorktree = (branch: string): void => {
+    if (behavior.worktreeRemoveFails) throw new Error(`mock: worktree remove failed for ${branch}`)
     records.removedWorktrees.push(branch)
   }
 
   const removeBranch = (branch: string): void => {
+    if (behavior.branchDeleteFails) throw new Error(`mock: branch delete failed for ${branch}`)
     records.removedBranches.push(branch)
   }
 

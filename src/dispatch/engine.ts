@@ -247,13 +247,29 @@ function mergeEpicLane(db: Database.Database, fleet: FleetRow, lane: LaneRow, ta
     return {action: 'blocked', taskId}
   }
 
-  logger.info(`lane, removing worktree + branch, lane → done`)
-  removeWorktreeByBranch(lane.branch, mainRepoCwd)
-  // Only reached after a successful merge (conflict/dirty return early above),
-  // so the branch content is in fleet.branch — safe to force-delete the ref.
-  // -D (not -d): from mainRepoCwd the lane branch isn't merged into HEAD; the
-  // merge into fleet.branch is already confirmed by mergeBranch above.
-  getGitRunner()(['branch', '-D', lane.branch], {cwd: mainRepoCwd})
+  logger.info(`lane ${lane.epicBeanId}: epic completed → merge landed in ${fleet.branch}, cleaning up`)
+
+  // Worktree removal: best-effort. herdr may fail or silently no-op.
+  try {
+    removeWorktreeByBranch(lane.branch, mainRepoCwd)
+  } catch (error) {
+    logger.warn(`lane ${lane.epicBeanId}: worktree removal failed: ${(error as Error).message}`)
+  }
+
+  // Branch deletion: -d (safe delete, NOT -D). Run from the fleet worktree
+  // which is on fleet.branch — the branch the lane was merged into. -d refuses
+  // unmerged branches, which catches silent no-op merges. If the worktree
+  // still holds the branch (removal failed above), this also fails — logged,
+  // not fatal. The merge already landed; orphaned refs are manual cleanup.
+  try {
+    getGitRunner()(['branch', '-d', lane.branch], {cwd: fleet.worktreePath})
+  } catch (error) {
+    logger.warn(
+      `lane ${lane.epicBeanId}: branch '${lane.branch}' not deleted: ${(error as Error).message}. ` +
+        `Merge landed in ${fleet.branch}; orphaned ref needs manual cleanup.`,
+    )
+  }
+
   setLaneCurrentTask(db, loc, null)
   updateLaneStatus(db, loc, 'done')
   return {action: 'epic-completed', taskId}
