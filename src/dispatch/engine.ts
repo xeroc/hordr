@@ -40,6 +40,7 @@ import {
   setLaneCurrentTask,
   setLanePane,
   setLaneWorktree,
+  updateFleetStatus,
   updateLaneStatus,
 } from '../storage/fleets.js'
 import {fetchAncestorChain, fetchAncestry, fetchDependencyStatus, fetchEpics, getDispatchable} from './dispatch.js'
@@ -349,6 +350,22 @@ export function createFleetEngine(config: HordrConfig): FleetEngine {
       const mainRepoCwd = getProjectPath(db, fleet.projectKey)
       if (!mainRepoCwd) {
         logger.warn(`fleet ${fleet.milestoneBeanId}: project ${fleet.projectKey} not in projects table — skipping`)
+        continue
+      }
+
+      // Quarantine (hordr-zqwo): if the fleet's milestone worktree is gone
+      // (finish/abort hand-off, manual cleanup, crash), every beans call scoped
+      // to it throws — and since fetchEpics below runs outside the per-lane
+      // try/catch, that throw aborts the whole tick and stalls every other
+      // healthy fleet sharing this daemon. Mark the fleet 'broken' so
+      // listFleets({status: 'active'}) skips it on future ticks, and move on.
+      if (!existsSync(fleet.worktreePath)) {
+        logger.warn(
+          `fleet ${fleet.milestoneBeanId}: milestone worktree gone (${fleet.worktreePath}) → marking broken. ` +
+            `Recover with 'hordr fleet create ${fleet.milestoneBeanId}' (reuses/restores the worktree) ` +
+            `or tear down with 'hordr fleet abort ${fleet.milestoneBeanId}'.`,
+        )
+        updateFleetStatus(db, fleet.projectKey, fleet.milestoneBeanId, 'broken')
         continue
       }
 

@@ -88,6 +88,25 @@ export function deleteFleet(db: Database.Database, projectKey: string, milestone
   db.prepare('DELETE FROM fleets WHERE project_key = ? AND milestone_bean_id = ?').run(projectKey, milestoneId)
 }
 
+/**
+ * Update a fleet's status (e.g. 'active' → 'broken'). The daemon only scans
+ * fleets with status 'active', so any other value quarantines it: scanFleet
+ * uses this to retire a fleet whose milestone worktree has vanished, so one
+ * missing worktree can't abort the tick for every other fleet.
+ */
+export function updateFleetStatus(
+  db: Database.Database,
+  projectKey: string,
+  milestoneId: string,
+  status: string,
+): void {
+  db.prepare('UPDATE fleets SET status = ? WHERE project_key = ? AND milestone_bean_id = ?').run(
+    status,
+    projectKey,
+    milestoneId,
+  )
+}
+
 // --- lane ---
 
 export interface LaneRow {
