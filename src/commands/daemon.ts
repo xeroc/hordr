@@ -68,6 +68,9 @@ export default class Daemon extends Command {
     const server = await startServer({path: sock})
     installSignalHandlers(server)
     const broker: BrokerHandle = wireDaemon({
+      continue(taskId) {
+        return engine.continueTask(db, taskId)
+      },
       db,
       engine,
       releaseTask(taskId) {

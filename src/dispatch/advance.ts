@@ -194,7 +194,14 @@ export function advanceLane(opts: AdvanceLaneOpts, deps: AdvanceLaneDeps): Advan
     return mergeEpicLane(opts, deps, loc, taskId)
   }
 
-  // task done but epic still has work → free the lane for the next dispatch
+  // task done, epic still has work.
+  // If the pane is alive, the agent will call /done which handles
+  // continuation (hordr-thjh). Don't free the lane — /done owns it.
+  if (paneAlive) {
+    return {action: 'wait', taskId}
+  }
+
+  // pane gone → crash recovery: free lane so next tick dispatches via spawn.
   deps.setLaneCurrentTask(loc, null)
   return {action: 'wait', taskId}
 }

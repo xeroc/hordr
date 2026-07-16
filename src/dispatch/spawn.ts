@@ -129,7 +129,11 @@ requires a clean worktree to proceed past completion. Honour both layers:
    must stop mid-work, the bean stays \`in-progress\`.
 
 If you cannot proceed (blocked by unmet dependencies): \`hordr blocked ${opts.beanId}\` then stop.
-Then stop. Do not work on any other bean.`
+
+\`hordr done\` returns JSON with a \`next\` field. If \`next\` is present, it contains
+the id, role, and prompt for the next bean in this lane. Adopt the new persona
+and work the next bean immediately — same session, same context. If \`next\` is
+null, stop. Do not work on any other bean.`
 }
 
 export function spawnInvocation(opts: {harness: string; paneId: string; prompt: string}): void {

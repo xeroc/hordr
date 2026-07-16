@@ -34,6 +34,7 @@ import {logger} from '../logger.js'
 import {getGitRunner} from '../runtime.js'
 import {
   addLane,
+  findLaneByTask,
   getProjectPath,
   listFleets,
   listLanes,
@@ -43,6 +44,7 @@ import {
   updateFleetStatus,
   updateLaneStatus,
 } from '../storage/fleets.js'
+import {type ContinueDeps, continueLane, type ContinueResult} from './continue.js'
 import {fetchAncestorChain, fetchAncestry, fetchDependencyStatus, fetchEpics, getDispatchable} from './dispatch.js'
 import {checkInvocation, worktreeIsClean} from './heal.js'
 import {createLaneForEpic} from './lane-create.js'
@@ -67,6 +69,8 @@ export interface AdvanceResult {
 export interface FleetEngine {
   /** Advance one lane by one step. */
   advanceLane(db: Database.Database, fleet: FleetRow, lane: LaneRow): AdvanceResult
+  /** Find and claim the next bean in the lane after /done verification (hordr-thjh). */
+  continueTask(db: Database.Database, taskId: string): ContinueResult
   /** One broker pass over all active fleets. Safe to call on an interval. */
   scanFleet(db: Database.Database): TickResult
 }
@@ -341,7 +345,14 @@ export function createFleetEngine(config: HordrConfig): FleetEngine {
       return mergeEpicLane(db, fleet, lane, taskId)
     }
 
-    // task done but epic still has work → free the lane for the next dispatch
+    // task done, epic still has work.
+    // If the pane is alive, the agent will call /done which handles
+    // continuation (hordr-thjh). Don't free the lane — /done owns it.
+    if (lane.paneId && paneExists(lane.paneId)) {
+      return {action: 'wait', taskId}
+    }
+
+    // pane gone → crash recovery: free lane so next tick dispatches via spawn.
     setLaneCurrentTask(db, loc, null)
     return {action: 'wait', taskId}
   }
@@ -480,5 +491,34 @@ export function createFleetEngine(config: HordrConfig): FleetEngine {
     return {advanced, lanesCreated}
   }
 
-  return {advanceLane, scanFleet}
+  // --- continuation (called by /done after verification passes) ---
+
+  const continueTask = (db: Database.Database, taskId: string): ContinueResult => {
+    const lane = findLaneByTask(db, taskId)
+    if (!lane) return {next: null, reason: 'no lane owns this task (idempotent)'}
+
+    const beansCwd = lane.worktreePath
+    const deps: ContinueDeps = {
+      config,
+      fetchAncestorChain: (id) => fetchAncestorChain(id, {cwd: beansCwd}),
+      fetchBean: (id) => getBean(id, {cwd: beansCwd}),
+      fetchDependencyStatus: (id) => fetchDependencyStatus(id, {cwd: beansCwd}),
+      findLane(id) {
+        const l = findLaneByTask(db, id)
+        if (!l) return null
+        return {
+          epicId: l.epicBeanId,
+          loc: {epicId: l.epicBeanId, milestoneId: l.fleetMilestoneBeanId, projectKey: l.projectKey},
+        }
+      },
+      getDispatchable: (epicId) => getDispatchable(epicId, {cwd: beansCwd}),
+      rollup(id) {
+        if (rollupAncestors(id, beansCwd)) commitBeans(lane.worktreePath)
+      },
+      setCurrentTask: (loc, beanId) => setLaneCurrentTask(db, loc, beanId),
+    }
+    return continueLane(taskId, deps)
+  }
+
+  return {advanceLane, continueTask, scanFleet}
 }

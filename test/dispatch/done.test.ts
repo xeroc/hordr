@@ -1,32 +1,53 @@
 /* eslint-disable camelcase -- task_id mirrors the socket JSON contract */
 import {expect} from 'chai'
 
+import type {ContinueResult} from '../../src/dispatch/continue.js'
+
 import {type DoneProbes, handleDone, runDoneChecks, type VerifyResult} from '../../src/dispatch/done.js'
+
+const NO_CONTINUE: (taskId: string) => ContinueResult = () => ({next: null, reason: 'test default'})
 
 describe('dispatch/done', () => {
   describe('handleDone', () => {
-    it('returns 200 when verification passes', () => {
-      const res = handleDone({task_id: 'hordr-1234'}, {verify: () => ({errors: [], ok: true})})
+    it('returns 200 with next bean when verification passes and continuation succeeds', () => {
+      const res = handleDone(
+        {task_id: 'hordr-1234'},
+        {
+          continue: () => ({next: {id: 'hordr-C', prompt: 'work on C', role: 'tester'}, reason: 'continuing'}),
+          verify: () => ({errors: [], ok: true}),
+        },
+      )
       expect(res.status).to.equal(200)
-      expect((res.body as {ok: boolean; task_id: string}).ok).to.be.true
-      expect((res.body as {task_id: string}).task_id).to.equal('hordr-1234')
+      const body = res.body as {next: {id: string}; ok: boolean; task_id: string}
+      expect(body.ok).to.be.true
+      expect(body.task_id).to.equal('hordr-1234')
+      expect(body.next).to.deep.equal({id: 'hordr-C', prompt: 'work on C', role: 'tester'})
+    })
+
+    it('returns 200 with next:null when no continuation', () => {
+      const res = handleDone({task_id: 'hordr-1234'}, {continue: NO_CONTINUE, verify: () => ({errors: [], ok: true})})
+      expect(res.status).to.equal(200)
+      expect((res.body as {next: null}).next).to.be.null
     })
 
     it('returns 400 when task_id is missing', () => {
-      const res = handleDone({}, {verify: () => ({errors: [], ok: true})})
+      const res = handleDone({}, {continue: NO_CONTINUE, verify: () => ({errors: [], ok: true})})
       expect(res.status).to.equal(400)
       expect((res.body as {error: string}).error).to.match(/task_id/)
     })
 
     it('returns 400 when body is null/undefined', () => {
-      expect(handleDone(undefined, {verify: () => ({errors: [], ok: true})}).status).to.equal(400)
-      expect(handleDone(null, {verify: () => ({errors: [], ok: true})}).status).to.equal(400)
+      expect(handleDone(undefined, {continue: NO_CONTINUE, verify: () => ({errors: [], ok: true})}).status).to.equal(
+        400,
+      )
+      expect(handleDone(null, {continue: NO_CONTINUE, verify: () => ({errors: [], ok: true})}).status).to.equal(400)
     })
 
     it('returns 409 with the specific failure reasons when verification fails', () => {
       const res = handleDone(
         {task_id: 'hordr-1234'},
         {
+          continue: NO_CONTINUE,
           verify: () =>
             ({
               errors: ['bean hordr-1234 status is in-progress', 'uncommitted changes in /wt'],
@@ -41,11 +62,27 @@ describe('dispatch/done', () => {
       expect(body.error).to.contain('uncommitted changes in /wt')
     })
 
+    it('does not call continue when verification fails', () => {
+      let continueCalled = false
+      handleDone(
+        {task_id: 'hordr-1234'},
+        {
+          continue() {
+            continueCalled = true
+            return {next: null, reason: 'should not reach'}
+          },
+          verify: () => ({errors: ['not completed'], ok: false}),
+        },
+      )
+      expect(continueCalled).to.be.false
+    })
+
     it('calls verify with the task_id', () => {
       let captured: string | undefined
       handleDone(
         {task_id: 'hordr-5678'},
         {
+          continue: NO_CONTINUE,
           verify(id) {
             captured = id
             return {errors: [], ok: true}

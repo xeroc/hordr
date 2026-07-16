@@ -1,6 +1,6 @@
 /* eslint-disable camelcase -- task_id mirrors the socket JSON contract */
 /**
- * /done route handler (ADR-0010, ADR-0011, hordr-w8w2).
+ * /done route handler (ADR-0010, ADR-0011, hordr-w8w2, hordr-thjh).
  *
  * Called by the member after it commits and marks the bean completed. /done is
  * an acceptance gate: it verifies (a) the worktree is clean — no uncommitted
@@ -8,12 +8,20 @@
  * returns 409 with specific, actionable reasons so the agent can fix the
  * problem (commit / mark completed) and retry `hordr done`.
  *
+ * After verification passes, /done runs continuation (hordr-thjh): it finds the
+ * next dispatchable bean in the lane's epic and returns it to the LIVE agent.
+ * The agent continues in-place — no send-keys spawn. If no continuation is
+ * possible (no work, harness mismatch, no lane), next is null and the agent
+ * stops.
+ *
  * Race handling: a 5s heal tick can land between the agent marking completed
  * and calling /done, clearing the lane's currentTaskBeanId after the heal poll
  * itself verified clean+completed. So if no lane owns the task, the acceptance
  * checks already passed via heal — ack OK idempotently rather than report a
  * false failure.
  */
+import type {ContinueResult} from './continue.js'
+
 export interface DaemonResponse {
   body: unknown
   status: number
@@ -70,11 +78,13 @@ export function runDoneChecks(taskId: string, probes: DoneProbes): VerifyResult 
 }
 
 export interface DoneDeps {
+  /** Find and claim the next bean in the lane, or null to stop. */
+  continue: (taskId: string) => ContinueResult
   /** Run all /done acceptance checks for a task. */
   verify: (taskId: string) => VerifyResult
 }
 
-/** Handle POST /done. Validates the body, runs verification, returns response. */
+/** Handle POST /done. Validates the body, runs verification + continuation. */
 export function handleDone(body: unknown, deps: DoneDeps): DaemonResponse {
   const req = (body ?? {}) as {task_id?: string}
   if (!req.task_id) return {body: {error: 'missing task_id'}, status: 400}
@@ -84,5 +94,6 @@ export function handleDone(body: unknown, deps: DoneDeps): DaemonResponse {
     return {body: {error: result.errors.join(' '), task_id: req.task_id}, status: 409}
   }
 
-  return {body: {ok: true, task_id: req.task_id}, status: 200}
+  const cont = deps.continue(req.task_id)
+  return {body: {next: cont.next, ok: true, task_id: req.task_id}, status: 200}
 }

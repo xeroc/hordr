@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3'
 
 import {handleBlocked} from '../dispatch/blocked.js'
+import {type ContinueResult} from '../dispatch/continue.js'
 import {handleDone, type VerifyResult} from '../dispatch/done.js'
 import {type FleetEngine} from '../dispatch/engine.js'
 import {logger} from '../logger.js'
@@ -47,9 +48,12 @@ export function blockedRouteHandler(releaseTask: (taskId: string) => boolean) {
   return (req: DaemonRequest): DaemonResponse => handleBlocked(req.body, {releaseTask})
 }
 
-/** POST /done route: run the acceptance checks, return the handler response. */
-export function doneRouteHandler(verify: (taskId: string) => VerifyResult) {
-  return (req: DaemonRequest): DaemonResponse => handleDone(req.body, {verify})
+/** POST /done route: verify, then continue (return next bean or null). */
+export function doneRouteHandler(opts: {
+  continue: (taskId: string) => ContinueResult
+  verify: (taskId: string) => VerifyResult
+}) {
+  return (req: DaemonRequest): DaemonResponse => handleDone(req.body, {continue: opts.continue, verify: opts.verify})
 }
 
 /**
@@ -57,6 +61,7 @@ export function doneRouteHandler(verify: (taskId: string) => VerifyResult) {
  * `hordr daemon` command once the DB + config are ready.
  */
 export function wireDaemon(opts: {
+  continue: (taskId: string) => ContinueResult
   db: Database.Database
   engine: FleetEngine
   intervalMs?: number
@@ -65,6 +70,6 @@ export function wireDaemon(opts: {
   verify: (taskId: string) => VerifyResult
 }): BrokerHandle {
   addRoute('POST', '/blocked', blockedRouteHandler(opts.releaseTask))
-  addRoute('POST', '/done', doneRouteHandler(opts.verify))
+  addRoute('POST', '/done', doneRouteHandler({continue: opts.continue, verify: opts.verify}))
   return startBroker(opts)
 }

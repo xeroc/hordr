@@ -119,7 +119,7 @@ describe('dispatch/advance (via FleetEngine.advanceLane)', () => {
     db.close()
   })
 
-  it('proceed + epic NOT yet completed → rollup, free lane (currentTask cleared)', () => {
+  it("proceed + epic NOT completed + pane ALIVE → rollup, DON'T free lane (/done owns it)", () => {
     const db = freshDbWithLane({currentTaskBeanId: 'task-1'})
     const {engine, records} = createTestFleetEngine({
       config,
@@ -136,8 +136,32 @@ describe('dispatch/advance (via FleetEngine.advanceLane)', () => {
 
     expect(res.action).to.equal('wait')
     expect(records.markedCompleted).to.deep.equal([])
-    expect(dbLane(db).currentTaskBeanId).to.equal(null)
+    // lane NOT freed — /done will handle continuation
+    expect(dbLane(db).currentTaskBeanId).to.equal('task-1')
     expect(records.merge).to.have.length(0)
+    db.close()
+  })
+
+  it('proceed + epic NOT completed + pane GONE → rollup, free lane (crash recovery)', () => {
+    const db = freshDbWithLane({currentTaskBeanId: 'task-1'})
+    const {engine, records} = createTestFleetEngine({
+      behavior: {paneAlive: false},
+      config,
+      data: {
+        ancestry: [{descendantsAllCompleted: false, id: 'epic-a', status: 'todo'}],
+        beans: {
+          'epic-a': {status: 'todo', type: 'epic'},
+          'task-1': {assigned: 'implementer', status: 'completed', type: 'task'},
+        },
+      },
+    })
+
+    const res = engine.advanceLane(db, FLEET, lane({currentTaskBeanId: 'task-1'}))
+
+    expect(res.action).to.equal('wait')
+    expect(records.markedCompleted).to.deep.equal([])
+    // lane freed — crash recovery, next tick dispatches via spawn
+    expect(dbLane(db).currentTaskBeanId).to.equal(null)
     db.close()
   })
 

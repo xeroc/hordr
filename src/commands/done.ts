@@ -23,7 +23,7 @@ export default class Done extends Command {
 
     const body = JSON.stringify({task_id: taskId})
 
-    await new Promise<void>((resolve, reject) => {
+    const responseBody = await new Promise<string>((resolve, reject) => {
       const req = http.request(
         {
           headers: {'Content-Length': Buffer.byteLength(body), 'Content-Type': 'application/json'},
@@ -39,7 +39,7 @@ export default class Done extends Command {
           })
           res.on('end', () => {
             if (res.statusCode === 200) {
-              resolve()
+              resolve(buf)
             } else {
               try {
                 const parsed = JSON.parse(buf) as {error?: string}
@@ -57,5 +57,9 @@ export default class Done extends Command {
       req.write(body)
       req.end()
     })
+
+    // Print the response JSON so the agent can parse the `next` field and
+    // continue with the next bean in-place (hordr-thjh).
+    this.log(responseBody)
   }
 }

@@ -255,6 +255,10 @@ export function createTestFleetEngine(opts: {behavior?: MockBehavior; config: Ho
       )
       return {action: result.action, taskId: result.taskId}
     },
+    // Stub — continuation logic is tested directly in continue.test.ts.
+    continueTask() {
+      return {next: null, reason: 'test stub'}
+    },
     scanFleet(db: Database.Database) {
       return tick(db, (cwd) => buildTickDeps(cwd))
     },
