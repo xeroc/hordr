@@ -11,6 +11,7 @@ import type Database from 'better-sqlite3'
 
 import type {BeanRecord} from '../beans/client.js'
 
+import {commitBeanChanges} from '../dispatch/commit-beans.js'
 import {type GitFn, mergeMilestoneToPrimary} from '../dispatch/merge.js'
 import {areAllEpicsCompleted, isMilestoneComplete} from '../dispatch/rollup.js'
 import {
@@ -126,17 +127,20 @@ export function describeFleet(db: Database.Database, projectKey: string, milesto
 }
 
 export interface FinishFleetDeps {
+  /** Beans data dir name (e.g., '.beans'), resolved from the worktree's config. */
+  beansDir: (worktreePath: string) => string
   /** Status of a bean in the worktree ('completed', 'todo', …). */
   beanStatus: (id: string) => string | undefined
   /** The milestone's direct children (epics) with their status. */
   fetchEpicStatuses: (id: string) => Array<{id: string; status: string}>
   git: GitFn
   /**
-   * Remove the milestone worktree by its branch. Tolerant of an already-gone
-   * worktree (e.g. aborted mid-flight). Wired to removeWorktreeByBranch in the
-   * command, which resolves the main repo cwd.
+   * Remove the milestone worktree by path via `git worktree remove` (no
+   * --force). Tolerant of an already-gone worktree. Called only after the
+   * milestone + all epics are confirmed completed and the ms→primary merge
+   * has landed.
    */
-  removeWorktree: (branch: string) => void
+  removeWorktree: (worktreePath: string) => void
 }
 
 export interface FinishFleetResult {
@@ -182,7 +186,14 @@ export function finishFleet(
     throw new FleetError(`merge of ${milestoneId} into ${opts.primaryBranch} conflicted — resolve manually`)
   }
 
-  deps.removeWorktree(fleet.branch)
+  // Defensive commit: mop up any straggler .beans/ writes (milestone-level
+  // rollup, epic-status edits) so `git worktree remove` (no --force) doesn't
+  // refuse on dirty-modified (hordr-hmbq). Idempotent — no-op when clean.
+  if (fleet.worktreePath) {
+    commitBeanChanges({beansDir: deps.beansDir(fleet.worktreePath), cwd: fleet.worktreePath}, {git: deps.git})
+    deps.removeWorktree(fleet.worktreePath)
+  }
+
   deleteLanes(db, opts.projectKey, milestoneId)
   deleteFleet(db, opts.projectKey, milestoneId)
   return {branch: fleet.branch, merged: true}

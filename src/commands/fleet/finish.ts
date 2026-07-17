@@ -1,10 +1,11 @@
 import {Args, Command, Flags} from '@oclif/core'
 
 import {getBean} from '../../beans/client.js'
+import {resolveBeansDir} from '../../beans/dir.js'
 import {loadConfig} from '../../config/loader.js'
 import {fetchChildStatuses} from '../../dispatch/dispatch.js'
 import {finishFleet} from '../../fleet/lifecycle.js'
-import {removeWorktreeByBranch} from '../../herdr/worktree.js'
+import {removeWorktreeByPath} from '../../herdr/worktree.js'
 import {getGitRunner} from '../../runtime.js'
 import {openFleetDb} from '../../storage/db.js'
 import {getFleet} from '../../storage/fleets.js'
@@ -52,10 +53,11 @@ export default class FleetFinish extends Command {
         milestoneId,
         {cwd: msCwd, primaryBranch: primary, projectKey},
         {
+          beansDir: resolveBeansDir,
           beanStatus: (id) => getBean(id, {cwd: msCwd}).status as string | undefined,
           fetchEpicStatuses: (id) => fetchChildStatuses(id, {cwd: msCwd}),
           git: getGitRunner(),
-          removeWorktree: (branch) => removeWorktreeByBranch(branch, cwd),
+          removeWorktree: (worktreePath) => removeWorktreeByPath(worktreePath),
         },
       )
 

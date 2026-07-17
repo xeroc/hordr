@@ -200,7 +200,7 @@ hordr fleet finish hordr-MS
 2. Reads assigned: from the bean → resolves role/persona/harness
 3. Spawns agent invocation: "<harness> run --interactive '<persona + bean body>'"
 4. Agent works, commits (one task = one commit), calls hordr done <bean-id>
-5. Daemon verifies completion, rolls up status (fixup + autosquash into the commit)
+5. Daemon verifies completion, rolls up status (separate `chore(beans): rollup status changes` commit)
 6. Picks the next task (respecting --blocked-by chains)
 7. When the epic completes: merges epic branch into ms/<milestone-id>
 ```
@@ -439,7 +439,7 @@ src/
 │   ├── done.ts        #   runDoneChecks + handleDone (done acceptance gate)
 │   ├── heal.ts        #   checkInvocation (self-heal: done? crash? wait?)
 │   ├── rollup.ts      #   rollup (ancestry walk) + isMilestoneComplete + areAllEpicsCompleted
-│   ├── squash.ts      #   squashRollup (fixup + autosquash into work commit)
+│   ├── commit-beans.ts #  commitBeanChanges (idempotent: stages + commits .beans/)
 │   ├── scan.ts        #   scanForNewLanes (lazy worktree creation)
 │   └── merge.ts       #   mergeBranch + mergeMilestoneToPrimary (conflict detection)
 ├── harness/           # buildPrompt, launchAgent, shellQuote
@@ -511,13 +511,16 @@ code. When an epic unblocks, its worktree branches from the current branch
 state, so it **auto-inherits** earlier epics' code. No explicit merge-forward.
 The unblock is detected on the next `hordr fleet check`.
 
-### One task = one commit
+### Rollup commits
 
-Each task bean produces exactly one commit. The agent commits code + bean
-status; `hordr done` folds any rollup status changes into the same commit via
-`git commit --fixup` + `GIT_SEQUENCE_EDITOR=true git rebase -i --autosquash`.
-The commit SHA is rewritten (autosquash); the audit row records the post-squash
-SHA.
+Each task bean produces a work commit (code + the task's own bean status). When
+a task completion triggers ancestry rollup (parent feature/epic flipping to
+`completed`), the daemon writes those `.beans/` changes and commits them as a
+separate `chore(beans): rollup status changes` commit via `commitBeanChanges`
+(idempotent — a no-op when nothing is staged). The "one task = one commit"
+folding via `git commit --fixup` + `git rebase --autosquash` specified in
+ADR-0011 was never wired and the design was amended; see
+`docs/adr/0011-rollup-via-fixup-autosquash.md`.
 
 ### Self-heal, no timeouts
 
@@ -565,23 +568,23 @@ suite.
 
 ## Architecture Decision Records
 
-| ADR                                                          | Title                                       | Status                             |
-| ------------------------------------------------------------ | ------------------------------------------- | ---------------------------------- |
-| [0001](docs/adr/0001-standalone-herdr-plugin.md)             | Standalone OCLIF binary as a herdr plugin   | Active                             |
-| [0002](docs/adr/0002-typescript-oclif-zod.md)                | TypeScript + OCLIF + Zod                    | Active                             |
-| [0003](docs/adr/0003-fire-and-forget-run.md)                 | Fire-and-forget run model                   | Superseded by 0009 (fleet)         |
-| [0004](docs/adr/0004-unix-socket-daemon-stub.md)             | Unix-socket daemon stub                     | Superseded by 0012 (broker)        |
-| [0005](docs/adr/0005-worktree-per-bean.md)                   | Worktree-per-bean                           | Superseded by 0009 (per-milestone) |
-| [0006](docs/adr/0006-bean-body-is-prompt.md)                 | Bean body is the agent prompt               | Active                             |
-| [0007](docs/adr/0007-agent-companies.md)                     | Agent Companies support                     | Active                             |
-| [0008](docs/adr/0008-no-lifecycle-state.md)                  | Hordr owns no lifecycle state               | Superseded by 0009 + 0012          |
-| [0009](docs/adr/0009-fleet-serialized-milestone-dispatch.md) | Fleet: milestone-scoped team dispatch       | Active                             |
-| [0010](docs/adr/0010-bean-projection-broker-no-timeouts.md)  | Bean-state-projection broker, no timeouts   | Superseded by 0015 (daemonless)    |
-| [0011](docs/adr/0011-rollup-via-fixup-autosquash.md)         | Broker-owned rollup via fixup + autosquash  | Active                             |
-| [0012](docs/adr/0012-daemon-as-broker-with-sqlite.md)        | Daemon-as-broker with SQLite process state  | Superseded by 0015 (daemonless)    |
-| [0013](docs/adr/0013-dynamic-beans-draft-gated.md)           | Dynamic beans: draft-gated                  | Active                             |
-| [0014](docs/adr/0014-per-epic-worktrees-lazy-creation.md)    | Per-epic worktrees with lazy creation       | Amended by 0015 (daemonless)       |
-| [0015](docs/adr/0015-daemonless-fleet-check.md)              | Daemonless fleet: inline done + fleet check | Active                             |
+| ADR                                                          | Title                                                                                       | Status                             |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------- | ---------------------------------- |
+| [0001](docs/adr/0001-standalone-herdr-plugin.md)             | Standalone OCLIF binary as a herdr plugin                                                   | Active                             |
+| [0002](docs/adr/0002-typescript-oclif-zod.md)                | TypeScript + OCLIF + Zod                                                                    | Active                             |
+| [0003](docs/adr/0003-fire-and-forget-run.md)                 | Fire-and-forget run model                                                                   | Superseded by 0009 (fleet)         |
+| [0004](docs/adr/0004-unix-socket-daemon-stub.md)             | Unix-socket daemon stub                                                                     | Superseded by 0012 (broker)        |
+| [0005](docs/adr/0005-worktree-per-bean.md)                   | Worktree-per-bean                                                                           | Superseded by 0009 (per-milestone) |
+| [0006](docs/adr/0006-bean-body-is-prompt.md)                 | Bean body is the agent prompt                                                               | Active                             |
+| [0007](docs/adr/0007-agent-companies.md)                     | Agent Companies support                                                                     | Active                             |
+| [0008](docs/adr/0008-no-lifecycle-state.md)                  | Hordr owns no lifecycle state                                                               | Superseded by 0009 + 0012          |
+| [0009](docs/adr/0009-fleet-serialized-milestone-dispatch.md) | Fleet: milestone-scoped team dispatch                                                       | Active                             |
+| [0010](docs/adr/0010-bean-projection-broker-no-timeouts.md)  | Bean-state-projection broker, no timeouts                                                   | Superseded by 0015 (daemonless)    |
+| [0011](docs/adr/0011-rollup-via-fixup-autosquash.md)         | Broker-owned rollup (amended: fixup+autosquash never wired; separate rollup commit instead) | Active                             |
+| [0012](docs/adr/0012-daemon-as-broker-with-sqlite.md)        | Daemon-as-broker with SQLite process state                                                  | Superseded by 0015 (daemonless)    |
+| [0013](docs/adr/0013-dynamic-beans-draft-gated.md)           | Dynamic beans: draft-gated                                                                  | Active                             |
+| [0014](docs/adr/0014-per-epic-worktrees-lazy-creation.md)    | Per-epic worktrees with lazy creation                                                       | Amended by 0015 (daemonless)       |
+| [0015](docs/adr/0015-daemonless-fleet-check.md)              | Daemonless fleet: inline done + fleet check                                                 | Active                             |
 
 ---
 

@@ -12,6 +12,7 @@ import {
   _resetShell as _resetDispatchShell,
   _setShellForTesting as _setDispatchShell,
 } from '../../../src/dispatch/dispatch.js'
+import {_resetGit as _resetWorktreeGit, _setGitForTesting as _setWorktreeGit} from '../../../src/herdr/worktree.js'
 import {_resetGitRunner, _setGitRunnerForTesting, type GitRunner} from '../../../src/runtime.js'
 import {openFleetDb} from '../../../src/storage/db.js'
 import {_setProjectKeyResolverForTesting} from '../../../src/storage/project.js'
@@ -115,6 +116,10 @@ describe('commands/fleet/finish', () => {
       if (gitThrows) throw new Error('conflict')
       gitCalls.push({args, cwd: opts.cwd})
     }) as GitRunner)
+    // removeWorktreeByPath uses its own git seam (herdr/worktree.ts) so it
+    // doesn't roundtrip through runtime's GitRunner. Stub it to no-op so the
+    // command's ms-worktree teardown doesn't shell out to real git.
+    _setWorktreeGit(() => {})
     _setProjectKeyResolverForTesting(() => PK)
     _setBeansShell(() => JSON.stringify({...MILESTONE_BEAN, status: milestoneStatus}))
     _setDispatchShell((args) => {
@@ -132,6 +137,7 @@ describe('commands/fleet/finish', () => {
     else process.env.HORDR_DB = origDb
     rmSync(configDir, {force: true, recursive: true})
     _resetGitRunner()
+    _resetWorktreeGit()
     _setProjectKeyResolverForTesting(null)
     _resetBeansShell()
     _resetDispatchShell()
@@ -143,9 +149,8 @@ describe('commands/fleet/finish', () => {
 
     expect(res.error, res.error?.message).to.be.undefined
     expect(res.stdout).to.match(new RegExp(`finished fleet ${MS}`))
-    expect(gitCalls.some((c) => c.args[0] === "merge" && c.args.includes("hordr-ms1"))).to.be.true
+    expect(gitCalls.some((c) => c.args[0] === 'merge' && c.args.includes('hordr-ms1'))).to.be.true
     // merge now stashes first — check by content not position
-
 
     const db = openFleetDb(dbFile)
     try {

@@ -2,14 +2,18 @@
 import {expect} from 'chai'
 
 import {
+  _resetGit,
   _resetShell,
+  _setGitForTesting,
   _setHerdrPresentForTesting,
   _setShellForTesting,
   branchFor,
   createWorktree,
+  type GitShellFn,
   HerdrError,
   openWorktree,
   removeWorktree,
+  removeWorktreeByPath,
   type ShellFn,
 } from '../../src/herdr/worktree.js'
 
@@ -26,6 +30,15 @@ const mockShell: ShellFn = (args, opts) => {
   calls.push(c)
   if (responder) return responder(c)
   throw new Error(`unexpected shell call: herdr ${args.join(' ')}`)
+}
+
+// Mock git runner: records calls, optionally throws with stderr.
+let gitCalls: Call[] = []
+let gitResponder: ((c: Call) => void) | null = null
+const mockGit: GitShellFn = (args, opts) => {
+  const c: Call = {args, cwd: opts?.cwd}
+  gitCalls.push(c)
+  if (gitResponder) gitResponder(c)
 }
 
 const CREATE_JSON = JSON.stringify({
@@ -76,13 +89,17 @@ const OPEN_JSON = JSON.stringify({
 describe('herdr/worktree', () => {
   beforeEach(() => {
     calls = []
+    gitCalls = []
     responder = null
+    gitResponder = null
     _setShellForTesting(mockShell)
+    _setGitForTesting(mockGit)
     _setHerdrPresentForTesting(true)
   })
 
   afterEach(() => {
     _resetShell()
+    _resetGit()
     _setHerdrPresentForTesting(true)
   })
 
@@ -203,6 +220,44 @@ describe('herdr/worktree', () => {
     it('throws HerdrError on error envelope', () => {
       responder = () => JSON.stringify({error: {code: 'not_found', message: 'no such branch'}, id: 'cli:worktree:open'})
       expect(() => openWorktree({branch: 'b', cwd: '/r'})).to.throw(HerdrError, /not_found: no such branch/)
+    })
+  })
+
+  describe('removeWorktreeByPath', () => {
+    it('calls `git worktree remove <path>` with NO --force', () => {
+      removeWorktreeByPath('/wt/epic-a')
+      expect(gitCalls).to.have.length(1)
+      expect(gitCalls[0].args).to.deep.equal(['worktree', 'remove', '/wt/epic-a'])
+      expect(gitCalls[0].args).to.not.include('--force')
+    })
+
+    it('does NOT roundtrip through herdr (no shell calls)', () => {
+      removeWorktreeByPath('/wt/epic-a')
+      expect(calls).to.have.length(0)
+    })
+
+    it('throws HerdrError on empty worktreePath', () => {
+      expect(() => removeWorktreeByPath('')).to.throw(HerdrError, /worktreePath is required/)
+    })
+
+    it('tolerates an already-gone worktree (no throw)', () => {
+      gitResponder = () => {
+        const e = new Error('Command failed: git worktree remove')
+        ;(e as Error & {stderr: string}).stderr = "fatal: '/wt/gone' is not a working tree"
+        throw e
+      }
+
+      expect(() => removeWorktreeByPath('/wt/gone')).to.not.throw()
+    })
+
+    it('re-throws other git errors as HerdrError', () => {
+      gitResponder = () => {
+        const e = new Error('Command failed: git worktree remove')
+        ;(e as Error & {stderr: string}).stderr = 'fatal: working tree contains modified or untracked files'
+        throw e
+      }
+
+      expect(() => removeWorktreeByPath('/wt/dirty')).to.throw(HerdrError, /modified or untracked files/)
     })
   })
 })

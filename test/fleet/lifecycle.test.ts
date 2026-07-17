@@ -224,7 +224,7 @@ describe('fleet/lifecycle', () => {
     let milestoneStatus: string
     let epicStatuses: Array<{id: string; status: string}>
     let gitThrows: boolean
-    let removedBranches: string[]
+    let removedWorktrees: string[]
 
     beforeEach(() => {
       db = openDb(':memory:')
@@ -245,7 +245,7 @@ describe('fleet/lifecycle', () => {
         {id: 'epic-2', status: 'completed'},
       ]
       gitThrows = false
-      removedBranches = []
+      removedWorktrees = []
     })
 
     afterEach(() => {
@@ -254,6 +254,9 @@ describe('fleet/lifecycle', () => {
 
     function deps() {
       return {
+        beansDir(_worktreePath: string) {
+          return '.beans'
+        },
         beanStatus(id: string) {
           return id === MS ? milestoneStatus : undefined
         },
@@ -264,8 +267,8 @@ describe('fleet/lifecycle', () => {
           if (gitThrows) throw new Error('merge conflict')
           gitCalls.push({args, cwd: opts.cwd})
         },
-        removeWorktree(branch: string): void {
-          removedBranches.push(branch)
+        removeWorktree(worktreePath: string): void {
+          removedWorktrees.push(worktreePath)
         },
       }
     }
@@ -282,7 +285,9 @@ describe('fleet/lifecycle', () => {
     it('tears down the ms worktree after a successful merge', () => {
       finishFleet(db, MS, {cwd: '/repo', primaryBranch: PRIMARY, projectKey: PK}, deps())
 
-      expect(removedBranches).to.deep.equal([MS])
+      // removeWorktree now receives the worktree PATH (not the branch) — the
+      // new contract mirrors git worktree remove <path>.
+      expect(removedWorktrees).to.deep.equal(['/repo'])
       expect(getFleet(db, PK, MS)).to.be.undefined
     })
 
@@ -321,6 +326,64 @@ describe('fleet/lifecycle', () => {
         FleetError,
         /no fleet for nope/,
       )
+    })
+
+    it('hordr-hmbq: defensively commits .beans/ writes before worktree removal — mops straggler rollup dirt', () => {
+      // git diff --cached --quiet throws (exit 1) → something staged → commit must run.
+      // Then removeWorktree. The defensive commit must come BEFORE the remove call,
+      // so straggler .beans/ dirt doesn't make `git worktree remove` refuse.
+      let commitCallSeen = false
+      let removeCallSeen = false
+      let commitBeforeRemove: boolean | null = null
+      const orderedDeps = {
+        ...deps(),
+        git(args: string[], opts: {cwd: string}): void {
+          gitCalls.push({args, cwd: opts.cwd})
+          if (args[0] === 'add' || args[0] === 'commit' || (args[0] === 'diff' && args[1] === '--cached')) {
+            // pretend there's always staged dirt so the commit branch fires
+            if (args[0] === 'commit') commitCallSeen = true
+            if (commitCallSeen && !removeCallSeen) commitBeforeRemove = true
+          }
+        },
+        removeWorktree(worktreePath: string): void {
+          removeCallSeen = true
+          removedWorktrees.push(worktreePath)
+        },
+      }
+      // override the diff to "throw" so commit branch fires (idempotent skip not exercised here)
+      const origGit = orderedDeps.git
+      orderedDeps.git = (args: string[], opts: {cwd: string}) => {
+        if (args[0] === 'diff' && args[1] === '--cached') {
+          gitCalls.push({args, cwd: opts.cwd})
+          throw new Error('exit 1 = staged diffs')
+        }
+
+        origGit(args, opts)
+      }
+
+      finishFleet(db, MS, {cwd: '/repo', primaryBranch: PRIMARY, projectKey: PK}, orderedDeps)
+
+      // The defensive commit fired (add + diff --cached --quiet + commit, in order).
+      expect(gitCalls.some((c) => c.args[0] === 'add' && c.args[1] === '.beans')).to.be.true
+      expect(commitCallSeen, 'a chore(beans) commit must fire before removeWorktree').to.be.true
+      expect(commitBeforeRemove, 'commit must come BEFORE removeWorktree').to.equal(true)
+      expect(removedWorktrees).to.deep.equal(['/repo'])
+    })
+
+    it('hordr-hmbq: when .beans/ has nothing staged, the defensive commit is skipped (idempotent) and remove still runs', () => {
+      // git diff --cached --quiet succeeds (exit 0) → nothing staged → no commit call.
+      const orderedDeps = {
+        ...deps(),
+        // default git returns void for everything → diff succeeds → idempotent skip
+      }
+
+      finishFleet(db, MS, {cwd: '/repo', primaryBranch: PRIMARY, projectKey: PK}, orderedDeps)
+
+      expect(
+        gitCalls.some((c) => c.args[0] === 'commit'),
+        'no commit when nothing staged',
+      ).to.be.false
+      expect(removedWorktrees).to.deep.equal(['/repo'])
     })
   })
 

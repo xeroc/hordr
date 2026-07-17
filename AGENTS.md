@@ -16,7 +16,7 @@ relevant bean IDs in the commit message.
 ```
 src/
 ├── commands/          OCLIF command classes (run, finish, cleanup, daemon, fleet/*)
-├── beans/             beans CLI client (read-only: getBean, getBody)
+├── beans/             beans CLI client (read-only: getBean, getBody) + dir resolver
 ├── config/            schema (Zod), loader, defaults (zero-config agents)
 ├── company/           Agent Companies manifest parsing (AGENTS.md, SKILL.md)
 ├── daemon/            unix-socket server (extensible route registry)
@@ -28,7 +28,7 @@ src/
 │   ├── done.ts        handleDone (/done route: verify + acknowledge)
 │   ├── heal.ts        checkInvocation (self-heal: done? crash? wait?)
 │   ├── rollup.ts      rollup + isMilestoneComplete + areAllEpicsCompleted
-│   ├── squash.ts      squashRollup (fixup + autosquash into work commit)
+│   ├── commit-beans.ts commitBeanChanges (idempotent: stages + commits .beans/)
 │   ├── scan.ts        scanForNewLanes (lazy worktree creation)
 │   └── merge.ts       mergeBranch + mergeMilestoneToPrimary (conflict detection)
 ├── harness/           buildPrompt, launchAgent, shellQuote
@@ -151,8 +151,12 @@ beans.
 
 Status flows up automatically via the daemon's rollup: a parent is `completed`
 only when all descendants are `completed`. The agent does NOT walk the tree or
-propagate status — the daemon owns rollup (fixup + autosquash into the work
-commit).
+propagate status — the daemon owns rollup. Rollup writes (`.beans/` status
+changes) are committed by the daemon as a separate `chore(beans): rollup
+status changes` commit via `commitBeanChanges` (idempotent: a no-op when
+nothing is staged). ADR-0011 specified fixup+autosquash into the work commit;
+that folding was never wired and the design was amended — see
+`docs/adr/0011-rollup-via-fixup-autosquash.md`.
 
 ## Bean Hygiene
 

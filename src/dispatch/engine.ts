@@ -20,16 +20,15 @@
 import type Database from 'better-sqlite3'
 
 import {execFileSync} from 'node:child_process'
-import {existsSync, readFileSync} from 'node:fs'
-import path from 'node:path'
-import {parse} from 'yaml'
+import {existsSync} from 'node:fs'
 
 import type {HordrConfig} from '../config/schema.js'
 import type {FleetRow, LaneLoc, LaneRow} from '../storage/fleets.js'
 
 import {getBean, markBeanCompleted, resetBeanToTodo} from '../beans/client.js'
+import {resolveBeansDir} from '../beans/dir.js'
 import {agentActiveInPane, createTab, paneExists} from '../herdr/pane.js'
-import {createWorktree, HerdrError, openWorktree, removeWorktreeByBranch} from '../herdr/worktree.js'
+import {createWorktree, HerdrError, openWorktree, removeWorktreeByPath} from '../herdr/worktree.js'
 import {logger} from '../logger.js'
 import {getGitRunner} from '../runtime.js'
 import {
@@ -44,6 +43,7 @@ import {
   updateFleetStatus,
   updateLaneStatus,
 } from '../storage/fleets.js'
+import {commitBeanChanges} from './commit-beans.js'
 import {type ContinueDeps, continueLane, type ContinueResult} from './continue.js'
 import {fetchAncestorChain, fetchAncestry, fetchDependencyStatus, fetchEpics, getDispatchable} from './dispatch.js'
 import {checkInvocation, worktreeIsClean} from './heal.js'
@@ -78,27 +78,12 @@ export interface FleetEngine {
 
 // --- internal helpers (not exported) ---
 
-/** Resolve the beans data directory from a worktree's .beans.yml (default '.beans'). */
-function resolveBeansDir(worktreePath: string): string {
-  try {
-    const cfgPath = path.join(worktreePath, '.beans.yml')
-    if (existsSync(cfgPath)) {
-      const raw = parse(readFileSync(cfgPath, 'utf8')) as {beans?: {path?: string}}
-      if (raw?.beans?.path) return raw.beans.path
-    }
-  } catch {
-    // Config unreadable — use default
-  }
-
-  return '.beans'
-}
-
-/** Stage + commit beans status changes inside a worktree so they survive merges. */
+/**
+ * Stage + commit beans status changes inside a worktree so they survive merges.
+ *  Idempotent: a no-op when nothing is staged (hordr-hmbq).
+ */
 function commitBeans(worktreePath: string): void {
-  const beansDir = resolveBeansDir(worktreePath)
-  const git = getGitRunner()
-  git(['add', beansDir], {cwd: worktreePath})
-  git(['commit', '-m', 'chore(beans): rollup status changes'], {cwd: worktreePath})
+  commitBeanChanges({beansDir: resolveBeansDir(worktreePath), cwd: worktreePath}, {git: getGitRunner()})
 }
 
 /**
@@ -221,7 +206,6 @@ function rollupAncestors(taskId: string, beansCwd: string): boolean {
 /** Merge an epic's lane into the ms branch, tear down the worktree, go done. */
 function mergeEpicLane(db: Database.Database, fleet: FleetRow, lane: LaneRow, taskId?: string): AdvanceResult {
   const loc: LaneLoc = {epicId: lane.epicBeanId, milestoneId: fleet.milestoneBeanId, projectKey: fleet.projectKey}
-  const mainRepoCwd = getProjectPath(db, fleet.projectKey)!
   logger.debug(`lane ${lane.epicBeanId}: merging ${lane.branch} → ${fleet.branch} (cwd=${fleet.worktreePath})`)
   const result = mergeBranch(
     {cwd: fleet.worktreePath, source: lane.branch, target: fleet.branch},
@@ -250,9 +234,21 @@ function mergeEpicLane(db: Database.Database, fleet: FleetRow, lane: LaneRow, ta
 
   logger.info(`lane ${lane.epicBeanId}: epic completed → merge landed in ${fleet.branch}, cleaning up`)
 
-  // Worktree removal: best-effort. herdr may fail or silently no-op.
+  // Defensive commit: mop up any straggler .beans/ writes (agent's own `beans
+  // update`, or rollup dirt from a tick whose commit was skipped/failed) so
+  // `git worktree remove` (no --force) doesn't refuse on dirty-modified
+  // (hordr-hmbq). Idempotent — a no-op when the worktree is already clean.
+  // Real git errors propagate → lane stalls, worktree preserved (recoverable).
+  commitBeans(lane.worktreePath)
+
+  // Safety contract at the point of no return: the caller (advanceLane) only
+  // enters mergeEpicLane when epicStat === 'completed' (re-read from inside
+  // the worktree's beans), and the dirty-non-beans check above refused any
+  // uncommitted code. Both gates are satisfied here, so a plain
+  // `git worktree remove` (no --force) is safe — git's own dirty refusal is
+  // the final net (hordr-wd46).
   try {
-    removeWorktreeByBranch(lane.branch, mainRepoCwd)
+    removeWorktreeByPath(lane.worktreePath)
   } catch (error) {
     logger.warn(`lane ${lane.epicBeanId}: worktree removal failed: ${(error as Error).message}`)
   }
@@ -289,7 +285,8 @@ export function createFleetEngine(config: HordrConfig): FleetEngine {
         let epicStat = getBean(lane.epicBeanId, {cwd: beansCwd}).status
         logger.debug(`lane, no dispatchable, epic status=${epicStat}`)
 
-        if (epicStat !== 'completed' && rollupSweep(lane.epicBeanId, beansCwd)) {
+        if (epicStat !== 'completed') {
+          rollupSweep(lane.epicBeanId, beansCwd)
           commitBeans(lane.worktreePath)
           epicStat = getBean(lane.epicBeanId, {cwd: beansCwd}).status
           logger.debug(`lane ${lane.epicBeanId}: post-sweep epic status=${epicStat}`)
@@ -370,7 +367,13 @@ export function createFleetEngine(config: HordrConfig): FleetEngine {
     // proceed: bean completed → roll up the ancestry.
     logger.info(`lane ${lane.currentTaskBeanId} completed → rolling up`)
     const taskId = lane.currentTaskBeanId
-    if (rollupAncestors(taskId, beansCwd)) commitBeans(lane.worktreePath)
+    rollupAncestors(taskId, beansCwd)
+    // Always commit. commitBeanChanges is idempotent (skips when nothing
+    // staged), so this mops up the agent's own `beans update` writes even
+    // when rollup had no new ancestors to mark — and survives a previous
+    // tick whose commit failed. Without this, straggler .beans/ dirt blocks
+    // `git worktree remove` at epic completion (hordr-hmbq).
+    commitBeans(lane.worktreePath)
 
     // did the epic complete? → merge lane into ms/<id>, tear down, go done
     const epicStat = getBean(lane.epicBeanId, {cwd: beansCwd}).status
@@ -555,7 +558,8 @@ export function createFleetEngine(config: HordrConfig): FleetEngine {
       },
       getDispatchable: (epicId) => getDispatchable(epicId, {cwd: beansCwd}),
       rollup(id) {
-        if (rollupAncestors(id, beansCwd)) commitBeans(lane.worktreePath)
+        rollupAncestors(id, beansCwd)
+        commitBeans(lane.worktreePath)
       },
       setCurrentTask: (loc, beanId) => setLaneCurrentTask(db, loc, beanId),
     }

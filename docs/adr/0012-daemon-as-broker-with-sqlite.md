@@ -1,6 +1,8 @@
 # Daemon-as-broker with SQLite process state
 
 > **Superseded by ADR-0015 (daemonless fleet check) on 2026-07-16.** The broker's responsibilities (dispatch loop, rollup, self-heal, merges, SQLite process state) are retained, but executed by a stateless CLI (`hordr fleet check`) instead of a long-running process. The socket, `/done`, and `/blocked` routes are removed; `hordr done` runs inline. Kept for history.
+>
+> **Amended:** 2026-07-13 — the "post-squash commit sha" audit field referenced below assumed the ADR-0011 fixup+autosquash folding, which was never wired. Rollup writes are committed as a separate `chore(beans): rollup status changes` commit; there is no SHA rewrite. See ADR-0011's amendment.
 
 **Supersedes:** ADR-0004 (unix-socket daemon stub), ADR-0008 (no lifecycle state).
 **Amended:** 2026-07-08 — add `lanes` table for per-epic worktree state (ADR-0014).
