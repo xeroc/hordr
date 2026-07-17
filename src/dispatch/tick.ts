@@ -166,12 +166,20 @@ export function tick(db: Database.Database, depsFactory: TickDepsFactory): TickR
             workspaceId: wt.workspaceId,
           })
           setLaneWorktree(db, loc, wtPath, wt.workspaceId, paneId)
+          // Reflect the fresh worktree+pane on the in-memory row so the
+          // advance below dispatches into it THIS pass. The old daemon could
+          // defer to "the next tick"; the daemonless model (ADR-0015) is a
+          // single pass, so recreation + dispatch must happen together or the
+          // lane stalls until the next manual `hordr fleet check`.
+          lane.worktreePath = wtPath
+          lane.workspaceId = wt.workspaceId
+          lane.paneId = paneId
           logger.info(`lane ${lane.epicBeanId}: worktree recreated at ${wtPath}, pane=${paneId}`)
         } catch (error) {
           logger.warn(`lane ${lane.epicBeanId}: worktree recreation failed: ${(error as Error).message}`)
+          continue // can't advance into a missing worktree — retry next pass
         }
-
-        continue // next tick will dispatch into the fresh worktree
+        // fall through: advance into the freshly recreated worktree this same pass
       }
 
       // Normal advance — per-lane try/catch so one bad lane doesn't kill the tick
