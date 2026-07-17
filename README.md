@@ -17,16 +17,17 @@ npx skills@latest xeroc/hordr   # skill for coding agents
                     ┌─────────┴──────────┐
                     │       Hordr        │
                     │  run / finish /    │
-                    │  fleet / daemon    │
+                    │  fleet / done      │
                     └─────────┬──────────┘
                               │
               ┌───────────────┼───────────────┐
               │               │               │
          ┌────┴────┐    ┌─────┴─────┐   ┌─────┴──────┐
-         │  Herdr  │    │  Harness  │   │  Daemon    │
-         │ (panes, │    │ (opencode,│   │ (broker:   │
-         │  wtrees)│    │  claude…) │   │  dispatch, │
-         └─────────┘    └───────────┘   │  rollup,   │
+         │  Herdr  │    │  Harness  │   │   Engine   │
+         │ (panes, │    │ (opencode,│   │ (fleet     │
+         │  wtrees)│    │  claude…) │   │  check:    │
+         └─────────┘    └───────────┘   │  dispatch, │
+                                         │  rollup,   │
                                          │  merge)    │
                                          └────────────┘
 ```
@@ -159,7 +160,7 @@ EOF
 )"
 ```
 
-**Step 2: Start the fleet** (coming soon — commands in development):
+**Step 2: Start the fleet:**
 
 ```bash
 hordr fleet create hordr-MS
@@ -196,11 +197,11 @@ hordr fleet finish hordr-MS
 **What happens inside each lane:**
 
 ```
-1. Daemon picks the next ready task (beans list --ready, scoped to the epic)
+1. fleet check picks the next ready task (beans list --ready, scoped to the epic)
 2. Reads assigned: from the bean → resolves role/persona/harness
 3. Spawns agent invocation: "<harness> run --interactive '<persona + bean body>'"
 4. Agent works, commits (one task = one commit), calls hordr done <bean-id>
-5. Daemon verifies completion, rolls up status (separate `chore(beans): rollup status changes` commit)
+5. fleet check (or hordr done inline) verifies completion, rolls up status (separate `chore(beans): rollup status changes` commit)
 6. Picks the next task (respecting --blocked-by chains)
 7. When the epic completes: merges epic branch into ms/<milestone-id>
 ```
@@ -234,7 +235,7 @@ fleet create → ms/MS branch from develop
 
 If a merge produces a conflict (parallel epics touch the same file), the lane
 enters `conflict` status. `fleet status` shows it. The human resolves manually;
-the daemon detects the resolution on the next tick.
+the next `hordr fleet check` detects the resolution.
 
 ### 4. Mixed-backend team
 
@@ -260,7 +261,7 @@ hordr:
 ```
 
 Each invocation spawns the role's harness — no fleet-level configuration needed.
-The daemon is harness-agnostic.
+hordr is harness-agnostic.
 
 ---
 
@@ -354,7 +355,7 @@ assigned: implementer
 ---
 ```
 
-The planner writes `assigned:` during the planning session. The daemon reads it
+The planner writes `assigned:` during the planning session. The engine reads it
 at dispatch time to resolve the persona + harness. Missing `assigned:` defaults
 to `implementer`. See [docs/fleet-guide.md](docs/fleet-guide.md) for details.
 
@@ -399,7 +400,7 @@ repo — the worktree has the up-to-date status), merges `<id>` into
 hordr cleanup <bean> [--force] [--json]
 ```
 
-### Fleet mode (in development)
+### Fleet mode
 
 | Command                          | Description                                                                                  |
 | -------------------------------- | -------------------------------------------------------------------------------------------- |
@@ -427,30 +428,45 @@ bean in the lane so the agent continues in-place.
 
 ```
 src/
-├── commands/          # OCLIF command classes (run, finish, cleanup, done, fleet/*)
-├── beans/             # beans CLI client (read-only: getBean, getBody)
+├── commands/          # OCLIF command classes (run, finish, cleanup, done, prime, fleet/*)
+├── beans/             # beans CLI client (getBean, getBody, markBeanCompleted, resetBeanToTodo)
+│                      # + dir.ts (resolveBeansDir: reads .beans.yml)
 ├── config/            # schema (Zod), loader, defaults
-├── company/           # Agent Companies manifest parsing
+├── company.ts         # Agent Companies manifest parsing (AGENTS/PROJECT/SKILL/COMPANY.md)
 ├── dispatch/          # the fleet dispatch core (pure functions, injected deps):
+│   ├── engine.ts      #   createFleetEngine: scanFleet + advanceLane + continueTask (production)
 │   ├── dispatch.ts    #   getDispatchable (subtree ∩ --ready, priority sort)
 │   ├── role.ts        #   resolveRole (bean's assigned: → persona + harness)
 │   ├── spawn.ts       #   buildInvocationPrompt + spawnInvocation
 │   ├── loop.ts        #   dispatchNext (the per-lane step function)
+│   ├── continue.ts    #   continueLane (in-place continuation after /done)
 │   ├── done.ts        #   runDoneChecks + handleDone (done acceptance gate)
 │   ├── heal.ts        #   checkInvocation (self-heal: done? crash? wait?)
 │   ├── rollup.ts      #   rollup (ancestry walk) + isMilestoneComplete + areAllEpicsCompleted
 │   ├── commit-beans.ts #  commitBeanChanges (idempotent: stages + commits .beans/)
+│   ├── lane-create.ts #   createLaneForEpic (worktree + pane + branch for a new epic)
+│   ├── pane-heal.ts   #   ensureLanePane (recreate/reattach dead panes)
 │   ├── scan.ts        #   scanForNewLanes (lazy worktree creation)
-│   └── merge.ts       #   mergeBranch + mergeMilestoneToPrimary (conflict detection)
-├── harness/           # buildPrompt, launchAgent, shellQuote
+│   ├── merge.ts       #   mergeBranch + mergeMilestoneToPrimary (conflict detection)
+│   ├── advance.ts     #   (legacy) old per-lane step — only test/helpers/fleet-engine.ts imports it
+│   └── tick.ts        #   (legacy) old broker scan loop — only test/helpers/fleet-engine.ts imports it
+├── fleet/             # lifecycle.ts: createFleet, describeFleet, finishFleet, abortFleet, resetLane
+├── harness/           # buildPrompt, buildHarnessCommand, resolveHarness, launchAgent, shellQuote
 ├── herdr/             # pane + worktree wrappers (shells out to herdr CLI)
-├── storage/           # SQLite (db.ts: schema + pragmas; project.ts: git-common-dir key; lock.ts: fleet-check mutex)
-└── runtime.ts         # HordrDeps + gitMergeBranch + test seams
+├── storage/           # SQLite (db.ts: schema + pragmas; fleets.ts: fleet/lane/project rows;
+│                      # project.ts: git-common-dir key; lock.ts: fleet-check PID mutex)
+├── logger.ts          # stderr logger (debug/info/warn/error)
+└── runtime.ts         # HordrDeps + gitMergeBranch + GitRunner test seam
 ```
 
 Every dispatch module is a **pure function with injected dependencies** —
-testable in isolation, wired to real I/O by the command classes (`hordr done`,
-`hordr fleet check`). There is no long-running process (ADR-0015).
+testable in isolation, wired to real I/O by the FleetEngine and command classes
+(`hordr done`, `hordr fleet check`). There is no long-running process (ADR-0015).
+
+> **engine.ts vs advance.ts/tick.ts:** production runs through `engine.ts`
+> (`createFleetEngine`, wired by `fleet/create`, `fleet/check`, and `done`).
+> `advance.ts` and `tick.ts` are the pre-ADR-0015 implementations kept alive
+> by `test/helpers/fleet-engine.ts`; they are not in the production call path.
 
 ---
 
@@ -515,7 +531,7 @@ The unblock is detected on the next `hordr fleet check`.
 
 Each task bean produces a work commit (code + the task's own bean status). When
 a task completion triggers ancestry rollup (parent feature/epic flipping to
-`completed`), the daemon writes those `.beans/` changes and commits them as a
+`completed`), the engine writes those `.beans/` changes and commits them as a
 separate `chore(beans): rollup status changes` commit via `commitBeanChanges`
 (idempotent — a no-op when nothing is staged). The "one task = one commit"
 folding via `git commit --fixup` + `git rebase --autosquash` specified in
@@ -539,12 +555,12 @@ No agentic conflict resolution — it needs human judgment.
 
 ### Storage boundary
 
-| Lives in **beans** (in-repo, committed)     | Lives in **SQLite** (machine-scoped)              |
-| ------------------------------------------- | ------------------------------------------------- |
-| Bean bodies, types, statuses, assignments   | Project registry (git-common-dir keys)            |
-| Milestone's work contract + child task tree | Fleet rows (milestone, integration branch)        |
-| Status rollup (task → epic → milestone)     | Lane rows (per-epic: worktree, pane, status)      |
-| Dynamic beans (created mid-work)            | Invocation audit (task → commit sha → timestamps) |
+| Lives in **beans** (in-repo, committed)     | Lives in **SQLite** (machine-scoped)          |
+| ------------------------------------------- | --------------------------------------------- |
+| Bean bodies, types, statuses, assignments   | Project registry (git-common-dir keys)        |
+| Milestone's work contract + child task tree | Fleet rows (milestone, integration branch)    |
+| Status rollup (task → epic → milestone)     | Lane rows (per-epic: worktree, pane, status)  |
+| Dynamic beans (created mid-work)            | Bean provenance (spawned bean ← task ← fleet) |
 
 Nothing mirrors bean status into SQLite. The check re-reads `.beans/` in the
 worktree whenever it needs work-state. Crash recovery = run `hordr fleet check`
@@ -560,9 +576,8 @@ bun run typecheck     # tsc --noEmit
 bun run lint          # ESLint
 ```
 
-177 tests, all passing. Tests use module-level seams (`_setShellForTesting`,
-`_setGitRunnerForTesting`) to mock beans/git/herdr — no real I/O in the test
-suite.
+Tests use module-level seams (`_setShellForTesting`, `_setGitRunnerForTesting`)
+to mock beans/git/herdr — no real I/O in the test suite.
 
 ---
 
