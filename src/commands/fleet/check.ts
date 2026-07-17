@@ -18,7 +18,7 @@ import {Command, Flags} from '@oclif/core'
 
 import {loadConfig} from '../../config/loader.js'
 import {createFleetEngine, type TickResult} from '../../dispatch/engine.js'
-import {logger} from '../../logger.js'
+import {configureLogger, logger} from '../../logger.js'
 import {openFleetDb} from '../../storage/db.js'
 import {acquireFleetLock} from '../../storage/lock.js'
 
@@ -62,10 +62,16 @@ export default class FleetCheck extends Command {
   ]
   static flags = {
     json: Flags.boolean({default: false, description: 'Emit machine-parseable JSON'}),
+    'log-level': Flags.string({
+      default: 'info',
+      description: 'Log level: error, warn, info, debug',
+      options: ['error', 'warn', 'info', 'debug'],
+    }),
   }
 
   async run(): Promise<void> {
     const {flags} = await this.parse(FleetCheck)
+    configureLogger({level: flags['log-level'], silent: false})
     const config = loadConfig()
     const db = openFleetDb()
 
