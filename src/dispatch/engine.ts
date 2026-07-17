@@ -50,6 +50,7 @@ import {checkInvocation, worktreeIsClean} from './heal.js'
 import {createLaneForEpic} from './lane-create.js'
 import {dispatchNext} from './loop.js'
 import {mergeBranch} from './merge.js'
+import {ensureLanePane} from './pane-heal.js'
 import {rollup} from './rollup.js'
 import {scanForNewLanes} from './scan.js'
 import {spawnInvocation} from './spawn.js'
@@ -302,25 +303,40 @@ export function createFleetEngine(config: HordrConfig): FleetEngine {
         return {action: 'idle'}
       }
 
-      // Pane might be gone (agent closed it, crash). Recreate if needed.
-      let paneId = lane.paneId ?? ''
-      if (!paneId || !paneExists(paneId)) {
-        paneId = createTab({
-          cwd: lane.worktreePath,
-          label: `hordr:${lane.epicBeanId}`,
-          workspaceId: lane.workspaceId ?? '',
-        }).pane_id
-        setLanePane(db, loc, paneId)
-        logger.info(`lane ${paneId}`)
+      // Pane might be gone (agent closed it, crash) or the whole workspace died
+      // (herdr restart, tmux closed). Recreate / reattach as needed (hordr-4722).
+      const mainRepoCwd = getProjectPath(db, fleet.projectKey)!
+      const pane = ensureLanePane(
+        {
+          branch: lane.branch,
+          epicBeanId: lane.epicBeanId,
+          paneId: lane.paneId,
+          workspaceId: lane.workspaceId,
+          worktreePath: lane.worktreePath,
+        },
+        mainRepoCwd,
+        {createTab, openWorktree, paneExists},
+      )
+      if (pane.healed) {
+        // Workspace was reopened — persist the new workspace id + pane atomically.
+        setLaneWorktree(db, loc, lane.worktreePath, pane.workspaceId!, pane.paneId)
+      } else {
+        setLanePane(db, loc, pane.paneId)
       }
 
-      const outcome = dispatchNext({epicId: lane.epicBeanId, paneId, worktreePath: lane.worktreePath}, config, {
-        fetchAncestorChain: (id) => fetchAncestorChain(id, {cwd: beansCwd}),
-        fetchBean: (id) => getBean(id, {cwd: beansCwd}),
-        fetchDependencyStatus: (id) => fetchDependencyStatus(id, {cwd: beansCwd}),
-        fetchDispatchable: () => dispatchable,
-        spawn: (harness, prompt) => spawnInvocation({harness, paneId, prompt}),
-      })
+      logger.info(`lane ${pane.paneId}`)
+
+      const outcome = dispatchNext(
+        {epicId: lane.epicBeanId, paneId: pane.paneId, worktreePath: lane.worktreePath},
+        config,
+        {
+          fetchAncestorChain: (id) => fetchAncestorChain(id, {cwd: beansCwd}),
+          fetchBean: (id) => getBean(id, {cwd: beansCwd}),
+          fetchDependencyStatus: (id) => fetchDependencyStatus(id, {cwd: beansCwd}),
+          fetchDispatchable: () => dispatchable,
+          spawn: (harness, prompt) => spawnInvocation({harness, paneId: pane.paneId, prompt}),
+        },
+      )
       if (!outcome.dispatched) return {action: 'idle'}
 
       setLaneCurrentTask(db, loc, outcome.beanId)
