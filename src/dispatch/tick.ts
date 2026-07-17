@@ -14,7 +14,7 @@ import type Database from 'better-sqlite3'
 import type {BeanRecord} from '../beans/client.js'
 import type {HordrConfig} from '../config/schema.js'
 import type {LaneRow} from '../storage/fleets.js'
-import type {DispatchableBean} from './dispatch.js'
+import type {DependencyStatus, DispatchableBean} from './dispatch.js'
 import type {MergeResult} from './merge.js'
 import type {EpicInfo} from './scan.js'
 
@@ -41,10 +41,12 @@ export interface TickDeps {
   // createLane I/O
   createWorktree: (opts: {base: string; branch: string; cwd: string}) => {path?: string; workspaceId: string}
   epicStatus: (epicId: string) => string
+  // advanceLane I/O
+  fetchAncestorChain: (id: string) => Array<{body: string; id: string; title: string; type: string}>
   fetchAncestry: (taskId: string) => Array<{descendantsAllCompleted: boolean; id: string; status: string}>
   fetchBean: (id: string) => BeanRecord
-  // advanceLane I/O
   fetchChildStatuses: (beanId: string) => Array<{id: string; status: string}>
+  fetchDependencyStatus: (id: string) => DependencyStatus
   fetchDispatchable: (epicId: string) => DispatchableBean[]
   // scan
   fetchEpics: (milestoneId: string) => EpicInfo[]
@@ -52,8 +54,11 @@ export interface TickDeps {
   markCompleted: (beanId: string) => void
   mergeBranch: (opts: {cwd: string; source: string; target: string}) => MergeResult
   paneAlive: (paneId: string) => boolean
+  removeBranch: (branch: string) => void
   removeWorktree: (branch: string) => void
   spawn: (opts: {harness: string; paneId: string; prompt: string}) => void
+  worktreeClean: (worktreePath: string) => boolean
+  worktreeDirtyPaths: (worktreePath: string) => string[]
   worktreeExists: (path: string) => boolean
 }
 
@@ -161,12 +166,20 @@ export function tick(db: Database.Database, depsFactory: TickDepsFactory): TickR
             workspaceId: wt.workspaceId,
           })
           setLaneWorktree(db, loc, wtPath, wt.workspaceId, paneId)
+          // Reflect the fresh worktree+pane on the in-memory row so the
+          // advance below dispatches into it THIS pass. The old daemon could
+          // defer to "the next tick"; the daemonless model (ADR-0015) is a
+          // single pass, so recreation + dispatch must happen together or the
+          // lane stalls until the next manual `hordr fleet check`.
+          lane.worktreePath = wtPath
+          lane.workspaceId = wt.workspaceId
+          lane.paneId = paneId
           logger.info(`lane ${lane.epicBeanId}: worktree recreated at ${wtPath}, pane=${paneId}`)
         } catch (error) {
           logger.warn(`lane ${lane.epicBeanId}: worktree recreation failed: ${(error as Error).message}`)
+          continue // can't advance into a missing worktree — retry next pass
         }
-
-        continue // next tick will dispatch into the fresh worktree
+        // fall through: advance into the freshly recreated worktree this same pass
       }
 
       // Normal advance — per-lane try/catch so one bad lane doesn't kill the tick
@@ -218,17 +231,22 @@ function advanceActiveLane(
       commitBeans: deps.commitBeans,
       createPane: deps.createPane,
       epicStatus: deps.epicStatus,
+      fetchAncestorChain: deps.fetchAncestorChain,
       fetchAncestry: deps.fetchAncestry,
       fetchBean: deps.fetchBean,
+      fetchDependencyStatus: deps.fetchDependencyStatus,
       fetchDispatchable: deps.fetchDispatchable,
       markCompleted: deps.markCompleted,
       mergeBranch: deps.mergeBranch,
       paneAlive: deps.paneAlive,
+      removeBranch: deps.removeBranch,
       removeWorktree: deps.removeWorktree,
       setLaneCurrentTask: (l, taskId) => setLaneCurrentTask(db, l, taskId),
       setLanePane: (l, paneId) => setLanePane(db, l, paneId),
       spawn: deps.spawn,
       updateLaneStatus: (l, status) => updateLaneStatus(db, l, status),
+      worktreeClean: deps.worktreeClean,
+      worktreeDirtyPaths: deps.worktreeDirtyPaths,
     },
   )
   return 1

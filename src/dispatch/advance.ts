@@ -16,7 +16,7 @@ import type {LaneLoc, LaneRow} from '../storage/fleets.js'
 import type {MergeResult} from './merge.js'
 
 import {logger} from '../logger.js'
-import {type DispatchableBean} from './dispatch.js'
+import {type DependencyStatus, type DispatchableBean} from './dispatch.js'
 import {checkInvocation} from './heal.js'
 import {dispatchNext} from './loop.js'
 import {rollup} from './rollup.js'
@@ -29,20 +29,31 @@ export interface AdvanceLaneDeps {
   commitBeans: (worktreePath: string) => void
   createPane: (opts: {cwd: string; label: string; workspaceId: string}) => string
   epicStatus: (epicId: string) => string
+  // dispatch step
+  fetchAncestorChain: (id: string) => Array<{body: string; id: string; title: string; type: string}>
   // rollup
   fetchAncestry: (taskId: string) => Array<{descendantsAllCompleted: boolean; id: string; status: string}>
   fetchBean: (id: string) => BeanRecord
-  // dispatch step
+  fetchDependencyStatus: (id: string) => DependencyStatus
   fetchDispatchable: (epicId: string) => DispatchableBean[]
   markCompleted: (beanId: string) => void
   // epic-complete
   mergeBranch: (opts: {cwd: string; source: string; target: string}) => MergeResult
   paneAlive: (paneId: string) => boolean
+  /** Delete the lane's git branch after a successful epic→ms merge (hordr-6vf0). */
+  removeBranch: (branch: string) => void
   removeWorktree: (branch: string) => void
   setLaneCurrentTask: (loc: LaneLoc, taskId: null | string) => void
   setLanePane: (loc: LaneLoc, paneId: string) => void
   spawn: (opts: {harness: string; paneId: string; prompt: string}) => void
   updateLaneStatus: (loc: LaneLoc, status: string) => void
+  worktreeClean: (worktreePath: string) => boolean
+  /**
+   * Dirty paths in a worktree OUTSIDE the beans data dir (beans-dir churn is
+   * ephemeral rollup status, tolerated). Empty array = clean / safe to remove.
+   * Injected so tests mock it instead of doing real git I/O (hordr-wd46).
+   */
+  worktreeDirtyPaths: (worktreePath: string) => string[]
 }
 
 export interface AdvanceLaneOpts {
@@ -121,7 +132,9 @@ export function advanceLane(opts: AdvanceLaneOpts, deps: AdvanceLaneDeps): Advan
       {epicId: opts.lane.epicBeanId, paneId, worktreePath: opts.lane.worktreePath},
       opts.config,
       {
+        fetchAncestorChain: deps.fetchAncestorChain,
         fetchBean: deps.fetchBean,
+        fetchDependencyStatus: deps.fetchDependencyStatus,
         fetchDispatchable: () => dispatchable,
         spawn: (harness, prompt) => deps.spawn({harness, paneId, prompt}),
       },
@@ -142,8 +155,8 @@ export function advanceLane(opts: AdvanceLaneOpts, deps: AdvanceLaneDeps): Advan
   )
 
   const heal = checkInvocation(
-    {paneId: opts.lane.paneId ?? '', taskId: taskBeanId},
-    {beanStatus: deps.beanStatus, paneAlive: deps.paneAlive},
+    {paneId: opts.lane.paneId ?? '', taskId: taskBeanId, worktreePath: opts.lane.worktreePath},
+    {beanStatus: deps.beanStatus, paneAlive: deps.paneAlive, worktreeClean: deps.worktreeClean},
   )
 
   if (heal.action === 'wait') {
@@ -181,7 +194,14 @@ export function advanceLane(opts: AdvanceLaneOpts, deps: AdvanceLaneDeps): Advan
     return mergeEpicLane(opts, deps, loc, taskId)
   }
 
-  // task done but epic still has work → free the lane for the next dispatch
+  // task done, epic still has work.
+  // If the pane is alive, the agent will call /done which handles
+  // continuation (hordr-thjh). Don't free the lane — /done owns it.
+  if (paneAlive) {
+    return {action: 'wait', taskId}
+  }
+
+  // pane gone → crash recovery: free lane so next tick dispatches via spawn.
   deps.setLaneCurrentTask(loc, null)
   return {action: 'wait', taskId}
 }
@@ -206,8 +226,41 @@ function mergeEpicLane(opts: AdvanceLaneOpts, deps: AdvanceLaneDeps, loc: LaneLo
     return {action: 'blocked', taskId}
   }
 
-  logger.info(`lane, removing worktree, lane → done`)
-  deps.removeWorktree(opts.lane.branch)
+  // Defense-in-depth: refuse to tear down a worktree with uncommitted non-beans
+  // changes (hordr-wd46). Beans-dir-only dirt is tolerated (ephemeral rollup
+  // status, committed by commitBeans before we get here). Keeping the worktree
+  // makes the work recoverable; the lane flips to 'uncommitted' for a human.
+  const dirty = deps.worktreeDirtyPaths(opts.lane.worktreePath)
+  if (dirty.length > 0) {
+    logger.error(
+      `lane ${opts.lane.epicBeanId}: refusing to remove worktree — uncommitted changes: ${dirty.join(', ')}. ` +
+        `Lane → uncommitted. Recover the work, then reset the lane.`,
+    )
+    deps.setLaneCurrentTask(loc, null)
+    deps.updateLaneStatus(loc, 'uncommitted')
+    return {action: 'blocked', taskId}
+  }
+
+  logger.info(`lane ${opts.lane.epicBeanId}: epic completed → merge landed in ${opts.fleet.msBranch}, cleaning up`)
+
+  // Worktree removal: best-effort. Caller's implementation may fail.
+  try {
+    deps.removeWorktree(opts.lane.branch)
+  } catch (error) {
+    logger.warn(`lane ${opts.lane.epicBeanId}: worktree removal failed: ${(error as Error).message}`)
+  }
+
+  // Branch deletion: best-effort. The merge already landed; orphaned refs
+  // are manual cleanup, not a blocker for lane completion (hordr-thjh).
+  try {
+    deps.removeBranch(opts.lane.branch)
+  } catch (error) {
+    logger.warn(
+      `lane ${opts.lane.epicBeanId}: branch '${opts.lane.branch}' not deleted: ${(error as Error).message}. ` +
+        `Merge landed; orphaned ref needs manual cleanup.`,
+    )
+  }
+
   deps.setLaneCurrentTask(loc, null)
   deps.updateLaneStatus(loc, 'done')
   return {action: 'epic-completed', taskId}

@@ -14,7 +14,6 @@ const NOW = '2026-07-09T00:00:00Z'
 const config: HordrConfig = {
   agents: {implementer: {harness: 'opencode', persona: 'impl'}},
   primary_branch: 'develop',
-  worktree_branch_prefix: 'bean/',
 }
 
 function freshDb(): Database.Database {
@@ -126,6 +125,47 @@ describe('dispatch/tick (via FleetEngine.scanFleet)', () => {
     engine.scanFleet(db)
 
     expect(records.factoryCwds).to.include('/repo')
+    db.close()
+  })
+
+  it('recreates a gone worktree AND dispatches into it in the SAME pass (daemonless, ADR-0015)', () => {
+    // Under the old 5s-tick daemon, recovery deferred dispatch to "the next tick."
+    // Under one-shot `hordr fleet check`, that next tick never comes — so the
+    // lane must recreate AND advance in one scanFleet call.
+    const db = freshDb()
+    addLane(db, {
+      branch: 'ms1/epic-a',
+      createdAt: NOW,
+      currentTaskBeanId: null,
+      epicBeanId: 'epic-a',
+      fleetMilestoneBeanId: MS,
+      paneId: 'w1:p1',
+      projectKey: PK,
+      status: 'active',
+      workspaceId: 'w1',
+      worktreePath: '/wt/epic-a',
+    })
+    const {engine, records} = createTestFleetEngine({
+      behavior: {worktreeExists: false}, // lane worktree gone → recovery path
+      config,
+      data: {
+        beans: {
+          'epic-a': {status: 'todo', type: 'epic'},
+          'task-1': {assigned: 'implementer', status: 'todo', type: 'task'},
+        },
+        dispatchable: {
+          'epic-a': [{assigned: 'implementer', id: 'task-1', priority: 'normal', title: 'T1', type: 'task'}],
+        },
+      },
+    })
+
+    engine.scanFleet(db) // ONE pass
+
+    expect(records.createdWorktrees, 'worktree recreated').to.have.length(1)
+    // The agent is dispatched in the SAME pass — not deferred to a next tick.
+    expect(records.spawn, 'spawn must fire same-pass').to.have.length(1)
+    const lane = listLanes(db, PK, MS)[0]!
+    expect(lane.currentTaskBeanId).to.equal('task-1')
     db.close()
   })
 })

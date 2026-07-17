@@ -19,9 +19,12 @@ import {
   ensureProject,
   type FleetRow,
   getFleet,
+  type LaneLoc,
   type LaneRow,
   listLanes,
   registerFleet,
+  setLaneWorktree,
+  updateLaneStatus,
 } from '../storage/fleets.js'
 
 export class FleetError extends Error {
@@ -41,23 +44,24 @@ export interface ProjectInfo {
 export interface CreateFleetDeps {
   /** Create a herdr worktree for the ms branch; return its path. */
   createWorktree: (opts: {base: string; branch: string; cwd: string}) => {path: string; workspaceId: string}
-  ensureDaemon: () => Promise<{started: boolean}>
   fetchBean: (id: string) => BeanRecord
   git: GitFn
+  /** Recover when createWorktree reports the branch already exists (partial-failure retry). */
+  openWorktree: (opts: {branch: string; cwd: string}) => {path: string; workspaceId: string}
 }
 
 export interface CreateFleetResult {
   branch: string
-  daemonStarted: boolean
 }
 
 /**
  * Bootstrap a fleet for a milestone: validate the bean is a milestone, create
- * the milestone integration branch from primary, register the fleet row, and
- * ensure the daemon is running. Refuses if an active fleet already exists.
+ * the milestone integration branch from primary, and register the fleet row.
+ * Refuses if an active fleet already exists.
  *
- * Does NOT create lanes/worktrees — the daemon's tick scanner does that
- * lazily as epics become unblocked (ADR-0014).
+ * Does NOT create lanes/worktrees — `hordr fleet check` does that lazily as
+ * epics become unblocked (ADR-0014). The `fleet create` command runs one check
+ * pass right after this so lanes spawn immediately (ADR-0015).
  */
 export async function createFleet(
   db: Database.Database,
@@ -81,8 +85,15 @@ export async function createFleet(
 
   // Create the ms branch + worktree in one shot: herdr worktree create
   // --branch <milestoneId> --base <primary>. The worktree IS on the milestone
-  // branch — epic merges land here, the scanner reads from here.
-  const msWt = deps.createWorktree({base: opts.primaryBranch, branch, cwd: opts.cwd})
+  // branch — epic merges land here, the scanner reads from here. Falls back
+  // to openWorktree when the branch already exists (partial-failure retry).
+  let msWt: {path: string; workspaceId: string}
+  try {
+    msWt = deps.createWorktree({base: opts.primaryBranch, branch, cwd: opts.cwd})
+  } catch (error) {
+    if (!/already exists/i.test((error as Error).message)) throw error
+    msWt = deps.openWorktree({branch, cwd: opts.cwd})
+  }
 
   registerFleet(db, {
     branch,
@@ -93,8 +104,7 @@ export async function createFleet(
     worktreePath: msWt.path,
   })
 
-  const daemon = await deps.ensureDaemon()
-  return {branch, daemonStarted: daemon.started}
+  return {branch}
 }
 
 export interface FleetSnapshot {
@@ -121,6 +131,12 @@ export interface FinishFleetDeps {
   /** The milestone's direct children (epics) with their status. */
   fetchEpicStatuses: (id: string) => Array<{id: string; status: string}>
   git: GitFn
+  /**
+   * Remove the milestone worktree by its branch. Tolerant of an already-gone
+   * worktree (e.g. aborted mid-flight). Wired to removeWorktreeByBranch in the
+   * command, which resolves the main repo cwd.
+   */
+  removeWorktree: (branch: string) => void
 }
 
 export interface FinishFleetResult {
@@ -130,12 +146,14 @@ export interface FinishFleetResult {
 
 /**
  * Finish a fleet: assert the milestone + all its epics are completed, merge
- * ms/<id> into primary (--no-ff), then delete the lane + fleet rows. Refuses
- * if the milestone isn't complete or any epic is still open. On a merge
- * conflict it throws (human must resolve in the milestone branch).
+ * ms/<id> into primary (--no-ff), tear down the milestone worktree, then
+ * delete the lane + fleet rows. Refuses if the milestone isn't complete or
+ * any epic is still open. On a merge conflict it throws (human must resolve
+ * in the milestone branch).
  *
- * Worktrees are torn down by the daemon when each epic merges (lane → done);
- * finish only drops the bookkeeping rows.
+ * Lane worktrees are torn down by the daemon's tick as each epic merges
+ * (lane → done); finish tears down the milestone worktree itself + drops the
+ * bookkeeping rows.
  */
 export function finishFleet(
   db: Database.Database,
@@ -164,6 +182,7 @@ export function finishFleet(
     throw new FleetError(`merge of ${milestoneId} into ${opts.primaryBranch} conflicted — resolve manually`)
   }
 
+  deps.removeWorktree(fleet.branch)
   deleteLanes(db, opts.projectKey, milestoneId)
   deleteFleet(db, opts.projectKey, milestoneId)
   return {branch: fleet.branch, merged: true}
@@ -225,4 +244,61 @@ export function abortFleet(
   deleteLanes(db, opts.projectKey, milestoneId)
   deleteFleet(db, opts.projectKey, milestoneId)
   return {branch: fleet.branch, worktreesRemoved}
+}
+
+export interface ResetLaneDeps {
+  createPane: (opts: {cwd: string; label: string; workspaceId: string}) => string
+  createWorktree: (opts: {base: string; branch: string; cwd: string}) => {path: string; workspaceId: string}
+  openWorktree: (opts: {branch: string; cwd: string}) => {path: string; workspaceId: string}
+  paneExists: (paneId: string) => boolean
+  worktreeExists: (path: string) => boolean
+}
+
+export interface ResetLaneResult {
+  paneCreated: boolean
+  worktreeCreated: boolean
+}
+
+/**
+ * Reset a lane from conflict/uncommitted back to active. Ensures the worktree
+ * and pane exist — recreates either if gone. Clears the current task so the
+ * daemon's next tick dispatches fresh. Reuses surviving infrastructure
+ * (worktree path, pane id) when possible.
+ */
+export function resetLane(db: Database.Database, lane: LaneRow, fleet: FleetRow, deps: ResetLaneDeps): ResetLaneResult {
+  const loc: LaneLoc = {epicId: lane.epicBeanId, milestoneId: fleet.milestoneBeanId, projectKey: lane.projectKey}
+
+  let {worktreePath} = lane
+  let workspaceId = lane.workspaceId ?? ''
+  let paneId = lane.paneId ?? ''
+  let worktreeCreated = false
+  let paneCreated = false
+
+  // Worktree gone? Recreate from the ms branch.
+  if (!deps.worktreeExists(worktreePath)) {
+    try {
+      const wt = deps.createWorktree({base: fleet.branch, branch: lane.branch, cwd: fleet.worktreePath})
+      worktreePath = wt.path
+      workspaceId = wt.workspaceId
+    } catch (error) {
+      if (!/already exists/i.test((error as Error).message)) throw error
+      const wt = deps.openWorktree({branch: lane.branch, cwd: fleet.worktreePath})
+      worktreePath = wt.path
+      workspaceId = wt.workspaceId
+    }
+
+    worktreeCreated = true
+  }
+
+  // Pane dead or missing? Create a new one in the (possibly new) worktree.
+  if (!paneId || !deps.paneExists(paneId)) {
+    paneId = deps.createPane({cwd: worktreePath, label: `hordr:${lane.epicBeanId}`, workspaceId})
+    paneCreated = true
+  }
+
+  // Atomic update: worktree + workspace + pane + clears currentTaskBeanId.
+  setLaneWorktree(db, loc, worktreePath, workspaceId, paneId)
+  updateLaneStatus(db, loc, 'active')
+
+  return {paneCreated, worktreeCreated}
 }

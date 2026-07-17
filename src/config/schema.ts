@@ -19,7 +19,6 @@ export const HordrConfigSchema = z.object({
   agents: z.record(z.string(), AgentDefSchema).default({}),
   company: CompanyRefSchema.nullable().optional(),
   primary_branch: z.string().min(1).default('develop'),
-  worktree_branch_prefix: z.string().min(1).default('bean/'),
 })
 
 export type HordrConfig = z.infer<typeof HordrConfigSchema>

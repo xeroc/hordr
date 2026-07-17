@@ -27,8 +27,13 @@ export interface MergeOpts {
 }
 
 /**
- * Merge source into target. If already on the target branch, just merge.
- * Otherwise stash → checkout target → merge → checkout back → pop.
+ * Merge source into target. Always checks out the target branch first,
+ * then merges, then restores the previous branch. Stash/pop preserves
+ * the human's uncommitted working-directory changes.
+ *
+ * We MUST checkout target before merging — the cwd might be on the source
+ * branch (e.g. the ms worktree), and `git merge <source>` while on <source>
+ * is a silent no-op ("Already up to date") that looks like success.
  *
  * `ff` controls --no-ff: true (default) allows fast-forward; false forces
  * a merge commit. Epic→ms merges use ff (let git fast-forward when possible).
@@ -39,47 +44,37 @@ export function mergeBranch(opts: MergeOpts, deps: {git: GitFn}): MergeResult {
   if (opts.ff === false) mergeArgs.push('--no-ff')
   mergeArgs.push(opts.source)
 
-  // Already on target? Just merge — no stash, no checkout.
+  // Stash uncommitted changes (if any).
+  try {
+    deps.git(['stash', 'push', '-u', '--quiet'], {cwd: opts.cwd})
+  } catch {
+    // Nothing to stash
+  }
+
+  // Checkout the target branch — we must be on target to merge into it.
+  try {
+    deps.git(['checkout', opts.target], {cwd: opts.cwd})
+  } catch (error_) {
+    tryRestore(deps, opts.cwd)
+    return {conflict: true, message: `checkout ${opts.target} failed: ${(error_ as Error).message}`}
+  }
+
+  // Merge source into target.
   try {
     deps.git(mergeArgs, {cwd: opts.cwd})
-    return {conflict: false}
-  } catch {
+  } catch (error_) {
     try {
       deps.git(['merge', '--abort'], {cwd: opts.cwd})
     } catch {
       // No merge in progress
     }
 
-    // Full path: stash → checkout → merge → restore
-    try {
-      deps.git(['stash', 'push', '-u', '--quiet'], {cwd: opts.cwd})
-    } catch {
-      // Nothing to stash
-    }
-
-    try {
-      deps.git(['checkout', opts.target], {cwd: opts.cwd})
-    } catch (error_) {
-      tryRestore(deps, opts.cwd)
-      return {conflict: true, message: `checkout ${opts.target} failed: ${(error_ as Error).message}`}
-    }
-
-    try {
-      deps.git(mergeArgs, {cwd: opts.cwd})
-    } catch (error_) {
-      try {
-        deps.git(['merge', '--abort'], {cwd: opts.cwd})
-      } catch {
-        // ignore
-      }
-
-      tryRestore(deps, opts.cwd)
-      return {conflict: true, message: (error_ as Error).message}
-    }
-
     tryRestore(deps, opts.cwd)
-    return {conflict: false}
+    return {conflict: true, message: (error_ as Error).message}
   }
+
+  tryRestore(deps, opts.cwd)
+  return {conflict: false}
 }
 
 /** Checkout back to the previous branch and pop the stash. Best-effort. */

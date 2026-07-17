@@ -136,16 +136,16 @@ describe('herdr/worktree', () => {
     expect(() => createWorktree({branch: 'b', cwd: '/r'})).to.throw(HerdrError, /bad_ref: no such ref/)
   })
 
-  it('removeWorktree succeeds on happy path (AC #3)', () => {
+  it('removeWorktree does NOT pass --force by default (lets git refuse dirty trees)', () => {
     responder = () => REMOVE_JSON
     removeWorktree({workspaceId: 'wP'})
-    expect(calls[0].args).to.deep.equal(['worktree', 'remove', '--workspace', 'wP', '--force', '--json'])
+    expect(calls[0].args).to.deep.equal(['worktree', 'remove', '--workspace', 'wP', '--json'])
   })
 
-  it('removeWorktree adds --force when opts.force=true', () => {
+  it('removeWorktree adds --force only when opts.force=true', () => {
     responder = () => REMOVE_JSON
     removeWorktree({force: true, workspaceId: 'wP'})
-    expect(calls[0].args).to.include('--force')
+    expect(calls[0].args).to.deep.equal(['worktree', 'remove', '--workspace', 'wP', '--force', '--json'])
   })
 
   it('removeWorktree throws HerdrError on error envelope (AC #3)', () => {
@@ -157,9 +157,8 @@ describe('herdr/worktree', () => {
     expect(() => removeWorktree({workspaceId: 'wP'})).to.throw(HerdrError, /not_linked_worktree/)
   })
 
-  it('branchFor produces <prefix><beanId> and throws on empty (AC #4)', () => {
-    expect(branchFor('hordr-1234')).to.equal('bean/hordr-1234')
-    expect(branchFor('hordr-1234', 'feat/')).to.equal('feat/hordr-1234')
+  it('branchFor returns the bean id (consistent with fleet lane naming) and throws on empty', () => {
+    expect(branchFor('hordr-1234')).to.equal('hordr-1234')
     expect(() => branchFor('')).to.throw(HerdrError, /beanId is required/)
   })
 

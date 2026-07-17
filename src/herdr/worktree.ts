@@ -180,9 +180,12 @@ export function removeWorktree(opts: WorktreeRemoveOpts): void {
 
   assertHerdrOnPath()
 
-  // Lane worktrees often have uncommitted rollup writes (beans update -s completed).
-  // Force-remove — the status changes are ephemeral; the committed code is what matters.
-  const args = ['worktree', 'remove', '--workspace', opts.workspaceId, '--force', '--json']
+  // --force is opt-in: by default git refuses a dirty worktree, which is the
+  // defense-in-depth net (hordr-wd46). Only explicit callers (abort --force)
+  // pass force=true to discard work deliberately.
+  const args = ['worktree', 'remove', '--workspace', opts.workspaceId]
+  if (opts.force) args.push('--force')
+  args.push('--json')
 
   runHerdr(args)
 }
@@ -190,9 +193,11 @@ export function removeWorktree(opts: WorktreeRemoveOpts): void {
 /**
  * Remove a worktree by its branch: open (resolve workspace) then remove.
  * Tolerant of an already-gone worktree (lane was 'done' / merged). Used by
- * fleet abort --force and the broker's epic-merge teardown.
+ * the broker's epic-merge teardown. Does NOT force — dirty trees are refused
+ * so uncommitted work survives (hordr-wd46). The abort --force path passes
+ * force=true explicitly via its own helper.
  */
-export function removeWorktreeByBranch(branch: string, cwd: string): void {
+export function removeWorktreeByBranch(branch: string, cwd: string, opts?: {force?: boolean}): void {
   // herdr worktree open/remove must run from the repo parent workspace, not
   // from inside a linked worktree. Resolve the main repo from any cwd.
   let mainRepo = cwd
@@ -212,19 +217,23 @@ export function removeWorktreeByBranch(branch: string, cwd: string): void {
     const result = openWorktree({branch, cwd: mainRepo})
     workspaceId = result.workspace_id
   } catch (error) {
-    if (!(error instanceof HerdrError) || !/worktree_not_found/.test(error.message)) throw error
+    // ponytail: tolerate "no worktree here" in all forms — worktree_not_found
+    // (branch has no worktree) and not_git_worktree (cwd isn't a worktree at
+    // all, e.g. a test env or an already-torn-down fleet). Both mean nothing
+    // to remove.
+    if (!(error instanceof HerdrError) || !/worktree_not_found|not_git_worktree/.test(error.message)) throw error
     return // already gone
   }
 
-  if (workspaceId) removeWorktree({workspaceId})
+  if (workspaceId) removeWorktree({force: opts?.force, workspaceId})
 }
 
 /**
- * Compute the worktree branch name for a bean: `<prefix><beanId>`.
- * The prefix comes from hordr config (default "bean/", SPEC §6).
- * Example: branchFor("hordr-1234", "bean/") => "bean/hordr-1234"
+ * Compute the worktree branch name for a bean: the bean id itself.
+ * Consistent with fleet lane naming (`laneBranchName` → epic id).
+ * Example: branchFor("hordr-1234") => "hordr-1234"
  */
-export function branchFor(beanId: string, branchPrefix = 'bean/'): string {
+export function branchFor(beanId: string): string {
   if (!beanId) throw new HerdrError('beanId is required')
-  return `${branchPrefix}${beanId}`
+  return beanId
 }

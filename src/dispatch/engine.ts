@@ -19,6 +19,7 @@
  */
 import type Database from 'better-sqlite3'
 
+import {execFileSync} from 'node:child_process'
 import {existsSync, readFileSync} from 'node:fs'
 import path from 'node:path'
 import {parse} from 'yaml'
@@ -26,22 +27,26 @@ import {parse} from 'yaml'
 import type {HordrConfig} from '../config/schema.js'
 import type {FleetRow, LaneLoc, LaneRow} from '../storage/fleets.js'
 
-import {getBean, markBeanCompleted} from '../beans/client.js'
-import {createTab, paneExists} from '../herdr/pane.js'
+import {getBean, markBeanCompleted, resetBeanToTodo} from '../beans/client.js'
+import {agentActiveInPane, createTab, paneExists} from '../herdr/pane.js'
 import {createWorktree, HerdrError, openWorktree, removeWorktreeByBranch} from '../herdr/worktree.js'
 import {logger} from '../logger.js'
 import {getGitRunner} from '../runtime.js'
 import {
   addLane,
+  findLaneByTask,
+  getProjectPath,
   listFleets,
   listLanes,
   setLaneCurrentTask,
   setLanePane,
   setLaneWorktree,
+  updateFleetStatus,
   updateLaneStatus,
 } from '../storage/fleets.js'
-import {fetchAncestry, fetchEpics, getDispatchable} from './dispatch.js'
-import {checkInvocation} from './heal.js'
+import {type ContinueDeps, continueLane, type ContinueResult} from './continue.js'
+import {fetchAncestorChain, fetchAncestry, fetchDependencyStatus, fetchEpics, getDispatchable} from './dispatch.js'
+import {checkInvocation, worktreeIsClean} from './heal.js'
 import {createLaneForEpic} from './lane-create.js'
 import {dispatchNext} from './loop.js'
 import {mergeBranch} from './merge.js'
@@ -64,6 +69,8 @@ export interface AdvanceResult {
 export interface FleetEngine {
   /** Advance one lane by one step. */
   advanceLane(db: Database.Database, fleet: FleetRow, lane: LaneRow): AdvanceResult
+  /** Find and claim the next bean in the lane after /done verification (hordr-thjh). */
+  continueTask(db: Database.Database, taskId: string): ContinueResult
   /** One broker pass over all active fleets. Safe to call on an interval. */
   scanFleet(db: Database.Database): TickResult
 }
@@ -91,6 +98,60 @@ function commitBeans(worktreePath: string): void {
   const git = getGitRunner()
   git(['add', beansDir], {cwd: worktreePath})
   git(['commit', '-m', 'chore(beans): rollup status changes'], {cwd: worktreePath})
+}
+
+/**
+/**
+ * True if the lane worktree has no uncommitted non-beans changes.
+ * Runs `git status --porcelain` and applies the beans-dir exclusion policy
+ * from {@link worktreeIsClean}. On git failure (broken worktree) returns true
+ * — the merge step surfaces real breakage, and false positives here would
+ * stall a healthy lane forever.
+ */
+function worktreeClean(worktreePath: string): boolean {
+  const beansDir = resolveBeansDir(worktreePath)
+  let porcelain = ''
+  try {
+    porcelain = execFileSync('git', ['-C', worktreePath, 'status', '--porcelain'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+  } catch {
+    return true
+  }
+
+  return worktreeIsClean(porcelain, beansDir)
+}
+
+/**
+ * List uncommitted paths in a worktree OUTSIDE the beans data dir. Beans-dir
+ * churn is ephemeral rollup status (committed by commitBeans before teardown);
+ * any other dirty file is uncommitted code that teardown must not destroy.
+ * Empty array = clean / safe to remove (hordr-wd46).
+ */
+function dirtyNonBeansPaths(worktreePath: string): string[] {
+  const beansDir = resolveBeansDir(worktreePath)
+  let raw = ''
+  try {
+    // ponytail: direct read-only git call — matches worktree.ts's rev-parse
+    // pattern. A broken worktree is "dirty enough" to block, not crash the tick.
+    raw = execFileSync('git', ['-C', worktreePath, 'status', '--porcelain'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+  } catch {
+    return ['<git status failed>']
+  }
+
+  const dirty: string[] = []
+  for (const line of raw.split('\n')) {
+    if (!line.trim()) continue
+    // porcelain v1: "XY path" (2 status chars + space + path)
+    const p = line.slice(3).trim().replaceAll(/^"|"$/g, '')
+    if (!p.startsWith(beansDir + '/')) dirty.push(p)
+  }
+
+  return dirty
 }
 
 /**
@@ -156,28 +217,65 @@ function rollupAncestors(taskId: string, beansCwd: string): boolean {
 
 // --- factory ---
 
-export function createFleetEngine(config: HordrConfig, mainRepoCwd: string): FleetEngine {
-  /** Merge an epic's lane into the ms branch, tear down the worktree, go done. */
-  const mergeEpicLane = (db: Database.Database, fleet: FleetRow, lane: LaneRow, taskId?: string): AdvanceResult => {
-    const loc: LaneLoc = {epicId: lane.epicBeanId, milestoneId: fleet.milestoneBeanId, projectKey: fleet.projectKey}
-    logger.debug(`lane ${lane.epicBeanId}: merging ${lane.branch} → ${fleet.branch} (cwd=${fleet.worktreePath})`)
-    const result = mergeBranch(
-      {cwd: fleet.worktreePath, source: lane.branch, target: fleet.branch},
-      {git: getGitRunner()},
-    )
-    if (result.conflict) {
-      logger.error(`lane — needs human resolution`)
-      updateLaneStatus(db, loc, 'conflict')
-      return {action: 'blocked', taskId}
-    }
-
-    logger.info(`lane, removing worktree, lane → done`)
-    removeWorktreeByBranch(lane.branch, mainRepoCwd)
-    setLaneCurrentTask(db, loc, null)
-    updateLaneStatus(db, loc, 'done')
-    return {action: 'epic-completed', taskId}
+/** Merge an epic's lane into the ms branch, tear down the worktree, go done. */
+function mergeEpicLane(db: Database.Database, fleet: FleetRow, lane: LaneRow, taskId?: string): AdvanceResult {
+  const loc: LaneLoc = {epicId: lane.epicBeanId, milestoneId: fleet.milestoneBeanId, projectKey: fleet.projectKey}
+  const mainRepoCwd = getProjectPath(db, fleet.projectKey)!
+  logger.debug(`lane ${lane.epicBeanId}: merging ${lane.branch} → ${fleet.branch} (cwd=${fleet.worktreePath})`)
+  const result = mergeBranch(
+    {cwd: fleet.worktreePath, source: lane.branch, target: fleet.branch},
+    {git: getGitRunner()},
+  )
+  if (result.conflict) {
+    logger.error(`lane — needs human resolution`)
+    updateLaneStatus(db, loc, 'conflict')
+    return {action: 'blocked', taskId}
   }
 
+  // Defense-in-depth: refuse to tear down a worktree with uncommitted non-beans
+  // changes (hordr-wd46). Beans-dir-only dirt is tolerated (ephemeral rollup
+  // status, committed by commitBeans above). Keep the worktree so work is
+  // recoverable; lane → uncommitted for a human.
+  const dirty = dirtyNonBeansPaths(lane.worktreePath)
+  if (dirty.length > 0) {
+    logger.error(
+      `lane ${lane.epicBeanId}: refusing to remove worktree — uncommitted changes: ${dirty.join(', ')}. ` +
+        `Lane → uncommitted. Recover the work, then run 'hordr fleet reset'.`,
+    )
+    setLaneCurrentTask(db, loc, null)
+    updateLaneStatus(db, loc, 'uncommitted')
+    return {action: 'blocked', taskId}
+  }
+
+  logger.info(`lane ${lane.epicBeanId}: epic completed → merge landed in ${fleet.branch}, cleaning up`)
+
+  // Worktree removal: best-effort. herdr may fail or silently no-op.
+  try {
+    removeWorktreeByBranch(lane.branch, mainRepoCwd)
+  } catch (error) {
+    logger.warn(`lane ${lane.epicBeanId}: worktree removal failed: ${(error as Error).message}`)
+  }
+
+  // Branch deletion: -d (safe delete, NOT -D). Run from the fleet worktree
+  // which is on fleet.branch — the branch the lane was merged into. -d refuses
+  // unmerged branches, which catches silent no-op merges. If the worktree
+  // still holds the branch (removal failed above), this also fails — logged,
+  // not fatal. The merge already landed; orphaned refs are manual cleanup.
+  try {
+    getGitRunner()(['branch', '-d', lane.branch], {cwd: fleet.worktreePath})
+  } catch (error) {
+    logger.warn(
+      `lane ${lane.epicBeanId}: branch '${lane.branch}' not deleted: ${(error as Error).message}. ` +
+        `Merge landed in ${fleet.branch}; orphaned ref needs manual cleanup.`,
+    )
+  }
+
+  setLaneCurrentTask(db, loc, null)
+  updateLaneStatus(db, loc, 'done')
+  return {action: 'epic-completed', taskId}
+}
+
+export function createFleetEngine(config: HordrConfig): FleetEngine {
   /** Advance one lane by one step: idle/dispatch/heal/rollup/merge. */
   const advanceLane = (db: Database.Database, fleet: FleetRow, lane: LaneRow): AdvanceResult => {
     const beansCwd = lane.worktreePath
@@ -217,7 +315,9 @@ export function createFleetEngine(config: HordrConfig, mainRepoCwd: string): Fle
       }
 
       const outcome = dispatchNext({epicId: lane.epicBeanId, paneId, worktreePath: lane.worktreePath}, config, {
+        fetchAncestorChain: (id) => fetchAncestorChain(id, {cwd: beansCwd}),
         fetchBean: (id) => getBean(id, {cwd: beansCwd}),
+        fetchDependencyStatus: (id) => fetchDependencyStatus(id, {cwd: beansCwd}),
         fetchDispatchable: () => dispatchable,
         spawn: (harness, prompt) => spawnInvocation({harness, paneId, prompt}),
       })
@@ -230,18 +330,25 @@ export function createFleetEngine(config: HordrConfig, mainRepoCwd: string): Fle
 
     // --- active: heal the in-flight invocation ---
     const heal = checkInvocation(
-      {paneId: lane.paneId ?? '', taskId: lane.currentTaskBeanId},
+      {paneId: lane.paneId ?? '', taskId: lane.currentTaskBeanId, worktreePath: lane.worktreePath},
       {
         beanStatus: (id) => getBean(id, {cwd: beansCwd}).status as string | undefined,
-        paneAlive: (p) => paneExists(p),
+        paneAlive: (p) => agentActiveInPane(p),
+        worktreeClean,
       },
     )
 
     if (heal.action === 'wait') return {action: 'wait'}
     if (heal.action === 'blocked') {
-      logger.debug(`lane ${lane.epicBeanId}: task ${lane.currentTaskBeanId} blocked (${heal.reason})`)
-      updateLaneStatus(db, loc, 'conflict')
-      return {action: 'blocked', taskId: lane.currentTaskBeanId}
+      const crashedTaskId = lane.currentTaskBeanId!
+      logger.info(
+        `lane ${lane.epicBeanId}: agent gone (task ${crashedTaskId} still in-progress) — ` +
+          `resetting bean to todo, re-dispatching next tick`,
+      )
+      resetBeanToTodo(crashedTaskId, {cwd: beansCwd})
+      commitBeans(lane.worktreePath)
+      setLaneCurrentTask(db, loc, null)
+      return {action: 'blocked', taskId: crashedTaskId}
     }
 
     // proceed: bean completed → roll up the ancestry.
@@ -256,7 +363,14 @@ export function createFleetEngine(config: HordrConfig, mainRepoCwd: string): Fle
       return mergeEpicLane(db, fleet, lane, taskId)
     }
 
-    // task done but epic still has work → free the lane for the next dispatch
+    // task done, epic still has work.
+    // If the agent is still active, it will call /done which handles
+    // continuation (hordr-thjh). Don't free the lane — /done owns it.
+    if (lane.paneId && agentActiveInPane(lane.paneId)) {
+      return {action: 'wait', taskId}
+    }
+
+    // pane gone → crash recovery: free lane so next tick dispatches via spawn.
     setLaneCurrentTask(db, loc, null)
     return {action: 'wait', taskId}
   }
@@ -267,6 +381,28 @@ export function createFleetEngine(config: HordrConfig, mainRepoCwd: string): Fle
     let advanced = 0
 
     for (const fleet of listFleets(db, {status: 'active'})) {
+      const mainRepoCwd = getProjectPath(db, fleet.projectKey)
+      if (!mainRepoCwd) {
+        logger.warn(`fleet ${fleet.milestoneBeanId}: project ${fleet.projectKey} not in projects table — skipping`)
+        continue
+      }
+
+      // Quarantine (hordr-zqwo): if the fleet's milestone worktree is gone
+      // (finish/abort hand-off, manual cleanup, crash), every beans call scoped
+      // to it throws — and since fetchEpics below runs outside the per-lane
+      // try/catch, that throw aborts the whole tick and stalls every other
+      // healthy fleet sharing this daemon. Mark the fleet 'broken' so
+      // listFleets({status: 'active'}) skips it on future ticks, and move on.
+      if (!existsSync(fleet.worktreePath)) {
+        logger.warn(
+          `fleet ${fleet.milestoneBeanId}: milestone worktree gone (${fleet.worktreePath}) → marking broken. ` +
+            `Recover with 'hordr fleet create ${fleet.milestoneBeanId}' (reuses/restores the worktree) ` +
+            `or tear down with 'hordr fleet abort ${fleet.milestoneBeanId}'.`,
+        )
+        updateFleetStatus(db, fleet.projectKey, fleet.milestoneBeanId, 'broken')
+        continue
+      }
+
       // 1. scan: create lanes for newly-unblocked epics
       const allLanes = listLanes(db, fleet.projectKey, fleet.milestoneBeanId)
       const existingLaneEpicIds = new Set(allLanes.map((l) => l.epicBeanId))
@@ -277,12 +413,15 @@ export function createFleetEngine(config: HordrConfig, mainRepoCwd: string): Fle
 
       for (const epic of allEpics) {
         const hasLane = existingLaneEpicIds.has(epic.id)
-        const ready = hasLane
-          ? '(has lane)'
+        const laneInfo = hasLane
+          ? (() => {
+              const lane = allLanes.find((l) => l.epicBeanId === epic.id)
+              return `lane=${lane?.status ?? '?'} task=${lane?.currentTaskBeanId ?? '(idle)'}`
+            })()
           : getDispatchable(epic.id, {cwd: fleet.worktreePath}).length > 0
-            ? 'ready'
+            ? 'ready (no lane yet)'
             : 'not ready'
-        logger.debug(`  epic ${epic.id}: ${ready} — ${epic.title}`)
+        logger.debug(`  epic ${epic.id}: ${laneInfo} — ${epic.title}`)
       }
 
       const newLanes = scanForNewLanes(fleet.milestoneBeanId, {
@@ -349,12 +488,20 @@ export function createFleetEngine(config: HordrConfig, mainRepoCwd: string): Fle
               workspaceId: wt.workspaceId,
             }).pane_id
             setLaneWorktree(db, loc, wtPath, wt.workspaceId, paneId)
+            // Reflect the fresh worktree+pane on the in-memory row so the
+            // advance below dispatches into it THIS pass. The old daemon could
+            // defer to "the next tick"; the daemonless model (ADR-0015) is a
+            // single pass, so recreation + dispatch must happen together or the
+            // lane stalls until the next manual `hordr fleet check`.
+            lane.worktreePath = wtPath
+            lane.workspaceId = wt.workspaceId
+            lane.paneId = paneId
             logger.info(`lane ${lane.epicBeanId}: worktree recreated at ${wtPath}, pane=${paneId}`)
           } catch (error) {
             logger.warn(`lane ${lane.epicBeanId}: worktree recreation failed: ${(error as Error).message}`)
+            continue // can't advance into a missing worktree — retry next pass
           }
-
-          continue // next tick dispatches into the fresh worktree
+          // fall through: advance into the freshly recreated worktree this same pass
         }
 
         // Normal advance — per-lane try/catch so one bad lane doesn't kill the tick
@@ -370,5 +517,34 @@ export function createFleetEngine(config: HordrConfig, mainRepoCwd: string): Fle
     return {advanced, lanesCreated}
   }
 
-  return {advanceLane, scanFleet}
+  // --- continuation (called by /done after verification passes) ---
+
+  const continueTask = (db: Database.Database, taskId: string): ContinueResult => {
+    const lane = findLaneByTask(db, taskId)
+    if (!lane) return {next: null, reason: 'no lane owns this task (idempotent)'}
+
+    const beansCwd = lane.worktreePath
+    const deps: ContinueDeps = {
+      config,
+      fetchAncestorChain: (id) => fetchAncestorChain(id, {cwd: beansCwd}),
+      fetchBean: (id) => getBean(id, {cwd: beansCwd}),
+      fetchDependencyStatus: (id) => fetchDependencyStatus(id, {cwd: beansCwd}),
+      findLane(id) {
+        const l = findLaneByTask(db, id)
+        if (!l) return null
+        return {
+          epicId: l.epicBeanId,
+          loc: {epicId: l.epicBeanId, milestoneId: l.fleetMilestoneBeanId, projectKey: l.projectKey},
+        }
+      },
+      getDispatchable: (epicId) => getDispatchable(epicId, {cwd: beansCwd}),
+      rollup(id) {
+        if (rollupAncestors(id, beansCwd)) commitBeans(lane.worktreePath)
+      },
+      setCurrentTask: (loc, beanId) => setLaneCurrentTask(db, loc, beanId),
+    }
+    return continueLane(taskId, deps)
+  }
+
+  return {advanceLane, continueTask, scanFleet}
 }

@@ -64,7 +64,6 @@ async function invoke(args: string[]): Promise<RunResult> {
 const YAML = `
 hordr:
   primary_branch: develop
-  worktree_branch_prefix: bean/
   agents:
     implementer:
       harness: opencode
@@ -87,7 +86,7 @@ const COMPLETED_BEAN = {
 
 const OPEN_RESULT = {
   workspace: {workspace_id: 'wP'},
-  worktree: {branch: 'bean/hordr-1234', path: '/wt/hordr-1234'},
+  worktree: {branch: 'hordr-1234', path: '/wt/hordr-1234'},
 }
 
 describe('commands/finish', () => {
@@ -140,14 +139,14 @@ describe('commands/finish', () => {
     expect(res.error, res.error?.message).to.be.undefined
     expect(res.stdout).to.match(/finished hordr-1234/)
 
-    // git: checkout develop, then merge bean/hordr-1234
+    // git: checkout develop, then merge hordr-1234
     expect(gitCalls).to.have.length(2)
     expect(gitCalls[0]!.args).to.deep.equal(['checkout', 'develop'])
-    expect(gitCalls[1]!.args).to.deep.equal(['merge', '--no-ff', 'bean/hordr-1234'])
+    expect(gitCalls[1]!.args).to.deep.equal(['merge', '--no-ff', 'hordr-1234'])
 
     // worktree open (to find workspace) then remove
     const openCall = wtCalls.find((c) => c[1] === 'open')
-    expect(openCall).to.include.members(['--branch', 'bean/hordr-1234'])
+    expect(openCall).to.include.members(['--branch', 'hordr-1234'])
     const removeCall = wtCalls.find((c) => c[1] === 'remove')
     expect(removeCall).to.include.members(['--workspace', 'wP'])
 
@@ -179,7 +178,7 @@ describe('commands/finish', () => {
     }
     expect(parsed).to.deep.equal({
       bean: 'hordr-1234',
-      branch: 'bean/hordr-1234',
+      branch: 'hordr-1234',
       merged: true,
       removed: true,
       workspace: 'wP',

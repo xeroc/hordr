@@ -4,9 +4,9 @@ import {expect} from 'chai'
 
 import type {BeanRecord} from '../../src/beans/client.js'
 
-import {abortFleet, createFleet, describeFleet, finishFleet, FleetError} from '../../src/fleet/lifecycle.js'
+import {abortFleet, createFleet, describeFleet, finishFleet, FleetError, resetLane} from '../../src/fleet/lifecycle.js'
 import {applySchema, openDb} from '../../src/storage/db.js'
-import {addLane, ensureProject, getFleet, registerFleet} from '../../src/storage/fleets.js'
+import {addLane, ensureProject, type FleetRow, getFleet, getLane, registerFleet} from '../../src/storage/fleets.js'
 
 const PK = 'pk1'
 const MS = 'hordr-ms1'
@@ -40,13 +40,11 @@ describe('fleet/lifecycle', () => {
   describe('createFleet', () => {
     let db: Database.Database
     let gitCalls: Array<{args: string[]; cwd: string}>
-    let daemonStarted: boolean
     let fetched: string[]
 
     beforeEach(() => {
       db = freshDb()
       gitCalls = []
-      daemonStarted = false
       fetched = []
     })
 
@@ -65,7 +63,6 @@ describe('fleet/lifecycle', () => {
         },
         {
           createWorktree: (opts) => ({path: `/wt/${opts.branch}`, workspaceId: 'w-ms'}),
-          ensureDaemon: async () => ({started: daemonStarted}),
           fetchBean(id) {
             fetched.push(id)
             return bean
@@ -73,12 +70,12 @@ describe('fleet/lifecycle', () => {
           git(args, opts) {
             gitCalls.push({args, cwd: opts.cwd})
           },
+          openWorktree: (opts) => ({path: `/wt/${opts.branch}`, workspaceId: 'w-ms'}),
         },
       )
     }
 
-    it('validates the milestone, creates ms branch, registers fleet, ensures daemon', async () => {
-      daemonStarted = true
+    it('validates the milestone, creates ms branch, registers the fleet active', async () => {
       const res = await run(milestoneBean())
 
       expect(fetched).to.deep.equal([MS])
@@ -88,7 +85,7 @@ describe('fleet/lifecycle', () => {
       const fleet = getFleet(db, PK, MS)
       expect(fleet?.status).to.equal('active')
       expect(fleet?.branch).to.equal(MS)
-      expect(res).to.deep.equal({branch: MS, daemonStarted: true})
+      expect(res).to.deep.equal({branch: MS})
     })
 
     it('refuses when the bean is not a milestone', async () => {
@@ -128,6 +125,37 @@ describe('fleet/lifecycle', () => {
       expect(err).to.be.instanceOf(FleetError)
       expect((err as FleetError).message).to.match(/already active/)
       expect(gitCalls).to.have.length(0)
+    })
+
+    it('falls back to openWorktree when createWorktree reports already exists', async () => {
+      let createAttempts = 0
+      const result = await createFleet(
+        db,
+        MS,
+        {
+          cwd: '/repo',
+          primaryBranch: PRIMARY,
+          project: {beansPath: '/b', companyPath: null, configPath: '/c', projectKey: PK},
+        },
+        {
+          createWorktree() {
+            createAttempts++
+            throw new Error('branch already exists')
+          },
+          fetchBean() {
+            return milestoneBean()
+          },
+          git() {},
+          openWorktree() {
+            return {path: '/wt/recovered', workspaceId: 'w-recovered'}
+          },
+        },
+      )
+
+      expect(createAttempts).to.equal(1)
+      expect(result).to.deep.equal({branch: MS})
+      const fleet = getFleet(db, PK, MS)
+      expect(fleet?.worktreePath).to.equal('/wt/recovered')
     })
   })
 
@@ -196,6 +224,7 @@ describe('fleet/lifecycle', () => {
     let milestoneStatus: string
     let epicStatuses: Array<{id: string; status: string}>
     let gitThrows: boolean
+    let removedBranches: string[]
 
     beforeEach(() => {
       db = openDb(':memory:')
@@ -216,6 +245,7 @@ describe('fleet/lifecycle', () => {
         {id: 'epic-2', status: 'completed'},
       ]
       gitThrows = false
+      removedBranches = []
     })
 
     afterEach(() => {
@@ -234,6 +264,9 @@ describe('fleet/lifecycle', () => {
           if (gitThrows) throw new Error('merge conflict')
           gitCalls.push({args, cwd: opts.cwd})
         },
+        removeWorktree(branch: string): void {
+          removedBranches.push(branch)
+        },
       }
     }
 
@@ -243,6 +276,13 @@ describe('fleet/lifecycle', () => {
       expect(gitCalls.some((c) => c.args[0] === 'merge' && c.args.includes('hordr-ms1'))).to.be.true
       // merge now stashes first — check by content not position
 
+      expect(getFleet(db, PK, MS)).to.be.undefined
+    })
+
+    it('tears down the ms worktree after a successful merge', () => {
+      finishFleet(db, MS, {cwd: '/repo', primaryBranch: PRIMARY, projectKey: PK}, deps())
+
+      expect(removedBranches).to.deep.equal([MS])
       expect(getFleet(db, PK, MS)).to.be.undefined
     })
 
@@ -367,6 +407,155 @@ describe('fleet/lifecycle', () => {
       expect(() =>
         abortFleet(db, 'nope', {cwd: '/repo', force: false, projectKey: PK}, {git() {}, removeWorktree() {}}),
       ).to.throw(FleetError, /no fleet for nope/)
+    })
+  })
+
+  describe('resetLane', () => {
+    let db: Database.Database
+    let worktreeAlive: boolean
+    let paneAlive: boolean
+    let createdPanes: number
+    let createdWorktrees: number
+    let openedWorktrees: number
+
+    const FLEET_ROW: FleetRow = {
+      branch: MS,
+      createdAt: NOW,
+      milestoneBeanId: MS,
+      projectKey: PK,
+      status: 'active',
+      worktreePath: '/wt/ms',
+    }
+
+    function seedLane(
+      overrides: Partial<{
+        branch: string
+        currentTaskBeanId: string
+        epicBeanId: string
+        paneId: string
+        status: string
+        workspaceId: string
+        worktreePath: string
+      }> = {},
+    ): void {
+      addLane(db, {
+        branch: overrides.branch ?? 'epic-a',
+        createdAt: NOW,
+        currentTaskBeanId: overrides.currentTaskBeanId ?? 'task-1',
+        epicBeanId: overrides.epicBeanId ?? 'epic-a',
+        fleetMilestoneBeanId: MS,
+        paneId: overrides.paneId ?? 'w1:p1',
+        projectKey: PK,
+        status: overrides.status ?? 'conflict',
+        workspaceId: overrides.workspaceId ?? 'ws-a',
+        worktreePath: overrides.worktreePath ?? '/wt/epic-a',
+      })
+    }
+
+    function deps() {
+      return {
+        createPane() {
+          createdPanes++
+          return `w1:p${createdPanes + 10}`
+        },
+        createWorktree() {
+          createdWorktrees++
+          return {path: '/wt/epic-a-new', workspaceId: 'ws-new'}
+        },
+        openWorktree() {
+          openedWorktrees++
+          return {path: '/wt/epic-a', workspaceId: 'ws-a'}
+        },
+        paneExists(id: string) {
+          return paneAlive && id === 'w1:p1'
+        },
+        worktreeExists() {
+          return worktreeAlive
+        },
+      }
+    }
+
+    beforeEach(() => {
+      db = openDb(':memory:')
+      applySchema(db)
+      ensureProject(db, {beansPath: '/b', companyPath: null, configPath: '/c', projectKey: PK})
+      registerFleet(db, FLEET_ROW)
+      worktreeAlive = true
+      paneAlive = true
+      createdPanes = 0
+      createdWorktrees = 0
+      openedWorktrees = 0
+    })
+
+    afterEach(() => {
+      db.close()
+    })
+
+    it('reuses existing worktree + pane, clears task, sets active', () => {
+      seedLane()
+
+      const res = resetLane(db, getLane(db, 'epic-a')!, FLEET_ROW, deps())
+
+      expect(res.worktreeCreated).to.equal(false)
+      expect(res.paneCreated).to.equal(false)
+      expect(createdWorktrees).to.equal(0)
+      expect(createdPanes).to.equal(0)
+      const lane = getLane(db, 'epic-a')!
+      expect(lane.status).to.equal('active')
+      expect(lane.currentTaskBeanId).to.equal(null)
+    })
+
+    it('recreates worktree when gone (create path)', () => {
+      worktreeAlive = false
+      seedLane()
+
+      const res = resetLane(db, getLane(db, 'epic-a')!, FLEET_ROW, deps())
+
+      expect(res.worktreeCreated).to.equal(true)
+      expect(createdWorktrees).to.equal(1)
+      const lane = getLane(db, 'epic-a')!
+      expect(lane.status).to.equal('active')
+      expect(lane.worktreePath).to.equal('/wt/epic-a-new')
+    })
+
+    it('falls back to openWorktree when create reports already exists', () => {
+      worktreeAlive = false
+      seedLane()
+
+      const res = resetLane(db, getLane(db, 'epic-a')!, FLEET_ROW, {
+        ...deps(),
+        createWorktree() {
+          createdWorktrees++
+          throw new Error('branch already exists')
+        },
+      })
+
+      expect(res.worktreeCreated).to.equal(true)
+      expect(createdWorktrees).to.equal(1)
+      expect(openedWorktrees).to.equal(1)
+      const lane = getLane(db, 'epic-a')!
+      expect(lane.worktreePath).to.equal('/wt/epic-a')
+    })
+
+    it('creates new pane when pane is dead', () => {
+      paneAlive = false
+      seedLane()
+
+      const res = resetLane(db, getLane(db, 'epic-a')!, FLEET_ROW, deps())
+
+      expect(res.paneCreated).to.equal(true)
+      expect(createdPanes).to.equal(1)
+      const lane = getLane(db, 'epic-a')!
+      expect(lane.paneId).to.equal('w1:p11')
+    })
+
+    it('creates pane when paneId is null', () => {
+      seedLane({paneId: ''})
+
+      const res = resetLane(db, getLane(db, 'epic-a')!, FLEET_ROW, deps())
+
+      expect(res.paneCreated).to.equal(true)
+      expect(createdPanes).to.equal(1)
     })
   })
 })

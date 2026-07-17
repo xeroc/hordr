@@ -2,13 +2,16 @@
 import type {Config} from '@oclif/core'
 
 import {expect} from 'chai'
-import {mkdtempSync, rmSync, writeFileSync} from 'node:fs'
+import {mkdirSync, mkdtempSync, rmSync, writeFileSync} from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
 import {_resetShell as _resetBeansShell, _setShellForTesting as _setBeansShell} from '../../../src/beans/client.js'
 import FleetCreate from '../../../src/commands/fleet/create.js'
-import {_setEnsureDaemonForTesting} from '../../../src/daemon/ensure.js'
+import {
+  _resetShell as _resetDispatchShell,
+  _setShellForTesting as _setDispatchShell,
+} from '../../../src/dispatch/dispatch.js'
 import {_resetShell as _resetWtShell, _setShellForTesting as _setWtShell} from '../../../src/herdr/worktree.js'
 import {_resetGitRunner, _setGitRunnerForTesting, type GitRunner} from '../../../src/runtime.js'
 import {openFleetDb} from '../../../src/storage/db.js'
@@ -79,35 +82,41 @@ const TASK_BEAN = {...MILESTONE_BEAN, id: 'hordr-t1', type: 'task'}
 describe('commands/fleet/create', () => {
   let configDir: string
   let dbFile: string
+  let lockFile: string
   let origCwd: string
   let origDb: string | undefined
+  let origLock: string | undefined
   let gitCalls: Array<{args: string[]; cwd: string}>
-  let daemonCalls: number
   let beanType: string
 
   beforeEach(() => {
     configDir = mkdtempSync(path.join(os.tmpdir(), 'hordr-fc-cfg-'))
     writeFileSync(path.join(configDir, '.beans.yml'), YAML)
     dbFile = path.join(configDir, 'hordr.db')
+    lockFile = path.join(configDir, 'fleet.lock')
     origDb = process.env.HORDR_DB
     process.env.HORDR_DB = dbFile
+    origLock = process.env.HORDR_LOCK
+    process.env.HORDR_LOCK = lockFile
     origCwd = process.cwd()
     process.chdir(configDir)
     gitCalls = []
-    daemonCalls = 0
     beanType = 'milestone'
     _setGitRunnerForTesting(((args, opts): void => {
       gitCalls.push({args, cwd: opts.cwd})
     }) as GitRunner)
     _setProjectKeyResolverForTesting(() => 'pk-test')
-    _setEnsureDaemonForTesting(async () => {
-      daemonCalls++
-      return {started: true}
-    })
     _setBeansShell(() => JSON.stringify({...MILESTONE_BEAN, type: beanType}))
+    // The check pass calls dispatch.ts's own beans seam (fetchEpics etc).
+    // Mock it to report an epic-less milestone so scanFleet is a clean no-op.
+    _setDispatchShell(() => JSON.stringify({bean: {children: []}}))
     _setWtShell((args) => {
       if (args[0] === 'worktree' && args[1] === 'create') {
-        return JSON.stringify({result: {workspace: {workspace_id: 'w-ms'}, worktree: {path: configDir + '/ms-wt'}}})
+        // Real herdr creates the worktree dir; the mock must too, or the check
+        // pass quarantines the fleet (worktree-gone → broken).
+        const wtPath = configDir + '/ms-wt'
+        mkdirSync(wtPath, {recursive: true})
+        return JSON.stringify({result: {workspace: {workspace_id: 'w-ms'}, worktree: {path: wtPath}}})
       }
 
       return '{}'
@@ -118,22 +127,23 @@ describe('commands/fleet/create', () => {
     process.chdir(origCwd)
     if (origDb === undefined) delete process.env.HORDR_DB
     else process.env.HORDR_DB = origDb
+    if (origLock === undefined) delete process.env.HORDR_LOCK
+    else process.env.HORDR_LOCK = origLock
     rmSync(configDir, {force: true, recursive: true})
     _resetGitRunner()
     _setProjectKeyResolverForTesting(null)
-    _setEnsureDaemonForTesting(null)
     _resetBeansShell()
+    _resetDispatchShell()
     _resetWtShell()
   })
 
-  it('creates ms branch, registers fleet, ensures daemon', async () => {
+  it('creates ms branch, registers the fleet active, then runs one check pass', async () => {
     const res = await invoke(['hordr-ms1'])
 
     expect(res.error, res.error?.message).to.be.undefined
     expect(res.stdout).to.match(/fleet hordr-ms1 created on hordr-ms1/)
 
     expect(gitCalls).to.have.length(0) // no git calls — herdr creates branch + worktree
-    expect(daemonCalls).to.equal(1)
 
     const db = openFleetDb()
     try {
@@ -148,19 +158,17 @@ describe('commands/fleet/create', () => {
     }
   })
 
-  it('--json emits milestone, branch, daemonStarted, projectKey', async () => {
+  it('--json emits milestone, branch, projectKey', async () => {
     const res = await invoke(['hordr-ms1', '--json'])
 
     expect(res.error, res.error?.message).to.be.undefined
     const parsed = JSON.parse(res.stdout.trim()) as {
       branch: string
-      daemonStarted: boolean
       milestone: string
       projectKey: string
     }
     expect(parsed).to.deep.equal({
       branch: 'hordr-ms1',
-      daemonStarted: true,
       milestone: 'hordr-ms1',
       projectKey: 'pk-test',
     })

@@ -1,10 +1,10 @@
-import {Command} from '@oclif/core'
-import {readFileSync} from 'node:fs'
-import {dirname, join} from 'node:path'
-import {fileURLToPath} from 'node:url'
+import { Command } from '@oclif/core'
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 const THIS_DIR = dirname(fileURLToPath(import.meta.url))
-const SKILL_PATH = join(THIS_DIR, '..', '..', 'agents', 'skills', 'hordr', 'SKILL.md')
+const SKILL_PATH = join(THIS_DIR, '..', '..', '.agents', 'skills', 'hordr', 'SKILL.md')
 
 export default class Prime extends Command {
   static description = 'Output a condensed guide for agents working within hordr. Run after `beans prime`.'

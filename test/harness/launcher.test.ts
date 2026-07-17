@@ -9,8 +9,13 @@ import {
   type ShellOptions,
 } from '../../src/beans/client.js'
 import {
+  _resetShell as _resetDispatchShell,
+  _setShellForTesting as _setDispatchShell,
+} from '../../src/dispatch/dispatch.js'
+import {
   _resetWhich,
   _setWhichForTesting,
+  buildHarnessCommand,
   buildPrompt,
   HarnessError,
   launchAgent,
@@ -30,7 +35,6 @@ const makeConfig = (agents: Record<string, unknown> = {}) =>
     primary_branch: 'develop',
     routing: {default_workflow: 'implement'},
     workflows: {},
-    worktree_branch_prefix: 'bean/',
   }) as Parameters<typeof resolveHarness>[1]
 
 // Track every herdr-pane invocation: {cmd: [...subcommand], args: [...rest]}
@@ -100,12 +104,14 @@ describe('harness/launcher', () => {
     _setPaneShell(mockPane)
     _setBeansShell(mockBeans)
     _setBeansPresentForTesting(true)
+    _setDispatchShell(() => JSON.stringify({bean: {parent: null}}))
   })
 
   afterEach(() => {
     _resetPaneShell()
     _resetWhich()
     _resetBeansShell()
+    _resetDispatchShell()
     _setBeansPresentForTesting(true)
   })
 
@@ -138,6 +144,34 @@ describe('harness/launcher', () => {
       expect(prompt).to.not.contain('curl')
       expect(prompt).to.not.contain('--unix-socket')
       expect(prompt).to.not.contain('/complete')
+    })
+
+    it('renders ancestor chain as context when provided', () => {
+      const prompt = buildPrompt('implementer', makeConfig(), 'task-1', 'Task body', [
+        {body: 'Epic body', id: 'ep-1', title: 'My Epic', type: 'epic'},
+      ])
+      expect(prompt).to.contain('Epic body')
+      expect(prompt).to.contain('My Epic')
+      expect(prompt).to.contain('Task body')
+      // Ancestor before leaf
+      expect(prompt.indexOf('Epic body')).to.be.lessThan(prompt.indexOf('Task body'))
+    })
+  })
+
+  describe('buildHarnessCommand', () => {
+    it('opencode: run --interactive with shell-quoted prompt', () => {
+      const cmd = buildHarnessCommand('opencode', 'do the thing')
+      expect(cmd).to.equal("opencode run --interactive 'do the thing'")
+    })
+
+    it('omp: includes @AGENTS.md (omp does not auto-load it)', () => {
+      const cmd = buildHarnessCommand('omp', 'do the thing')
+      expect(cmd).to.equal("omp @AGENTS.md 'do the thing'")
+    })
+
+    it('unknown harness defaults to run --interactive (backward compat)', () => {
+      const cmd = buildHarnessCommand('claude', 'review it')
+      expect(cmd).to.equal("claude run --interactive 'review it'")
     })
   })
 

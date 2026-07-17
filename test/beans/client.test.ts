@@ -9,6 +9,7 @@ import {
   getBean,
   getBody,
   markBeanCompleted,
+  resetBeanToTodo,
   type ShellFn,
   type ShellOptions,
 } from '../../src/beans/client.js'
@@ -117,5 +118,21 @@ describe('beans/client', () => {
     }
 
     expect(() => markBeanCompleted('hordr-9999')).to.throw(BeansError, /hordr-9999/)
+  })
+
+  it('resetBeanToTodo runs `beans update <id> -s todo` with the cwd (crash recovery)', () => {
+    responder = () => ''
+    resetBeanToTodo('hordr-1001', {cwd: '/wt/hordr-1001'})
+    expect(calls).to.have.length(1)
+    expect(calls[0]!.args).to.deep.equal(['update', 'hordr-1001', '-s', 'todo'])
+    expect(calls[0]!.opts.cwd).to.equal('/wt/hordr-1001')
+  })
+
+  it('resetBeanToTodo wraps a non-zero exit as BeansError', () => {
+    responder = () => {
+      throw Object.assign(new Error('Command failed'), {stderr: 'no such bean'})
+    }
+
+    expect(() => resetBeanToTodo('hordr-9999')).to.throw(BeansError, /hordr-9999/)
   })
 })

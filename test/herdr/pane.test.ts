@@ -4,8 +4,10 @@ import {expect} from 'chai'
 import {
   _resetShell,
   _setShellForTesting,
+  agentActiveInPane,
   createTab,
   HerdrError,
+  paneExists,
   paneLabel,
   runInPane,
   type ShellFn,
@@ -17,6 +19,10 @@ const mock: ShellFn = (args) => {
   calls.push(args)
   if (responder) return responder(args)
   return ''
+}
+
+function paneListResponse(panes: Array<Record<string, unknown>>): string {
+  return JSON.stringify({id: 'cli:pane:list', result: {panes, type: 'pane_list'}})
 }
 
 describe('herdr/pane', () => {
@@ -52,5 +58,74 @@ describe('herdr/pane', () => {
   it('throws HerdrError on JSON error envelope', () => {
     responder = () => JSON.stringify({error: {code: 'bad', message: 'boom'}})
     expect(() => createTab({cwd: '/', workspaceId: 'x'})).to.throw(HerdrError)
+  })
+
+  // --- paneExists ---
+
+  describe('paneExists', () => {
+    it('returns true when pane is in the list', () => {
+      responder = () => paneListResponse([{pane_id: 'w1:p1'}, {pane_id: 'w1:p2'}])
+      expect(paneExists('w1:p1')).to.be.true
+    })
+
+    it('returns false when pane is NOT in the list', () => {
+      responder = () => paneListResponse([{pane_id: 'w1:p1'}])
+      expect(paneExists('w9:p9')).to.be.false
+    })
+
+    it('returns false when herdr errors (broken API must not mask dead agent)', () => {
+      responder = () => {
+        throw new Error('herdr unreachable')
+      }
+
+      expect(paneExists('w1:p1')).to.be.false
+    })
+
+    it('returns false for empty pane list', () => {
+      responder = () => paneListResponse([])
+      expect(paneExists('w1:p1')).to.be.false
+    })
+
+    it('parses herdr result wrapper (data.result.panes, not data.panes)', () => {
+      responder = () => paneListResponse([{pane_id: 'w1:p1'}])
+      expect(paneExists('w1:p1')).to.be.true
+    })
+  })
+
+  // --- agentActiveInPane ---
+
+  describe('agentActiveInPane', () => {
+    it('returns true when pane has an agent registered', () => {
+      responder = () => paneListResponse([{agent: 'opencode', agent_status: 'working', pane_id: 'w1:p1'}])
+      expect(agentActiveInPane('w1:p1')).to.be.true
+    })
+
+    it('returns false when pane exists but no agent (agent_status: unknown)', () => {
+      responder = () => paneListResponse([{agent_status: 'unknown', pane_id: 'w1:p1'}])
+      expect(agentActiveInPane('w1:p1')).to.be.false
+    })
+
+    it('returns false when pane does not exist', () => {
+      responder = () => paneListResponse([{agent: 'opencode', pane_id: 'w1:p1'}])
+      expect(agentActiveInPane('w9:p9')).to.be.false
+    })
+
+    it('returns false when herdr errors', () => {
+      responder = () => {
+        throw new Error('herdr unreachable')
+      }
+
+      expect(agentActiveInPane('w1:p1')).to.be.false
+    })
+
+    it('distinguishes agent-present from agent-absent in the same list', () => {
+      responder = () =>
+        paneListResponse([
+          {agent_status: 'unknown', pane_id: 'w1:p1'},
+          {agent: 'opencode', agent_status: 'working', pane_id: 'w1:p2'},
+        ])
+      expect(agentActiveInPane('w1:p1')).to.be.false
+      expect(agentActiveInPane('w1:p2')).to.be.true
+    })
   })
 })

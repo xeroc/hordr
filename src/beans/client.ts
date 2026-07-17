@@ -145,3 +145,13 @@ export function markBeanCompleted(beanId: string, opts?: {cwd?: string}): void {
   assertBeansOnPath()
   runBeans(['update', beanId, '-s', 'completed'], beanId, opts?.cwd)
 }
+
+/**
+ * Reset a bean to todo (crash recovery: agent gone, task stuck in-progress).
+ * The daemon calls this when heal detects the agent died without completing
+ * or signalling — the task goes back to the ready queue for re-dispatch.
+ */
+export function resetBeanToTodo(beanId: string, opts?: {cwd?: string}): void {
+  assertBeansOnPath()
+  runBeans(['update', beanId, '-s', 'todo'], beanId, opts?.cwd)
+}

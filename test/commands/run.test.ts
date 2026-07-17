@@ -1,25 +1,25 @@
 /* eslint-disable camelcase -- SAMPLE_BEAN mirrors the on-disk beans JSON contract */
-import type {Config} from '@oclif/core'
+import type { Config } from '@oclif/core'
 
-import {expect} from 'chai'
-import {mkdtempSync, rmSync, writeFileSync} from 'node:fs'
+import { expect } from 'chai'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import {_resetShell as _resetBeansShell, _setShellForTesting as _setBeansShell} from '../../src/beans/client.js'
+import { _resetShell as _resetBeansShell, _setShellForTesting as _setBeansShell } from '../../src/beans/client.js'
 import Run from '../../src/commands/run.js'
-import {_setDepsForTesting, type HordrDeps} from '../../src/runtime.js'
+import { _setDepsForTesting, type HordrDeps } from '../../src/runtime.js'
 
 const stubConfig = {
   bin: 'hordr',
   name: 'hordr',
-  runHook: async () => ({failures: [], successes: []}),
+  runHook: async () => ({ failures: [], successes: [] }),
   topicSeparator: ' ',
   version: '0.0.0',
 } as unknown as Config
 
 interface RunResult {
-  error?: Error & {oclif?: {exit?: number}}
+  error?: Error & { oclif?: { exit?: number } }
   stderr: string
   stdout: string
 }
@@ -42,9 +42,9 @@ async function invoke(args: string[]): Promise<RunResult> {
 
   try {
     await cmd.run()
-    return {stderr: err.join(''), stdout: out.join('')}
+    return { stderr: err.join(''), stdout: out.join('') }
   } catch (error) {
-    return {error: error as Error & {oclif?: {exit?: number}}, stderr: err.join(''), stdout: out.join('')}
+    return { error: error as Error & { oclif?: { exit?: number } }, stderr: err.join(''), stdout: out.join('') }
   } finally {
     process.stdout.write = origOut
     process.stderr.write = origErr
@@ -80,19 +80,19 @@ const SAMPLE_BEAN = {
 describe('commands/run (minimal, hordr-zn3f)', () => {
   let configDir: string
   let origCwd: string
-  let depsCalls: Array<{beanId: string; cwd: string; role: string; workspaceId: string}>
-  let wtCalls: Array<{beanId: string; opts?: {base?: string}}>
+  let depsCalls: Array<{ beanId: string; cwd: string; role: string; workspaceId: string }>
+  let wtCalls: Array<{ beanId: string; opts?: { base?: string } }>
 
   const stubDeps: HordrDeps = {
     createWorktree(beanId, opts) {
-      wtCalls.push({beanId, opts})
-      return {branch: `bean/${beanId}`, path: `/wt/${beanId}`, workspaceId: 'wX'}
+      wtCalls.push({ beanId, opts })
+      return { branch: `${beanId}`, path: `/wt/${beanId}`, workspaceId: 'wX' }
     },
     launchAgent(opts) {
       depsCalls.push(opts)
-      return {paneLabel: 'wX:pNEW'}
+      return { paneLabel: 'wX:pNEW' }
     },
-    removeWorktree() {},
+    removeWorktree() { },
   }
 
   beforeEach(() => {
@@ -108,7 +108,7 @@ describe('commands/run (minimal, hordr-zn3f)', () => {
 
   afterEach(() => {
     process.chdir(origCwd)
-    rmSync(configDir, {force: true, recursive: true})
+    rmSync(configDir, { force: true, recursive: true })
     _setDepsForTesting(null)
     _resetBeansShell()
   })
@@ -117,11 +117,11 @@ describe('commands/run (minimal, hordr-zn3f)', () => {
     const res = await invoke(['hordr-1234'])
 
     expect(res.error, res.error?.message).to.be.undefined
-    expect(res.stdout).to.match(/started hordr-1234 in bean\/hordr-1234/)
+    expect(res.stdout).to.match(/started hordr-1234 in hordr-1234/)
     expect(res.stdout).to.match(/role: implementer/)
 
     expect(wtCalls).to.have.length(1)
-    expect(wtCalls[0]).to.deep.equal({beanId: 'hordr-1234', opts: undefined})
+    expect(wtCalls[0]).to.deep.equal({ beanId: 'hordr-1234', opts: undefined })
     expect(depsCalls).to.have.length(1)
     expect(depsCalls[0]).to.deep.equal({
       beanId: 'hordr-1234',
@@ -142,7 +142,7 @@ describe('commands/run (minimal, hordr-zn3f)', () => {
     const res = await invoke(['hordr-1234', '--base', 'main'])
 
     expect(res.error, res.error?.message).to.be.undefined
-    expect(wtCalls[0]?.opts).to.deep.equal({base: 'main'})
+    expect(wtCalls[0]?.opts).to.deep.equal({ base: 'main' })
   })
 
   it('--json emits bean, branch, pane, role, workspace', async () => {
@@ -158,7 +158,7 @@ describe('commands/run (minimal, hordr-zn3f)', () => {
     }
     expect(parsed).to.deep.equal({
       bean: 'hordr-1234',
-      branch: 'bean/hordr-1234',
+      branch: 'hordr-1234',
       pane: 'wX:pNEW',
       role: 'implementer',
       workspace: 'wX',

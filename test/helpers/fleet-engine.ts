@@ -52,14 +52,26 @@ export interface MockFleetData {
 }
 
 export interface MockBehavior {
+  /** Whether branch deletion throws (default false). Tests graceful degradation. */
+  branchDeleteFails?: boolean
   /** Default bean status for unknown beans (default 'in-progress'). */
   defaultBeanStatus?: string
+  /** Dirty non-beans paths returned by the worktreeDirtyPaths seam (default []). */
+  dirtyPaths?: string[]
   /** Whether git merges produce conflicts (default false). */
   mergeConflict?: boolean
   /** Whether panes are alive (default true). */
   paneAlive?: boolean
+  /**
+   * Whether the lane worktree is clean (no uncommitted non-beans changes).
+   * Default true — the normal completion path. Set false to simulate an
+   * agent that flipped bean status without committing its work.
+   */
+  worktreeClean?: boolean
   /** Whether worktree paths exist on disk (default true). */
   worktreeExists?: boolean
+  /** Whether worktree removal throws (default false). Tests graceful degradation. */
+  worktreeRemoveFails?: boolean
 }
 
 // --- records ---
@@ -72,6 +84,8 @@ export interface FleetEngineRecords {
   gitCommits: string[]
   markedCompleted: string[]
   merge: Array<{cwd: string; source: string; target: string}>
+  /** Lane branches deleted after a successful epic→ms merge (hordr-6vf0). */
+  removedBranches: string[]
   removedWorktrees: string[]
   spawn: Array<{harness: string; paneId: string; prompt: string}>
 }
@@ -84,10 +98,14 @@ export function createTestFleetEngine(opts: {behavior?: MockBehavior; config: Ho
 } {
   const data = opts.data ?? {}
   const behavior: Required<MockBehavior> = {
+    branchDeleteFails: opts.behavior?.branchDeleteFails ?? false,
     defaultBeanStatus: opts.behavior?.defaultBeanStatus ?? 'in-progress',
+    dirtyPaths: opts.behavior?.dirtyPaths ?? [],
     mergeConflict: opts.behavior?.mergeConflict ?? false,
     paneAlive: opts.behavior?.paneAlive ?? true,
+    worktreeClean: opts.behavior?.worktreeClean ?? true,
     worktreeExists: opts.behavior?.worktreeExists ?? true,
+    worktreeRemoveFails: opts.behavior?.worktreeRemoveFails ?? false,
   }
 
   const records: FleetEngineRecords = {
@@ -97,6 +115,7 @@ export function createTestFleetEngine(opts: {behavior?: MockBehavior; config: Ho
     gitCommits: [],
     markedCompleted: [],
     merge: [],
+    removedBranches: [],
     removedWorktrees: [],
     spawn: [],
   }
@@ -154,7 +173,13 @@ export function createTestFleetEngine(opts: {behavior?: MockBehavior; config: Ho
   }
 
   const removeWorktree = (branch: string): void => {
+    if (behavior.worktreeRemoveFails) throw new Error(`mock: worktree remove failed for ${branch}`)
     records.removedWorktrees.push(branch)
+  }
+
+  const removeBranch = (branch: string): void => {
+    if (behavior.branchDeleteFails) throw new Error(`mock: branch delete failed for ${branch}`)
+    records.removedBranches.push(branch)
   }
 
   const commitBeans = (worktreePath: string): void => {
@@ -172,9 +197,11 @@ export function createTestFleetEngine(opts: {behavior?: MockBehavior; config: Ho
       createPane,
       createWorktree,
       epicStatus,
+      fetchAncestorChain: () => [],
       fetchAncestry,
       fetchBean,
       fetchChildStatuses: (beanId: string) => data.childStatuses?.[beanId] ?? [],
+      fetchDependencyStatus: () => ({blockers: [], parentBlockers: [], siblings: []}),
       fetchDispatchable,
       fetchEpics: () => data.epics ?? [],
       // An epic has ready work if it appears in the dispatchable map (even with
@@ -183,8 +210,11 @@ export function createTestFleetEngine(opts: {behavior?: MockBehavior; config: Ho
       markCompleted,
       mergeBranch,
       paneAlive: () => behavior.paneAlive,
+      removeBranch,
       removeWorktree,
       spawn: spawnFn,
+      worktreeClean: () => behavior.worktreeClean,
+      worktreeDirtyPaths: () => behavior.dirtyPaths,
       worktreeExists: () => behavior.worktreeExists,
     }
   }
@@ -196,17 +226,22 @@ export function createTestFleetEngine(opts: {behavior?: MockBehavior; config: Ho
     commitBeans,
     createPane,
     epicStatus,
+    fetchAncestorChain: () => [],
     fetchAncestry,
     fetchBean,
+    fetchDependencyStatus: () => ({blockers: [], parentBlockers: [], siblings: []}),
     fetchDispatchable,
     markCompleted,
     mergeBranch,
     paneAlive: () => behavior.paneAlive,
+    removeBranch,
     removeWorktree,
     setLaneCurrentTask: (loc: LaneLoc, taskId: null | string) => setLaneCurrentTask(db, loc, taskId),
     setLanePane: (loc: LaneLoc, paneId: string) => setLanePane(db, loc, paneId),
     spawn: spawnFn,
     updateLaneStatus: (loc: LaneLoc, status: string) => updateLaneStatus(db, loc, status),
+    worktreeClean: () => behavior.worktreeClean,
+    worktreeDirtyPaths: () => behavior.dirtyPaths,
   })
 
   // --- FleetEngine ---
@@ -227,6 +262,10 @@ export function createTestFleetEngine(opts: {behavior?: MockBehavior; config: Ho
         buildAdvanceDeps(db),
       )
       return {action: result.action, taskId: result.taskId}
+    },
+    // Stub — continuation logic is tested directly in continue.test.ts.
+    continueTask() {
+      return {next: null, reason: 'test stub'}
     },
     scanFleet(db: Database.Database) {
       return tick(db, (cwd) => buildTickDeps(cwd))

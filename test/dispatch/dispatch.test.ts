@@ -4,7 +4,9 @@ import {
   _resetShell,
   _setShellForTesting,
   type DispatchableBean,
+  fetchAncestorChain,
   fetchAncestry,
+  fetchDependencyStatus,
   fetchEpics,
   getDispatchable,
   listDrafts,
@@ -309,6 +311,76 @@ describe('dispatch/dispatch', () => {
         throw new Error(`unexpected: ${args.join(' ')}`)
       })
       expect(fetchAncestry('task-1')).to.deep.equal([{descendantsAllCompleted: false, id: 'epic-1', status: 'todo'}])
+    })
+
+    it('fetchAncestorChain walks root→leaf with body+title+type', () => {
+      _setShellForTesting((args) => {
+        if (args.includes('query')) {
+          return JSON.stringify({
+            bean: {
+              parent: {
+                body: 'Rewrite the card.',
+                id: 'feat-1',
+                parent: {
+                  body: 'Rich cards epic.',
+                  id: 'epic-1',
+                  parent: {
+                    body: 'Dashboard v2 design decisions.',
+                    id: 'ms-1',
+                    title: 'Dashboard v2',
+                    type: 'milestone',
+                  },
+                  title: 'Rich dashboard cards',
+                  type: 'epic',
+                },
+                title: 'Rewrite ComposablePolicyCard',
+                type: 'feature',
+              },
+            },
+          })
+        }
+
+        throw new Error(`unexpected: ${args.join(' ')}`)
+      })
+
+      const chain = fetchAncestorChain('task-1')
+      expect(chain).to.deep.equal([
+        {body: 'Dashboard v2 design decisions.', id: 'ms-1', title: 'Dashboard v2', type: 'milestone'},
+        {body: 'Rich cards epic.', id: 'epic-1', title: 'Rich dashboard cards', type: 'epic'},
+        {body: 'Rewrite the card.', id: 'feat-1', title: 'Rewrite ComposablePolicyCard', type: 'feature'},
+      ])
+    })
+
+    it('fetchAncestorChain returns empty when bean has no parent', () => {
+      _setShellForTesting((args) => {
+        if (args.includes('query')) return JSON.stringify({bean: {parent: null}})
+        throw new Error(`unexpected: ${args.join(' ')}`)
+      })
+      expect(fetchAncestorChain('solo-1')).to.deep.equal([])
+    })
+
+    it('fetchDependencyStatus returns blockers, siblings, and parent blockers', () => {
+      _setShellForTesting((args) => {
+        if (args.includes('query')) {
+          return JSON.stringify({bean: {blockedBy: [{id: 'epic-A', status: 'todo', title: 'Shared module'}], parent: {blockedBy: [{id: 'epic-A', status: 'todo', title: 'Shared module'}], children: [{id: 'task-1', status: 'todo', title: 'My task', type: 'task'}, {id: 'task-2', status: 'todo', title: 'Sibling resolver', type: 'task'}, {id: 'task-3', status: 'completed', title: 'Done sibling', type: 'task'}], id: 'feat-1'}}})
+        }
+
+        throw new Error(`unexpected: ${args.join(' ')}`)
+      })
+      const deps = fetchDependencyStatus('task-1')
+      expect(deps.blockers).to.deep.equal([{id: 'epic-A', status: 'todo', title: 'Shared module'}])
+      expect(deps.parentBlockers).to.deep.equal([{id: 'epic-A', status: 'todo', title: 'Shared module'}])
+      expect(deps.siblings.map((s) => s.id)).to.deep.equal(['task-2', 'task-3'])
+    })
+
+    it('fetchDependencyStatus handles parentless beans', () => {
+      _setShellForTesting((args) => {
+        if (args.includes('query')) return JSON.stringify({bean: {blockedBy: [], parent: null}})
+        throw new Error(`unexpected: ${args.join(' ')}`)
+      })
+      const deps = fetchDependencyStatus('solo-1')
+      expect(deps.blockers).to.deep.equal([])
+      expect(deps.siblings).to.deep.equal([])
     })
   })
 })
