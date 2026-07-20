@@ -22,6 +22,11 @@ src/
 ├── company.ts         Agent Companies manifest parsing (AGENTS/PROJECT/SKILL/COMPANY.md)
 ├── dispatch/          the fleet dispatch core — pure functions with injected deps:
 │   ├── engine.ts      createFleetEngine: scanFleet + advanceLane + continueTask (production)
+│                      Top-level helpers: rollupSweep, rollupAncestors, mergeEpicLane,
+│                      maybeCompleteMilestone (milestone auto-complete, hordr-45f3),
+│                      refreshLaneIfStale (cross-epic blocker ff-merge, hordr-lcsi).
+│                      scanFleet loop owns: lane scan, stale-done cleanup (hordr-sq00),
+│                      worktree recreation, milestone completion sweep.
 │   ├── dispatch.ts    getDispatchable (subtree ∩ --ready, priority sort)
 │   ├── role.ts        resolveRole (bean's assigned: → persona + harness)
 │   ├── spawn.ts       buildInvocationPrompt + spawnInvocation
@@ -35,8 +40,8 @@ src/
 │   ├── pane-heal.ts   ensureLanePane (recreate/reattach dead panes)
 │   ├── scan.ts        scanForNewLanes (lazy worktree creation)
 │   ├── merge.ts       mergeBranch + mergeMilestoneToPrimary (conflict detection)
-│   ├── advance.ts     (legacy) old per-lane step — only test/helpers/fleet-engine.ts imports it
-│   └── tick.ts        (legacy) old broker scan loop — only test/helpers/fleet-engine.ts imports it
+│   ├── advance.ts     ⚠ LEGACY — old per-lane step. Only test/helpers/fleet-engine.ts imports it. Candidate for deletion (see note below).
+│   └── tick.ts        ⚠ LEGACY — old broker scan loop. Only test/helpers/fleet-engine.ts imports it. Candidate for deletion (see note below).
 ├── fleet/             lifecycle.ts: createFleet, describeFleet, finishFleet, abortFleet, resetLane
 ├── harness/           buildPrompt, buildHarnessCommand, resolveHarness, launchAgent, shellQuote
 ├── herdr/             pane + worktree wrappers (shells out to herdr CLI)
@@ -57,6 +62,23 @@ and the command classes wire the real I/O. Follow this pattern for new modules.
 > When adding new dispatch logic, modify `engine.ts` — and prefer moving the
 > orphaned tests over to the production engine rather than extending the
 > legacy pair.
+>
+> **Status (Jul 2026):** engine.ts is now feature-complete vs tick.ts. The
+> three behaviors that previously lived only in tick.ts were ported in
+> hordr-sq00 (stale-done lane cleanup), hordr-45f3 (milestone auto-complete),
+> and hordr-lcsi (cross-epic blocker refresh). The legacy pair is now strictly
+> redundant as a _reference_ implementation. Their only remaining value is
+> backing 19 tests via `test/helpers/fleet-engine.ts` (TestFleetEngine mock).
+> **Recommended cleanup:** delete `tick.ts`, `advance.ts`, and the
+> `TestFleetEngine` helper in one PR; migrate or delete the 19 tests
+> (most are redundant with the production-engine tests in
+> `test/dispatch/engine.test.ts`). This is a mechanical refactor, not a
+> behavior change — both implementations call the same shared helpers
+> (`rollup.ts`, `scan.ts`, `heal.ts`, `dispatch.ts`).
+>
+> **Bug class to remember:** when a future port moves logic between modules,
+> diff "what does the old place do that the new place doesn't" — all three
+> 2026-07 bugs were missing ports, found by exactly that diff.
 
 ## Beans — Structure and Planning
 
