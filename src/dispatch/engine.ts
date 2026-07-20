@@ -226,6 +226,56 @@ function maybeCompleteMilestone(fleet: FleetRow): void {
   commitBeans(fleet.worktreePath)
 }
 
+/**
+ * Cross-epic blocker refresh (hordr-lcsi). An idle lane can be starved by
+ * stale `.beans/` state: a `--blocked-by` task in another epic completed
+ * and merged into `ms/<id>`, but this lane's worktree never pulled that
+ * merge in. Detection: a task is ready from the milestone worktree's beans
+ * but not from this lane's. If so, fast-forward merge `ms/<id>` into the
+ * lane and let the caller re-read dispatchable.
+ *
+ * Precondition guard: only runs the merge when `getDispatchable(epic, ms)`
+ * returns non-empty — i.e. there IS upstream-ready work. No merge ever
+ * fires just because the lane happens to be idle.
+ *
+ * Returns:
+ *   'refreshed'   — ff-merge succeeded; caller must re-read dispatchable
+ *   'still-empty' — ff-merge succeeded but the lane sees no work (rare; role/schema mismatch)
+ *   'diverged'    — ff-only refused (lane has diverged from ms); needs human
+ *   'no-work'     — nothing ready upstream either; lane is genuinely idle
+ */
+function refreshLaneIfStale(fleet: FleetRow, lane: LaneRow): 'diverged' | 'no-work' | 'refreshed' | 'still-empty' {
+  const msReady = getDispatchable(lane.epicBeanId, {cwd: fleet.worktreePath})
+  if (msReady.length === 0) return 'no-work'
+
+  logger.info(
+    `lane ${lane.epicBeanId}: ${msReady.length} task(s) ready in ms but not here → ff-merging ${fleet.branch}`,
+  )
+  try {
+    getGitRunner()(['merge', '--ff-only', fleet.branch], {cwd: lane.worktreePath})
+  } catch (error) {
+    logger.warn(
+      `lane ${lane.epicBeanId}: ff-merge of ${fleet.branch} refused (lane diverged) — ` +
+        `manual merge required to pick up cross-epic unblocks. ${(error as Error).message}`,
+    )
+    return 'diverged'
+  }
+
+  commitBeans(lane.worktreePath)
+
+  const refreshed = getDispatchable(lane.epicBeanId, {cwd: lane.worktreePath})
+  if (refreshed.length === 0) {
+    logger.warn(
+      `lane ${lane.epicBeanId}: ff-merge succeeded but no tasks became dispatchable — ` +
+        `possible role resolution issue or schema mismatch`,
+    )
+    return 'still-empty'
+  }
+
+  logger.info(`lane ${lane.epicBeanId}: refresh brought ${refreshed.length} task(s) into readiness`)
+  return 'refreshed'
+}
+
 // --- factory ---
 
 /** Merge an epic's lane into the ms branch, tear down the worktree, go done. */
@@ -305,7 +355,7 @@ export function createFleetEngine(config: HordrConfig): FleetEngine {
 
     // --- idle: dispatch the next task, or merge if epic is done ---
     if (!lane.currentTaskBeanId) {
-      const dispatchable = getDispatchable(lane.epicBeanId, {cwd: beansCwd})
+      let dispatchable = getDispatchable(lane.epicBeanId, {cwd: beansCwd})
       if (dispatchable.length === 0) {
         let epicStat = getBean(lane.epicBeanId, {cwd: beansCwd}).status
         logger.debug(`lane, no dispatchable, epic status=${epicStat}`)
@@ -322,7 +372,24 @@ export function createFleetEngine(config: HordrConfig): FleetEngine {
           return mergeEpicLane(db, fleet, lane)
         }
 
-        return {action: 'idle'}
+        // Cross-epic blocker refresh (hordr-lcsi): the lane is idle but its
+        // epic isn't done. Are tasks ready in the milestone worktree that
+        // aren't ready here? If so, ms advanced past us (likely a cross-epic
+        // --blocked-by dependency just completed and merged). Pull ms in via
+        // fast-forward and re-check. Precondition is the staleness check
+        // itself — only merge when there IS upstream-ready work.
+        const refreshed = refreshLaneIfStale(fleet, lane)
+        if (refreshed === 'no-work') {
+          return {action: 'idle'}
+        }
+
+        if (refreshed === 'diverged' || refreshed === 'still-empty') {
+          return {action: 'idle'}
+        }
+
+        // 'refreshed' → re-read dispatchable from the now-up-to-date worktree.
+        dispatchable = getDispatchable(lane.epicBeanId, {cwd: beansCwd})
+        if (dispatchable.length === 0) return {action: 'idle'}
       }
 
       // Pane might be gone (agent closed it, crash) or the whole workspace died

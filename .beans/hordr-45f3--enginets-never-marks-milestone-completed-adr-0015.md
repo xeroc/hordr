@@ -1,11 +1,11 @@
 ---
 # hordr-45f3
 title: 'engine.ts: never marks milestone completed (ADR-0015 regression)'
-status: in-progress
+status: completed
 type: bug
 priority: high
 created_at: 2026-07-20T07:37:13Z
-updated_at: 2026-07-20T07:37:13Z
+updated_at: 2026-07-20T07:59:13Z
 ---
 
 ## Symptom
@@ -32,3 +32,12 @@ Port the 8-line fleet-completion sweep from `tick.ts:193-205` into `engine.ts:sc
 - [ ] `bun run lint` clean
 - [ ] `bun run typecheck` clean
 - [ ] existing tests still pass
+
+
+## Summary of Changes
+
+- `src/dispatch/engine.ts`: new top-level helper `maybeCompleteMilestone(fleet)` (ports `tick.ts:193-205`), called at the end of each fleet scan. When milestone is not `completed` and every epic child is in terminal status (`completed`/`scrapped`), it calls `markBeanCompleted(ms)` + `commitBeans`.
+- `test/dispatch/engine.test.ts`: new `scanFleet: milestone auto-completion (hordr-45f3, ADR-0015)` describe block. Two tests: positive (all epics completed → `beans update <ms> -s completed` fires) and negative (one epic still todo → no update fires).
+- Also had to update one pre-existing test (`does not let one broken fleet abort scanning of other healthy fleets`) to mock the beans-client shell — the new sweep calls `getBean(ms)` which routes through that seam. Mock returns `status: completed` so the sweep skips.
+
+332/332 tests pass, lint clean (4 pre-existing warnings).

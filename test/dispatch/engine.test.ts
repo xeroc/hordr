@@ -367,4 +367,153 @@ describe('dispatch/engine', () => {
       expect(beansUpdateCalls, 'no update should fire when an epic is still open').to.not.include('ms1')
     })
   })
+
+  describe('scanFleet: cross-epic blocker refresh (hordr-lcsi)', () => {
+    let db: Database.Database
+    let msWt: string
+    let laneWt: string
+    let gitCalls: Array<{args: string[]; cwd: string}>
+
+    beforeEach(() => {
+      db = openDb(':memory:')
+      applySchema(db)
+      ensureProject(db, {beansPath: '/b', companyPath: null, configPath: '/c', projectKey: 'pk1'})
+      msWt = join(tmpdir(), `hordr-xepic-ms-${process.pid}-${Date.now()}`)
+      laneWt = join(tmpdir(), `hordr-xepic-lane-${process.pid}-${Date.now()}`)
+      mkdirSync(msWt, {recursive: true})
+      mkdirSync(laneWt, {recursive: true})
+      registerFleet(db, {
+        branch: 'ms/ms1',
+        createdAt: '2026-07-16T00:00:00Z',
+        milestoneBeanId: 'ms1',
+        projectKey: 'pk1',
+        status: 'active',
+        worktreePath: msWt,
+      })
+      addLane(db, {
+        branch: 'epic-a',
+        createdAt: '2026-07-16T00:00:00Z',
+        currentTaskBeanId: null,
+        epicBeanId: 'epic-a',
+        fleetMilestoneBeanId: 'ms1',
+        paneId: 'p1',
+        projectKey: 'pk1',
+        status: 'active',
+        workspaceId: 'ws1',
+        worktreePath: laneWt,
+      })
+      gitCalls = []
+    })
+
+    afterEach(() => {
+      _resetShell()
+      _resetBeansShell()
+      _resetGitRunner()
+      db.close()
+    })
+
+    /**
+     * Dispatch shell mock — discriminates by cwd so the lane worktree reports
+     * no ready work (stale) while the milestone worktree reports task-a ready.
+     * That diff is the precondition for the cross-epic refresh.
+     *
+     * After the ff-merge call lands, the lane wt is considered refreshed —
+     * subsequent `beans list --ready` from the lane wt also returns task-a.
+     * This mirrors the real behavior (the merge pulls .beans/ forward).
+     */
+    function wireShell(opts: {readyInMs: boolean}): {get mergedCalls(): number} {
+      let mergedCalls = 0
+      // beans/client.ts shell — getBean returns the epic as 'todo' regardless
+      // of cwd (epic status is not affected by the staleness).
+      _setBeansShell(((_cmd: string, args: string[]) => {
+        const id = args[2]
+        return JSON.stringify({
+          body: '',
+          created_at: '',
+          etag: 'e1',
+          id,
+          path: 'p',
+          priority: 'normal',
+          slug: id,
+          status: 'todo',
+          title: id,
+          type: id === 'ms1' ? 'milestone' : 'epic',
+          updated_at: '',
+        })
+      }) as unknown as BeansShellFn)
+
+      // dispatch.ts shell — list --ready / query, discriminates by cwd.
+      _setShellForTesting(((args: string[], opts2?: {cwd?: string}) => {
+        const cwd = opts2?.cwd ?? ''
+        const inLane = cwd.includes('xepic-lane')
+        const laneReady = inLane && mergedCalls > 0
+        if (args[0] === 'list') {
+          // fetchReady: empty in stale lane wt; one ready task in ms wt; and
+          // in lane wt after the ff-merge completes.
+          const showReady = opts.readyInMs && (!inLane || laneReady)
+          return JSON.stringify(
+            showReady ? [{id: 'task-a', priority: 'normal', status: 'todo', title: 'Task A', type: 'task'}] : [],
+          )
+        }
+
+        if (args[0] === 'query') {
+          const q = args[2] ?? ''
+          if (q.includes('children { id status }')) {
+            return JSON.stringify({bean: {children: [{id: 'epic-a', status: 'todo'}]}})
+          }
+
+          return JSON.stringify({
+            bean: {
+              children: [
+                {
+                  children: [{id: 'task-a', priority: 'normal', title: 'Task A', type: 'task'}],
+                  id: 'epic-a',
+                  priority: 'normal',
+                  title: 'Epic A',
+                  type: 'epic',
+                },
+              ],
+            },
+          })
+        }
+
+        throw new Error(`unexpected dispatch call: ${args.join(' ')}`)
+      }) as ShellFn)
+
+      // git runner — record calls + count ff-merges (so the shell mock can
+      // observe the refresh). Default: succeed silently.
+      _setGitRunnerForTesting(((args: string[], opts2: {cwd: string}) => {
+        gitCalls.push({args, cwd: opts2.cwd})
+        if (args[0] === 'merge' && args.includes('--ff-only')) mergedCalls++
+      }) as GitRunner)
+
+      return {
+        get mergedCalls() {
+          return mergedCalls
+        },
+      }
+    }
+
+    it('detects lane staleness via ms-vs-lane readiness diff and ff-merges ms into the lane', () => {
+      wireShell({readyInMs: true})
+
+      const engine = createFleetEngine(config)
+      engine.scanFleet(db)
+
+      const mergeCall = gitCalls.find((c) => c.args[0] === 'merge' && c.args.includes('--ff-only'))
+      expect(mergeCall, 'engine must call git merge --ff-only to refresh the stale lane').to.not.equal(undefined)
+      expect(mergeCall!.cwd, 'merge must run from inside the lane worktree').to.equal(laneWt)
+      expect(mergeCall!.args, 'merge source must be the ms branch').to.include('ms/ms1')
+    })
+
+    it('does NOT merge when nothing is ready in ms either (no staleness)', () => {
+      wireShell({readyInMs: false})
+
+      const engine = createFleetEngine(config)
+      engine.scanFleet(db)
+
+      const mergeCall = gitCalls.find((c) => c.args[0] === 'merge' && c.args.includes('--ff-only'))
+      expect(mergeCall, 'no merge should fire when nothing is ready upstream').to.equal(undefined)
+    })
+  })
 })
