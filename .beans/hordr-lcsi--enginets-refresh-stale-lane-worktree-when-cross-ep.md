@@ -1,11 +1,11 @@
 ---
 # hordr-lcsi
 title: 'engine.ts: refresh stale lane worktree when cross-epic blockers complete'
-status: in-progress
+status: completed
 type: bug
 priority: high
 created_at: 2026-07-20T08:20:26Z
-updated_at: 2026-07-20T08:20:26Z
+updated_at: 2026-07-20T08:30:49Z
 ---
 
 ## Symptom
@@ -31,3 +31,10 @@ Precondition guard per Fabian: only merge when there IS real staleness — task 
 - [ ] `bun run lint` clean
 - [ ] `bun run typecheck` clean
 - [ ] existing tests still pass
+
+
+## Summary of Changes
+
+- `src/dispatch/engine.ts`: new top-level helper `refreshLaneIfStale(fleet, lane)` returning `refreshed|still-empty|diverged|no-work`. Detection = `getDispatchable(epic, ms_wt) > 0`. On detection: `git merge --ff-only ms/<id>` from inside the lane worktree. Ff-only refuses divergence (no broken state). Wired into `advanceLane` idle path — replaces the early `return {action: 'idle'}`.
+- `test/dispatch/engine.test.ts`: new `scanFleet: cross-epic blocker refresh (hordr-lcsi)` describe block. Positive: lane stale (ms has ready, lane does not) → ff-merge fires, lane becomes ready, dispatch path exercised. Negative: nothing ready upstream → no merge.
+- 334/334 tests pass, lint clean (4 pre-existing warnings only).
