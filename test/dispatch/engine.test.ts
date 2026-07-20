@@ -14,6 +14,7 @@ import {
 } from '../../src/beans/client.js'
 import {_resetShell, _setShellForTesting, type ShellFn} from '../../src/dispatch/dispatch.js'
 import {createFleetEngine, type FleetEngine} from '../../src/dispatch/engine.js'
+import {_resetGitRunner, _setGitRunnerForTesting, type GitRunner} from '../../src/runtime.js'
 import {applySchema, openDb} from '../../src/storage/db.js'
 import {addLane, ensureProject, getFleet, listLanes, registerFleet} from '../../src/storage/fleets.js'
 
@@ -99,6 +100,22 @@ describe('dispatch/engine', () => {
         shellCwds.push(opts?.cwd ?? '<no-cwd>')
         return '{"bean":{"children":[]}}'
       }) as ShellFn)
+      // Milestone-completion sweep (hordr-45f3) calls getBean(ms) — mock it
+      // as 'completed' so the sweep's precondition fails and it skips.
+      _setBeansShell(((_cmd: string, _args: string[]) =>
+        JSON.stringify({
+          body: '',
+          created_at: '',
+          etag: 'e1',
+          id: 'healthy-ms',
+          path: 'p',
+          priority: 'normal',
+          slug: 'healthy-ms',
+          status: 'completed',
+          title: 'Healthy',
+          type: 'milestone',
+          updated_at: '',
+        })) as unknown as BeansShellFn)
 
       const engine = createFleetEngine(config)
 
@@ -157,18 +174,21 @@ describe('dispatch/engine', () => {
       // epic-a is still 'todo' — work remains. BEAN_BIN may be an absolute
       // path, so match on args, not cmd.
       _setBeansShell(((cmd: string, args: string[]) => {
-        if (args[0] === 'show' && args[2] === 'epic-a') {
+        if (args[0] === 'show') {
+          const id = args[2]
+          // epic-a is still 'todo'; ms1 (milestone) is 'todo' too — sweep
+          // precondition fires but epic-a is open so it must NOT mark ms1.
           return JSON.stringify({
             body: '',
             created_at: '',
             etag: 'e1',
-            id: 'epic-a',
+            id,
             path: 'p',
             priority: 'normal',
-            slug: 'epic-a',
+            slug: id,
             status: 'todo',
-            title: 'Epic A',
-            type: 'epic',
+            title: id,
+            type: id === 'ms1' ? 'milestone' : 'epic',
             updated_at: '',
           })
         }
@@ -214,6 +234,137 @@ describe('dispatch/engine', () => {
         lanes.find((l) => l.epicBeanId === 'epic-a'),
         'stale done lane row must be deleted',
       ).to.equal(undefined)
+    })
+  })
+
+  describe('scanFleet: milestone auto-completion (hordr-45f3, ADR-0015)', () => {
+    let db: Database.Database
+    let wt: string
+    let beansShowCalls: string[]
+    let beansUpdateCalls: string[]
+    let dispatchQueryCalls: string[]
+
+    beforeEach(() => {
+      db = openDb(':memory:')
+      applySchema(db)
+      ensureProject(db, {beansPath: '/b', companyPath: null, configPath: '/c', projectKey: 'pk1'})
+      wt = join(tmpdir(), `hordr-ms-completion-wt-${process.pid}-${Date.now()}`)
+      mkdirSync(wt, {recursive: true})
+      registerFleet(db, {
+        branch: 'ms/ms1',
+        createdAt: '2026-07-16T00:00:00Z',
+        milestoneBeanId: 'ms1',
+        projectKey: 'pk1',
+        status: 'active',
+        worktreePath: wt,
+      })
+      beansShowCalls = []
+      beansUpdateCalls = []
+      dispatchQueryCalls = []
+    })
+
+    afterEach(() => {
+      _resetShell()
+      _resetBeansShell()
+      _resetGitRunner()
+      db.close()
+    })
+
+    /**
+     * Wire both module-level shell seams to the same dispatcher. Recognises:
+     *  - beans show --json <id>          → getBean (beans/client.ts)
+     *  - beans update <id> -s <status>   → markBeanCompleted / resetBeanToTodo (beans/client.ts)
+     *  - beans list --ready --json       → fetchReady (dispatch.ts)
+     *  - beans query --json '{ ... }'    → fetchEpics / fetchChildStatuses / fetchDescendants (dispatch.ts)
+     */
+    function wireShell(opts: {epicChildren: Array<{id: string; status: string}>; milestoneStatus: string}): void {
+      const handler = (cmd: string, args: string[]): string => {
+        // beans show --json <id>
+        if (args[0] === 'show') {
+          const id = args[2]
+          beansShowCalls.push(id)
+          const status = id === 'ms1' ? opts.milestoneStatus : 'completed'
+          return JSON.stringify({
+            body: '',
+            created_at: '',
+            etag: 'e1',
+            id,
+            path: 'p',
+            priority: 'normal',
+            slug: id,
+            status,
+            title: id,
+            type: id === 'ms1' ? 'milestone' : 'epic',
+            updated_at: '',
+          })
+        }
+
+        // beans update <id> -s <status> — record, return success.
+        if (args[0] === 'update') {
+          beansUpdateCalls.push(args[1])
+          return JSON.stringify({bean: {id: args[1], status: args[3]}, success: true})
+        }
+
+        // beans query --json '{ ... }'
+        if (args[0] === 'query') {
+          dispatchQueryCalls.push(args[2])
+          // Distinguish fetchEpics (children { id title }) from
+          // fetchChildStatuses (children { id status }) by inspecting query.
+          const q = args[2] ?? ''
+          if (q.includes('children { id status }')) {
+            return JSON.stringify({bean: {children: opts.epicChildren}})
+          }
+
+          // fetchEpics + fetchDescendants (we don't care, return minimal).
+          return JSON.stringify({bean: {children: []}})
+        }
+
+        if (args[0] === 'list') {
+          return JSON.stringify([])
+        }
+
+        throw new Error(`unexpected beans call: ${cmd} ${args.join(' ')}`)
+      }
+
+      _setBeansShell(handler as unknown as BeansShellFn)
+      // dispatch.ts ShellFn signature is (args, opts?) — adapt.
+      _setShellForTesting(((args: string[], _opts?: {cwd?: string}) => handler('beans', args)) as ShellFn)
+      // commitBeans runs real git — stub it out so we don't need a real repo.
+      _setGitRunnerForTesting(((_args: string[], _opts?: {cwd?: string}) => '') as GitRunner)
+    }
+
+    it('marks the milestone completed when all epic children are completed (ports tick.ts:193-205)', () => {
+      // No lanes, no ready work — only the fleet-level completion sweep can fire.
+      wireShell({
+        epicChildren: [
+          {id: 'epic-a', status: 'completed'},
+          {id: 'epic-b', status: 'completed'},
+        ],
+        milestoneStatus: 'todo', // not yet completed → sweep should fire
+      })
+
+      const engine = createFleetEngine(config)
+      expect(() => engine.scanFleet(db)).to.not.throw()
+
+      // Sweep must have fired: markBeanCompleted('ms1') routes through
+      // beans/client.ts as `beans update ms1 -s completed`.
+      expect(beansUpdateCalls, 'engine must call beans update <ms1> -s completed').to.include('ms1')
+    })
+
+    it('does NOT mark the milestone completed when any epic is still todo', () => {
+      wireShell({
+        epicChildren: [
+          {id: 'epic-a', status: 'completed'},
+          {id: 'epic-b', status: 'todo'}, // open work
+        ],
+        milestoneStatus: 'todo',
+      })
+
+      const engine = createFleetEngine(config)
+      engine.scanFleet(db)
+
+      // Sweep ran its precondition check but must NOT have marked the milestone.
+      expect(beansUpdateCalls, 'no update should fire when an epic is still open').to.not.include('ms1')
     })
   })
 })

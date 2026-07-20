@@ -46,7 +46,14 @@ import {
 } from '../storage/fleets.js'
 import {commitBeanChanges} from './commit-beans.js'
 import {type ContinueDeps, continueLane, type ContinueResult} from './continue.js'
-import {fetchAncestorChain, fetchAncestry, fetchDependencyStatus, fetchEpics, getDispatchable} from './dispatch.js'
+import {
+  fetchAncestorChain,
+  fetchAncestry,
+  fetchChildStatuses,
+  fetchDependencyStatus,
+  fetchEpics,
+  getDispatchable,
+} from './dispatch.js'
 import {checkInvocation, worktreeIsClean} from './heal.js'
 import {createLaneForEpic} from './lane-create.js'
 import {dispatchNext} from './loop.js'
@@ -200,6 +207,23 @@ function rollupAncestors(taskId: string, beansCwd: string): boolean {
   }
 
   return didMark
+}
+
+/**
+ * If every epic under the milestone has reached terminal status, mark the
+ * milestone completed. Per-task rollup stops at the epic level (ADR-0014),
+ * so without this sweep the milestone stays 'todo' forever and
+ * `hordr fleet finish` throws "milestone not completed". Ports tick.ts:193-205.
+ */
+function maybeCompleteMilestone(fleet: FleetRow): void {
+  if (getBean(fleet.milestoneBeanId, {cwd: fleet.worktreePath}).status === 'completed') return
+  const epicStatuses = fetchChildStatuses(fleet.milestoneBeanId, {cwd: fleet.worktreePath})
+  const TERMINAL = new Set(['completed', 'scrapped'])
+  const allDone = epicStatuses.length > 0 && epicStatuses.every((e) => TERMINAL.has(e.status))
+  if (!allDone) return
+  logger.info(`fleet ${fleet.milestoneBeanId}: all epics done → marking milestone completed`)
+  markBeanCompleted(fleet.milestoneBeanId, {cwd: fleet.worktreePath})
+  commitBeans(fleet.worktreePath)
 }
 
 // --- factory ---
@@ -553,6 +577,10 @@ export function createFleetEngine(config: HordrConfig): FleetEngine {
           logger.warn(`lane ${lane.epicBeanId}: advance failed: ${(error as Error).message}`)
         }
       }
+
+      // 3. Fleet completion (hordr-45f3, ports tick.ts:193-205). Per-task
+      // rollup stops at the epic level, so the milestone needs its own sweep.
+      maybeCompleteMilestone(fleet)
     }
 
     return {advanced, lanesCreated}
