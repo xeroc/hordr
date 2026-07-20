@@ -33,6 +33,7 @@ import {logger} from '../logger.js'
 import {getGitRunner} from '../runtime.js'
 import {
   addLane,
+  deleteLanesByEpic,
   findLaneByTask,
   getProjectPath,
   listFleets,
@@ -469,6 +470,27 @@ export function createFleetEngine(config: HordrConfig): FleetEngine {
       // 2. advance each active lane by one step.
       const lanes = listLanes(db, fleet.projectKey, fleet.milestoneBeanId)
       for (const lane of lanes) {
+        if (lane.status === 'done') {
+          // Stale-done cleanup (hordr-sq00): a lane can go 'done' while its epic
+          // still has tasks that were blocked-by another epic. When the blocker
+          // merges, those tasks become ready but the lane would stay done
+          // forever. If the epic isn't completed AND has ready work, drop the
+          // stale row so scanForNewLanes recreates a fresh lane next pass.
+          const epicStat = getBean(lane.epicBeanId, {cwd: fleet.worktreePath}).status
+          if (epicStat !== 'completed' && getDispatchable(lane.epicBeanId, {cwd: fleet.worktreePath}).length > 0) {
+            logger.info(
+              `lane ${lane.epicBeanId}: done but epic is ${epicStat} with ready work → deleting stale lane row`,
+            )
+            deleteLanesByEpic(db, {
+              epicId: lane.epicBeanId,
+              milestoneId: fleet.milestoneBeanId,
+              projectKey: fleet.projectKey,
+            })
+          }
+
+          continue
+        }
+
         if (lane.status !== 'active') {
           logger.debug(`lane ${lane.epicBeanId}: status=${lane.status} (skip)`)
           continue
