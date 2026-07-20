@@ -4,7 +4,7 @@ import {tmpdir} from 'node:os'
 import path from 'node:path'
 
 import {_resetCompanyContext} from '../../src/company.js'
-import {ConfigError, loadConfig} from '../../src/config/index.js'
+import {ConfigError, loadConfig} from '../../src/config/loader.js'
 
 const VALID_YAML = `
 beans:

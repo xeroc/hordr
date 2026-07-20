@@ -1,11 +1,11 @@
 ---
 # hordr-qfx3
 title: 'code hygiene: delete unused exports + dead barrels + half-implemented provenance'
-status: todo
+status: completed
 type: task
 priority: low
 created_at: 2026-07-20T09:03:08Z
-updated_at: 2026-07-20T09:03:08Z
+updated_at: 2026-07-20T09:29:10Z
 ---
 
 ## Context
@@ -16,12 +16,12 @@ Dead-code scan after the 2026-07 engine.ts ports. Findings from `npx ts-prune` p
 
 ### True dead code (delete)
 
-- [ ] `src/storage/fleets.ts:178` — `getLane(db, epicId)` — test-only (`test/fleet/lifecycle.test.ts:9`). Replace callers with `listLanes(...).find(l => l.epicBeanId === id)`, then delete.
-- [ ] `src/storage/fleets.ts:240-296` — provenance helpers `recordProvenance`, `listProvenance`, `provenanceFor` — half-implemented ADR-0013 feature: storage + helpers exist, no production caller ever records. Either wire it (record on every spawn) or delete the helpers + the `bean_provenance` table from `src/storage/db.ts`. Recommendation: delete — provenance is a forensic nice-to-have that has shipped zero value; if needed later it is small to re-add.
-- [ ] `src/beans/index.ts` — barrel file, zero importers. Delete.
-- [ ] `src/harness/index.ts` — barrel file, zero importers. Delete.
-- [ ] `src/config/index.ts` — barrel file, one test importer (`test/config/schema.test.ts:7`). Inline the import to point directly at `src/config/loader.js` + `src/config/schema.js`, then delete the barrel.
-- [ ] `src/company.ts:105` — `parseCompanyManifest(raw)` — exported but only used in `test/company.test.ts`. Either tighten to non-exported, or delete if company manifest parsing is truly unused in production. Verify first.
+- [x] `src/storage/fleets.ts:178` — `getLane(db, epicId)` — deleted. `test/fleet/lifecycle.test.ts` callers replaced with a local `laneByEpic()` helper that wraps `listLanes(db, PK, MS).find(...)`.
+- [x] `src/storage/fleets.ts:240-296` — provenance helpers deleted along with the `bean_provenance` table from `src/storage/db.ts` and the 4 associated tests in `test/storage/{db,fleets}.test.ts`. Per recommendation: zero production callers, re-add small if needed.
+- [x] `src/beans/index.ts` — deleted (zero importers).
+- [x] `src/harness/index.ts` — deleted (zero importers).
+- [x] `src/config/index.ts` — deleted. `test/config/schema.test.ts` import inlined to `../../src/config/loader.js`.
+- [x] `src/company.ts:105` — `parseCompanyManifest` + `CompanyManifest` interface deleted. Verified zero production callers (only `parseProjectManifest` and `parseSkillManifest` are used in production). Test case removed.
 
 ### Already tracked separately
 
@@ -35,8 +35,21 @@ Dead-code scan after the 2026-07 engine.ts ports. Findings from `npx ts-prune` p
 
 ## Acceptance Criteria
 
-- [ ] Each "true dead code" item above is either deleted or explicitly justified in the bean body
-- [ ] `bun run lint` clean
-- [ ] `bun run typecheck` clean
-- [ ] `bun run test` passes (count may drop by deleted-test-only coverage)
-- [ ] `npx ts-prune` re-run shows only test seams + command defaults
+- [x] Each "true dead code" item above is either deleted or explicitly justified in the bean body
+- [x] `bun run lint` clean (4 pre-existing warnings, no errors; unchanged by this task)
+- [x] `bun run typecheck` clean
+- [x] `bun run test` passes — 334 → 329 (−5: matches exactly the 5 deleted tests)
+- [x] `npx ts-prune` re-run shows only test seams + command defaults (+ `tick`, tracked in hordr-nrpe)
+
+## Summary of Changes
+
+Deleted 6 dead-code items identified by ts-prune + manual verification:
+
+- `getLane(db, epicId)` from `src/storage/fleets.ts` — test callers replaced with a local `laneByEpic()` helper.
+- Provenance helpers (`recordProvenance`, `listProvenance`, `provenanceFor`, `ProvenanceRow`) from `src/storage/fleets.ts` + `bean_provenance` table from `src/storage/db.ts`. ADR-0013 feature never wired into production spawns.
+- Barrel files: `src/beans/index.ts`, `src/harness/index.ts`, `src/config/index.ts` (last one's sole test importer inlined).
+- `parseCompanyManifest` + `CompanyManifest` interface from `src/company.ts`.
+
+Test impact: 334 → 329 passing (−5 = 2 provenance round-trip tests + 2 db bean_provenance tests + 1 parseCompanyManifest test).
+
+Verification: `bun run lint`, `bun run typecheck`, `bun run test` all green. `npx ts-prune` output now limited to test seams, command defaults, and the separately-tracked legacy `tick` (hordr-nrpe).
