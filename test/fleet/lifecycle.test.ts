@@ -6,7 +6,7 @@ import type {BeanRecord} from '../../src/beans/client.js'
 
 import {abortFleet, createFleet, describeFleet, finishFleet, FleetError, resetLane} from '../../src/fleet/lifecycle.js'
 import {applySchema, openDb} from '../../src/storage/db.js'
-import {addLane, ensureProject, type FleetRow, getFleet, getLane, registerFleet} from '../../src/storage/fleets.js'
+import {addLane, ensureProject, type FleetRow, getFleet, listLanes, registerFleet} from '../../src/storage/fleets.js'
 
 const PK = 'pk1'
 const MS = 'hordr-ms1'
@@ -490,6 +490,10 @@ describe('fleet/lifecycle', () => {
       worktreePath: '/wt/ms',
     }
 
+    function laneByEpic(epicId: string) {
+      return listLanes(db, PK, MS).find((l) => l.epicBeanId === epicId)!
+    }
+
     function seedLane(
       overrides: Partial<{
         branch: string
@@ -557,13 +561,13 @@ describe('fleet/lifecycle', () => {
     it('reuses existing worktree + pane, clears task, sets active', () => {
       seedLane()
 
-      const res = resetLane(db, getLane(db, 'epic-a')!, FLEET_ROW, deps())
+      const res = resetLane(db, laneByEpic('epic-a'), FLEET_ROW, deps())
 
       expect(res.worktreeCreated).to.equal(false)
       expect(res.paneCreated).to.equal(false)
       expect(createdWorktrees).to.equal(0)
       expect(createdPanes).to.equal(0)
-      const lane = getLane(db, 'epic-a')!
+      const lane = laneByEpic('epic-a')
       expect(lane.status).to.equal('active')
       expect(lane.currentTaskBeanId).to.equal(null)
     })
@@ -572,11 +576,11 @@ describe('fleet/lifecycle', () => {
       worktreeAlive = false
       seedLane()
 
-      const res = resetLane(db, getLane(db, 'epic-a')!, FLEET_ROW, deps())
+      const res = resetLane(db, laneByEpic('epic-a'), FLEET_ROW, deps())
 
       expect(res.worktreeCreated).to.equal(true)
       expect(createdWorktrees).to.equal(1)
-      const lane = getLane(db, 'epic-a')!
+      const lane = laneByEpic('epic-a')
       expect(lane.status).to.equal('active')
       expect(lane.worktreePath).to.equal('/wt/epic-a-new')
     })
@@ -585,7 +589,7 @@ describe('fleet/lifecycle', () => {
       worktreeAlive = false
       seedLane()
 
-      const res = resetLane(db, getLane(db, 'epic-a')!, FLEET_ROW, {
+      const res = resetLane(db, laneByEpic('epic-a'), FLEET_ROW, {
         ...deps(),
         createWorktree() {
           createdWorktrees++
@@ -596,7 +600,7 @@ describe('fleet/lifecycle', () => {
       expect(res.worktreeCreated).to.equal(true)
       expect(createdWorktrees).to.equal(1)
       expect(openedWorktrees).to.equal(1)
-      const lane = getLane(db, 'epic-a')!
+      const lane = laneByEpic('epic-a')
       expect(lane.worktreePath).to.equal('/wt/epic-a')
     })
 
@@ -604,18 +608,18 @@ describe('fleet/lifecycle', () => {
       paneAlive = false
       seedLane()
 
-      const res = resetLane(db, getLane(db, 'epic-a')!, FLEET_ROW, deps())
+      const res = resetLane(db, laneByEpic('epic-a'), FLEET_ROW, deps())
 
       expect(res.paneCreated).to.equal(true)
       expect(createdPanes).to.equal(1)
-      const lane = getLane(db, 'epic-a')!
+      const lane = laneByEpic('epic-a')
       expect(lane.paneId).to.equal('w1:p11')
     })
 
     it('creates pane when paneId is null', () => {
       seedLane({paneId: ''})
 
-      const res = resetLane(db, getLane(db, 'epic-a')!, FLEET_ROW, deps())
+      const res = resetLane(db, laneByEpic('epic-a'), FLEET_ROW, deps())
 
       expect(res.paneCreated).to.equal(true)
       expect(createdPanes).to.equal(1)

@@ -10,9 +10,6 @@ import {
   getFleet,
   getProjectPath,
   listLanes,
-  listProvenance,
-  provenanceFor,
-  recordProvenance,
   registerFleet,
   setLanePane,
   updateLaneStatus,
@@ -216,55 +213,6 @@ describe('storage/fleets', () => {
       })
       setLanePane(db, {epicId: 'epic-a', milestoneId: MS, projectKey: PK}, 'w1:p1')
       expect(listLanes(db, PK, MS)[0]!.paneId).to.equal('w1:p1')
-    })
-  })
-
-  describe('provenance', () => {
-    it('recordProvenance + listProvenance + provenanceFor round-trip', () => {
-      seedFleet(db)
-      recordProvenance(db, {
-        createdByTaskBeanId: 'task-A',
-        fleetMilestoneBeanId: MS,
-        projectKey: PK,
-        recordedAt: NOW,
-        spawnedBeanId: 'spawn-1',
-      })
-      recordProvenance(db, {
-        createdByTaskBeanId: 'task-A',
-        fleetMilestoneBeanId: MS,
-        projectKey: PK,
-        recordedAt: '2026-07-09T00:00:01Z',
-        spawnedBeanId: 'spawn-2',
-      })
-
-      const all = listProvenance(db, PK, MS)
-      expect(all.map((r) => r.spawnedBeanId)).to.deep.equal(['spawn-1', 'spawn-2'])
-      expect(all[0]!.createdByTaskBeanId).to.equal('task-A')
-
-      const one = provenanceFor(db, PK, 'spawn-1')
-      expect(one?.createdByTaskBeanId).to.equal('task-A')
-      expect(provenanceFor(db, PK, 'nope')).to.be.undefined
-    })
-
-    it('recordProvenance is idempotent — keeps the first creator', () => {
-      seedFleet(db)
-      recordProvenance(db, {
-        createdByTaskBeanId: 'task-A',
-        fleetMilestoneBeanId: MS,
-        projectKey: PK,
-        recordedAt: NOW,
-        spawnedBeanId: 'spawn-1',
-      })
-      recordProvenance(db, {
-        createdByTaskBeanId: 'task-B',
-        fleetMilestoneBeanId: MS,
-        projectKey: PK,
-        recordedAt: '2026-07-10T00:00:00Z',
-        spawnedBeanId: 'spawn-1',
-      })
-
-      expect(provenanceFor(db, PK, 'spawn-1')!.createdByTaskBeanId).to.equal('task-A')
-      expect(listProvenance(db, PK, MS)).to.have.length(1)
     })
   })
 })
