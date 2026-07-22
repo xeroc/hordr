@@ -1,11 +1,11 @@
 ---
 # hordr-nrpe
 title: delete tick.ts + advance.ts + TestFleetEngine; migrate or drop 19 legacy tests
-status: todo
+status: completed
 type: task
 priority: normal
 created_at: 2026-07-20T08:55:09Z
-updated_at: 2026-07-20T08:55:09Z
+updated_at: 2026-07-22T09:23:03Z
 parent: hordr-7hpb
 ---
 
