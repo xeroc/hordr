@@ -123,7 +123,7 @@ function fetchDescendants(
   rootBeanId: string,
   cwd?: string,
 ): {containerIds: Set<string>; descendants: DispatchableBean[]} {
-  const query = `{ bean(id: "${rootBeanId}") { id title type priority assigned children { id title type priority children { id title type priority children { id title type priority } } } } }`
+  const query = `{ bean(id: "${rootBeanId}") { id title type priority children { id title type priority children { id title type priority children { id title type priority } } } } }`
   const raw = _shell(['query', '--json', query], {cwd})
   const data = JSON.parse(raw) as {bean?: RawBean}
   if (!data.bean) return {containerIds: new Set(), descendants: []}
