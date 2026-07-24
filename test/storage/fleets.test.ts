@@ -4,6 +4,7 @@ import {expect} from 'chai'
 import {applySchema, openDb} from '../../src/storage/db.js'
 import {
   addLane,
+  countActiveLanes,
   deleteFleet,
   deleteLanes,
   ensureProject,
@@ -213,6 +214,62 @@ describe('storage/fleets', () => {
       })
       setLanePane(db, {epicId: 'epic-a', milestoneId: MS, projectKey: PK}, 'w1:p1')
       expect(listLanes(db, PK, MS)[0]!.paneId).to.equal('w1:p1')
+    })
+
+    it('countActiveLanes counts in-flight lanes across all projects/fleets (excludes idle)', () => {
+      // second project + fleet so we prove the count is global, not per-fleet
+      ensureProject(db, {beansPath: '/b2', companyPath: null, configPath: '/c2', projectKey: 'pk2'})
+      registerFleet(db, {
+        branch: 'ms/ms2',
+        createdAt: NOW,
+        milestoneBeanId: 'hordr-ms2',
+        projectKey: 'pk2',
+        status: 'active',
+        worktreePath: '/wt-ms2',
+      })
+      seedFleet(db) // pk1 / hordr-ms1
+
+      // pk1/ms1: one in-flight, one idle
+      addLane(db, {
+        branch: 'a',
+        createdAt: NOW,
+        currentTaskBeanId: 't1',
+        epicBeanId: 'e1',
+        fleetMilestoneBeanId: MS,
+        paneId: 'p',
+        projectKey: PK,
+        status: 'active',
+        workspaceId: null,
+        worktreePath: '/wt',
+      })
+      addLane(db, {
+        branch: 'b',
+        createdAt: NOW,
+        currentTaskBeanId: null,
+        epicBeanId: 'e2',
+        fleetMilestoneBeanId: MS,
+        paneId: null,
+        projectKey: PK,
+        status: 'active',
+        workspaceId: null,
+        worktreePath: '/wt2',
+      })
+      // pk2/ms2: one in-flight
+      addLane(db, {
+        branch: 'c',
+        createdAt: NOW,
+        currentTaskBeanId: 't2',
+        epicBeanId: 'e3',
+        fleetMilestoneBeanId: 'hordr-ms2',
+        paneId: 'p2',
+        projectKey: 'pk2',
+        status: 'active',
+        workspaceId: null,
+        worktreePath: '/wt3',
+      })
+
+      // t1 (pk1) + t2 (pk2); the idle e2 lane is excluded
+      expect(countActiveLanes(db)).to.equal(2)
     })
   })
 })

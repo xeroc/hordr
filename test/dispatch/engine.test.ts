@@ -23,6 +23,22 @@ const config: HordrConfig = {
   primary_branch: 'develop',
 }
 
+// getDispatchable (dispatch.ts) calls the shell twice: a `beans query` (subtree)
+// and a `beans list --ready` (ready set). Mock both to report one ready task.
+function shellWithReadyWork(): ShellFn {
+  return ((args: string[]) => {
+    if (args[0] === 'list') {
+      return JSON.stringify([
+        {id: 'task-idle', priority: 'normal', status: 'todo', title: 'Idle Task', type: 'task'},
+      ])
+    }
+
+    return JSON.stringify({
+      bean: {children: [{id: 'task-idle', priority: 'normal', title: 'Idle Task', type: 'task'}]},
+    })
+  }) as ShellFn
+}
+
 describe('dispatch/engine', () => {
   it('createFleetEngine returns an object with exactly 3 methods (advanceLane, continueTask, scanFleet)', () => {
     const engine: FleetEngine = createFleetEngine(config)
@@ -514,6 +530,87 @@ describe('dispatch/engine', () => {
 
       const mergeCall = gitCalls.find((c) => c.args[0] === 'merge' && c.args.includes('--ff-only'))
       expect(mergeCall, 'no merge should fire when nothing is ready upstream').to.equal(undefined)
+    })
+  })
+
+  describe('advanceLane: global concurrency cap (--max-lanes)', () => {
+    let db: Database.Database
+
+    beforeEach(() => {
+      db = openDb(':memory:')
+      applySchema(db)
+      ensureProject(db, {beansPath: '/b', companyPath: null, configPath: '/c', projectKey: 'pk1'})
+      registerFleet(db, {
+        branch: 'ms/ms1',
+        createdAt: '2026-07-16T00:00:00Z',
+        milestoneBeanId: 'ms1',
+        projectKey: 'pk1',
+        status: 'active',
+        worktreePath: '/wt-ms1',
+      })
+      // One lane already has an agent in flight — it counts toward the cap.
+      addLane(db, {
+        branch: 'ep/running',
+        createdAt: '2026-07-16T00:00:00Z',
+        currentTaskBeanId: 'task-running',
+        epicBeanId: 'epic-running',
+        fleetMilestoneBeanId: 'ms1',
+        paneId: 'p1',
+        projectKey: 'pk1',
+        status: 'active',
+        workspaceId: 'ws1',
+        worktreePath: '/wt-running',
+      })
+      // The idle lane we advance — it has ready work, so without a cap it
+      // would dispatch (spawn an agent).
+      addLane(db, {
+        branch: 'ep/idle',
+        createdAt: '2026-07-16T00:00:01Z',
+        currentTaskBeanId: null,
+        epicBeanId: 'epic-idle',
+        fleetMilestoneBeanId: 'ms1',
+        paneId: null,
+        projectKey: 'pk1',
+        status: 'active',
+        workspaceId: null,
+        worktreePath: '/wt-idle',
+      })
+    })
+
+    afterEach(() => {
+      _resetShell()
+      _resetBeansShell()
+      db.close()
+    })
+
+    it('defers dispatch (returns idle) when the global cap is already reached', () => {
+      _setShellForTesting(shellWithReadyWork())
+
+      const fleet = getFleet(db, 'pk1', 'ms1')!
+      const idleLane = listLanes(db, 'pk1', 'ms1').find((l) => l.epicBeanId === 'epic-idle')!
+
+      // 1 agent already in flight; cap = 1 → gate blocks before any pane/spawn I/O.
+      const engine = createFleetEngine(config, {maxLanes: 1})
+      const res = engine.advanceLane(db, fleet, idleLane)
+
+      expect(res.action).to.equal('idle')
+      // Lane stayed idle — no task was dispatched.
+      const after = listLanes(db, 'pk1', 'ms1').find((l) => l.epicBeanId === 'epic-idle')!
+      expect(after.currentTaskBeanId).to.equal(null)
+    })
+
+    it('lets the lane through when under the cap (gate is the discriminator)', () => {
+      _setShellForTesting(shellWithReadyWork())
+
+      const fleet = getFleet(db, 'pk1', 'ms1')!
+      const idleLane = listLanes(db, 'pk1', 'ms1').find((l) => l.epicBeanId === 'epic-idle')!
+
+      // Under cap (1 in flight, cap = 5) → advanceLane proceeds PAST the gate
+      // to ensureLanePane, which shells out to herdr/tmux. No real fleet
+      // worktree/pane exists in this unit test, so it throws — proving the
+      // gate did NOT short-circuit to idle the way it does at capacity.
+      const engine = createFleetEngine(config, {maxLanes: 5})
+      expect(() => engine.advanceLane(db, fleet, idleLane)).to.throw()
     })
   })
 })

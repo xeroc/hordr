@@ -33,6 +33,7 @@ import {logger} from '../logger.js'
 import {getGitRunner} from '../runtime.js'
 import {
   addLane,
+  countActiveLanes,
   deleteLanesByEpic,
   findLaneByTask,
   getProjectPath,
@@ -347,7 +348,11 @@ function mergeEpicLane(db: Database.Database, fleet: FleetRow, lane: LaneRow, ta
   return {action: 'epic-completed', taskId}
 }
 
-export function createFleetEngine(config: HordrConfig): FleetEngine {
+export function createFleetEngine(config: HordrConfig, opts?: {maxLanes?: number}): FleetEngine {
+  // Global concurrency ceiling: at most this many agent invocations may be
+  // in flight across every project/fleet at once. Idle lanes defer dispatch
+  // (stay idle, retry next pass) once the cap is reached. Default 5.
+  const maxLanes = opts?.maxLanes ?? 5
   /** Advance one lane by one step: idle/dispatch/heal/rollup/merge. */
   const advanceLane = (db: Database.Database, fleet: FleetRow, lane: LaneRow): AdvanceResult => {
     const beansCwd = lane.worktreePath
@@ -390,6 +395,17 @@ export function createFleetEngine(config: HordrConfig): FleetEngine {
         // 'refreshed' → re-read dispatchable from the now-up-to-date worktree.
         dispatchable = getDispatchable(lane.epicBeanId, {cwd: beansCwd})
         if (dispatchable.length === 0) return {action: 'idle'}
+      }
+
+      // Global concurrency cap (hordr fleet check --max-lanes): an idle lane
+      // only spawns a new agent while fewer than maxLanes invocations are in
+      // flight across every project/fleet. At capacity, defer — stay idle and
+      // retry on the next pass. Counted here, before any pane/worktree I/O.
+      if (countActiveLanes(db) >= maxLanes) {
+        logger.debug(
+          `lane ${lane.epicBeanId}: ${maxLanes} active lane(s) (cap reached) — deferring dispatch`,
+        )
+        return {action: 'idle'}
       }
 
       // Pane might be gone (agent closed it, crash) or the whole workspace died

@@ -219,6 +219,17 @@ export function findLaneByTask(db: Database.Database, taskId: string): LaneRow |
   return r === undefined ? undefined : toLaneRow(r)
 }
 
+/**
+ * Count lanes with a running agent invocation (current_task_bean_id IS NOT
+ * NULL) across every project and fleet — a single global ceiling. Backs the
+ * `hordr fleet check --max-lanes` concurrency cap: an idle lane may not
+ * dispatch a new agent once this many are already in flight.
+ */
+export function countActiveLanes(db: Database.Database): number {
+  const row = db.prepare('SELECT COUNT(*) AS n FROM lanes WHERE current_task_bean_id IS NOT NULL').get() as {n: number}
+  return row.n
+}
+
 export function setLaneWorktree(
   db: Database.Database,
   loc: LaneLoc,

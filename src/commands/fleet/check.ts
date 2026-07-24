@@ -67,6 +67,11 @@ export default class FleetCheck extends Command {
       description: 'Log level: error, warn, info, debug',
       options: ['error', 'warn', 'info', 'debug'],
     }),
+    'max-lanes': Flags.integer({
+      default: 5,
+      description: 'Max agent invocations running at once across all projects',
+      min: 1,
+    }),
   }
 
   async run(): Promise<void> {
@@ -77,7 +82,7 @@ export default class FleetCheck extends Command {
 
     const outcome = runFleetCheck(db, {
       acquireLock: () => acquireFleetLock(),
-      scan: (d) => createFleetEngine(config).scanFleet(d),
+      scan: (d) => createFleetEngine(config, {maxLanes: flags['max-lanes']}).scanFleet(d),
     })
 
     db.close()
