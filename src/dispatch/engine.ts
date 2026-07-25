@@ -246,21 +246,27 @@ function maybeCompleteMilestone(fleet: FleetRow): void {
  *   'diverged'    — ff-only refused (lane has diverged from ms); needs human
  *   'no-work'     — nothing ready upstream either; lane is genuinely idle
  */
-function refreshLaneIfStale(fleet: FleetRow, lane: LaneRow): 'diverged' | 'no-work' | 'refreshed' | 'still-empty' {
+function refreshLaneIfStale(
+  fleet: FleetRow,
+  lane: LaneRow,
+): 'conflict' | 'diverged' | 'no-work' | 'refreshed' | 'still-empty' {
   const msReady = getDispatchable(lane.epicBeanId, {cwd: fleet.worktreePath})
   if (msReady.length === 0) return 'no-work'
 
-  logger.info(
-    `lane ${lane.epicBeanId}: ${msReady.length} task(s) ready in ms but not here → ff-merging ${fleet.branch}`,
-  )
+  logger.info(`lane ${lane.epicBeanId}: ${msReady.length} task(s) ready in ms but not here → merging ${fleet.branch}`)
+  // Tier 1: fast-forward only.
   try {
     getGitRunner()(['merge', '--ff-only', fleet.branch], {cwd: lane.worktreePath})
-  } catch (error) {
-    logger.warn(
-      `lane ${lane.epicBeanId}: ff-merge of ${fleet.branch} refused (lane diverged) — ` +
-        `manual merge required to pick up cross-epic unblocks. ${(error as Error).message}`,
-    )
-    return 'diverged'
+  } catch {
+    // Tier 2: merge commit (--no-ff).
+    try {
+      getGitRunner()(['merge', '--no-ff', fleet.branch], {cwd: lane.worktreePath})
+      logger.info(`lane ${lane.epicBeanId}: ms→lane merge commit created (--no-ff)`)
+    } catch {
+      // Tier 3: conflict — leave in-progress for the merger agent.
+      // The caller spawns the agent.
+      return 'conflict'
+    }
   }
 
   commitBeans(lane.worktreePath)
@@ -268,7 +274,7 @@ function refreshLaneIfStale(fleet: FleetRow, lane: LaneRow): 'diverged' | 'no-wo
   const refreshed = getDispatchable(lane.epicBeanId, {cwd: lane.worktreePath})
   if (refreshed.length === 0) {
     logger.warn(
-      `lane ${lane.epicBeanId}: ff-merge succeeded but no tasks became dispatchable — ` +
+      `lane ${lane.epicBeanId}: merge succeeded but no tasks became dispatchable — ` +
         `possible role resolution issue or schema mismatch`,
     )
     return 'still-empty'
@@ -425,7 +431,21 @@ export function createFleetEngine(config: HordrConfig, opts?: {maxLanes?: number
           return {action: 'idle'}
         }
 
-        if (refreshed === 'diverged' || refreshed === 'still-empty') {
+        if (refreshed === 'conflict') {
+          // Tier 3: ms→lane merge conflicted — spawn merger in lane worktree.
+          const conflictedFiles = getConflictedFiles(lane.worktreePath)
+          const paneId = spawnMerger({
+            config,
+            ctx: {conflictedFiles, sourceBranch: fleet.branch, targetBranch: lane.branch},
+            cwd: lane.worktreePath,
+          })
+          setLanePane(db, loc, paneId)
+          updateLaneStatus(db, loc, 'merging')
+          logger.info(`lane ${lane.epicBeanId}: ms→lane merge conflict — spawned merger agent (pane=${paneId})`)
+          return {action: 'blocked'}
+        }
+
+        if (refreshed === 'still-empty') {
           return {action: 'idle'}
         }
 
@@ -648,15 +668,22 @@ export function createFleetEngine(config: HordrConfig, opts?: {maxLanes?: number
             continue
           }
 
-          // Pane dead — check git state.
+          // Pane dead — check git state. Two possible merge directions:
+          // 1. epic→ms (mergeEpicLane): source is lane.branch, check in fleet worktree
+          // 2. ms→lane (refreshLaneIfStale): source is fleet.branch, check in lane worktree
           if (isMergeComplete(fleet.worktreePath, lane.branch)) {
-            logger.info(`lane ${lane.epicBeanId}: merger resolved conflicts — restoring + tearing down`)
+            // Epic→ms merge resolved — restore + teardown lane.
+            logger.info(`lane ${lane.epicBeanId}: merger resolved epic→ms conflicts — restoring + tearing down`)
             restoreWorktree(fleet.worktreePath, {git: getGitRunner()})
             finishLaneTeardown(db, fleet, lane)
             advanced++
+          } else if (isMergeComplete(lane.worktreePath, fleet.branch)) {
+            // Ms→lane refresh resolved — commit beans, lane back to active.
+            logger.info(`lane ${lane.epicBeanId}: merger resolved ms→lane conflicts — resuming`)
+            commitBeans(lane.worktreePath)
+            updateLaneStatus(db, loc, 'active')
           } else {
-            // Merge NOT resolved — lane → conflict. Worktree stays dirty
-            // (human picks up where the agent left off).
+            // Neither merge resolved — lane → conflict. Worktree stays dirty.
             logger.error(`lane ${lane.epicBeanId}: merger exited but merge not resolved — needs human`)
             updateLaneStatus(db, loc, 'conflict')
           }
