@@ -58,7 +58,8 @@ import {
 import {checkInvocation, worktreeIsClean} from './heal.js'
 import {createLaneForEpic} from './lane-create.js'
 import {dispatchNext} from './loop.js'
-import {mergeBranch} from './merge.js'
+import {attemptMerge, restoreWorktree} from './merge.js'
+import {getConflictedFiles, isMergeComplete, spawnMerger} from './merger.js'
 import {ensureLanePane} from './pane-heal.js'
 import {rollup} from './rollup.js'
 import {scanForNewLanes} from './scan.js'
@@ -279,19 +280,13 @@ function refreshLaneIfStale(fleet: FleetRow, lane: LaneRow): 'diverged' | 'no-wo
 
 // --- factory ---
 
-/** Merge an epic's lane into the ms branch, tear down the worktree, go done. */
-function mergeEpicLane(db: Database.Database, fleet: FleetRow, lane: LaneRow, taskId?: string): AdvanceResult {
+/**
+ * Post-merge lane teardown: dirty check, beans commit, worktree removal,
+ * branch deletion, lane → done. Shared by the direct-merge success path
+ * and the post-merger-resolution path.
+ */
+function finishLaneTeardown(db: Database.Database, fleet: FleetRow, lane: LaneRow, taskId?: string): AdvanceResult {
   const loc: LaneLoc = {epicId: lane.epicBeanId, milestoneId: fleet.milestoneBeanId, projectKey: fleet.projectKey}
-  logger.debug(`lane ${lane.epicBeanId}: merging ${lane.branch} → ${fleet.branch} (cwd=${fleet.worktreePath})`)
-  const result = mergeBranch(
-    {cwd: fleet.worktreePath, source: lane.branch, target: fleet.branch},
-    {git: getGitRunner()},
-  )
-  if (result.conflict) {
-    logger.error(`lane — needs human resolution`)
-    updateLaneStatus(db, loc, 'conflict')
-    return {action: 'blocked', taskId}
-  }
 
   // Defense-in-depth: refuse to tear down a worktree with uncommitted non-beans
   // changes (hordr-wd46). Beans-dir-only dirt is tolerated (ephemeral rollup
@@ -348,6 +343,48 @@ function mergeEpicLane(db: Database.Database, fleet: FleetRow, lane: LaneRow, ta
   return {action: 'epic-completed', taskId}
 }
 
+/**
+ * Merge an epic's lane into the ms branch using the 3-tier strategy:
+ * 1. ff-only  2. no-ff merge commit  3. spawn merger agent on conflict.
+ * On success: tears down the lane. On conflict: spawns merger, lane → 'merging'.
+ */
+function mergeEpicLane(
+  db: Database.Database,
+  fleet: FleetRow,
+  lane: LaneRow,
+  config: HordrConfig,
+  taskId?: string,
+): AdvanceResult {
+  const loc: LaneLoc = {epicId: lane.epicBeanId, milestoneId: fleet.milestoneBeanId, projectKey: fleet.projectKey}
+  logger.debug(`lane ${lane.epicBeanId}: merging ${lane.branch} → ${fleet.branch} (cwd=${fleet.worktreePath})`)
+
+  const outcome = attemptMerge(
+    {cwd: fleet.worktreePath, source: lane.branch, target: fleet.branch},
+    {git: getGitRunner()},
+  )
+
+  if (outcome.status === 'conflict') {
+    // Tier 3: spawn merger agent. The worktree is left on the target branch
+    // with the conflicted merge in progress.
+    const conflictedFiles = getConflictedFiles(fleet.worktreePath)
+    const paneId = spawnMerger({
+      config,
+      ctx: {conflictedFiles, sourceBranch: lane.branch, targetBranch: fleet.branch},
+      cwd: fleet.worktreePath,
+    })
+    setLanePane(db, loc, paneId)
+    updateLaneStatus(db, loc, 'merging')
+    logger.info(
+      `lane ${lane.epicBeanId}: merge conflict — spawned merger agent (pane=${paneId}, ` +
+        `${conflictedFiles.length} conflicted file(s))`,
+    )
+    return {action: 'blocked', taskId}
+  }
+
+  // Merge succeeded (tier 1 or 2) — teardown the lane.
+  return finishLaneTeardown(db, fleet, lane, taskId)
+}
+
 export function createFleetEngine(config: HordrConfig, opts?: {maxLanes?: number}): FleetEngine {
   // Global concurrency ceiling: at most this many agent invocations may be
   // in flight across every project/fleet at once. Idle lanes defer dispatch
@@ -374,7 +411,7 @@ export function createFleetEngine(config: HordrConfig, opts?: {maxLanes?: number
 
         if (epicStat === 'completed') {
           logger.info(`lane ${lane.epicBeanId}: epic completed → merge ${lane.branch} into ${fleet.branch}`)
-          return mergeEpicLane(db, fleet, lane)
+          return mergeEpicLane(db, fleet, lane, config)
         }
 
         // Cross-epic blocker refresh (hordr-lcsi): the lane is idle but its
@@ -402,9 +439,7 @@ export function createFleetEngine(config: HordrConfig, opts?: {maxLanes?: number
       // flight across every project/fleet. At capacity, defer — stay idle and
       // retry on the next pass. Counted here, before any pane/worktree I/O.
       if (countActiveLanes(db) >= maxLanes) {
-        logger.debug(
-          `lane ${lane.epicBeanId}: ${maxLanes} active lane(s) (cap reached) — deferring dispatch`,
-        )
+        logger.debug(`lane ${lane.epicBeanId}: ${maxLanes} active lane(s) (cap reached) — deferring dispatch`)
         return {action: 'idle'}
       }
 
@@ -487,7 +522,7 @@ export function createFleetEngine(config: HordrConfig, opts?: {maxLanes?: number
     const epicStat = getBean(lane.epicBeanId, {cwd: beansCwd}).status
     logger.debug(`lane epic status=${epicStat}`)
     if (epicStat === 'completed') {
-      return mergeEpicLane(db, fleet, lane, taskId)
+      return mergeEpicLane(db, fleet, lane, config, taskId)
     }
 
     // task done, epic still has work.
@@ -593,6 +628,37 @@ export function createFleetEngine(config: HordrConfig, opts?: {maxLanes?: number
               milestoneId: fleet.milestoneBeanId,
               projectKey: fleet.projectKey,
             })
+          }
+
+          continue
+        }
+
+        // Lane is merging — a merger agent is resolving conflicts in the
+        // milestone worktree. Check if it's done (pane dead + merge committed).
+        if (lane.status === 'merging') {
+          const loc: LaneLoc = {
+            epicId: lane.epicBeanId,
+            milestoneId: fleet.milestoneBeanId,
+            projectKey: fleet.projectKey,
+          }
+
+          // Merger agent still running?
+          if (lane.paneId && agentActiveInPane(lane.paneId)) {
+            logger.debug(`lane ${lane.epicBeanId}: merger agent still running (pane=${lane.paneId})`)
+            continue
+          }
+
+          // Pane dead — check git state.
+          if (isMergeComplete(fleet.worktreePath, lane.branch)) {
+            logger.info(`lane ${lane.epicBeanId}: merger resolved conflicts — restoring + tearing down`)
+            restoreWorktree(fleet.worktreePath, {git: getGitRunner()})
+            finishLaneTeardown(db, fleet, lane)
+            advanced++
+          } else {
+            // Merge NOT resolved — lane → conflict. Worktree stays dirty
+            // (human picks up where the agent left off).
+            logger.error(`lane ${lane.epicBeanId}: merger exited but merge not resolved — needs human`)
+            updateLaneStatus(db, loc, 'conflict')
           }
 
           continue
