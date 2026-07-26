@@ -55,13 +55,13 @@ Do not switch branches. Do not push. Commit or abort, then stop.`
  * Spawn the merger agent in a new pane within the milestone worktree.
  * Returns the pane ID for liveness tracking.
  */
-export function spawnMerger(opts: {config: HordrConfig; ctx: MergeContext; cwd: string}): string {
+export function spawnMerger(opts: {config: HordrConfig; ctx: MergeContext; cwd: string; mainRepoCwd: string}): string {
   const agent = opts.config.agents.merger
   if (!agent) throw new Error(`no agent configured for role 'merger'`)
   if (!agent.persona) throw new Error(`role 'merger' has no persona`)
 
   const prompt = buildMergerPrompt(agent.persona, opts.ctx)
-  const wt = openWorktree({path: opts.cwd})
+  const wt = openWorktree({cwd: opts.mainRepoCwd, path: opts.cwd})
   const pane = createTab({cwd: opts.cwd, label: 'hordr:merger', workspaceId: wt.workspace_id})
   runInPane(pane.pane_id, buildHarnessCommand(agent.harness, prompt))
   return pane.pane_id

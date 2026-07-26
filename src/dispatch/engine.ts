@@ -373,10 +373,12 @@ function mergeEpicLane(
     // Tier 3: spawn merger agent. The worktree is left on the target branch
     // with the conflicted merge in progress.
     const conflictedFiles = getConflictedFiles(fleet.worktreePath)
+    const mainRepoCwd = getProjectPath(db, fleet.projectKey) ?? fleet.worktreePath
     const paneId = spawnMerger({
       config,
       ctx: {conflictedFiles, sourceBranch: lane.branch, targetBranch: fleet.branch},
       cwd: fleet.worktreePath,
+      mainRepoCwd,
     })
     setLanePane(db, loc, paneId)
     updateLaneStatus(db, loc, 'merging')
@@ -434,10 +436,12 @@ export function createFleetEngine(config: HordrConfig, opts?: {maxLanes?: number
         if (refreshed === 'conflict') {
           // Tier 3: ms→lane merge conflicted — spawn merger in lane worktree.
           const conflictedFiles = getConflictedFiles(lane.worktreePath)
+          const mainRepoCwd = getProjectPath(db, fleet.projectKey) ?? fleet.worktreePath
           const paneId = spawnMerger({
             config,
             ctx: {conflictedFiles, sourceBranch: fleet.branch, targetBranch: lane.branch},
             cwd: lane.worktreePath,
+            mainRepoCwd,
           })
           setLanePane(db, loc, paneId)
           updateLaneStatus(db, loc, 'merging')
