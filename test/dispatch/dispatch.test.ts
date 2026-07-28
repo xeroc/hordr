@@ -75,26 +75,29 @@ describe('dispatch/dispatch', () => {
       expect(pickDispatchable(all, all).map((b) => b.id)).to.deep.equal(['b', 'd', 'e', 'a', 'c'])
     })
 
-    it('excludes epic/milestone + features-with-children; dispatches leaf features, tasks, bugs', () => {
+    it('dispatches all leaf beans regardless of type; excludes any bean with children', () => {
       const descendants = [
         bean('task-1', 'normal', undefined, 'task'),
         bean('feat-leaf', 'normal', undefined, 'feature'),
         bean('feat-container', 'normal', undefined, 'feature'),
-        bean('epic-1', 'normal', undefined, 'epic'),
+        bean('epic-leaf', 'normal', undefined, 'epic'),
+        bean('epic-container', 'normal', undefined, 'epic'),
         bean('bug-1', 'normal', undefined, 'bug'),
       ]
       const ready = [
         bean('task-1', 'normal', undefined, 'task'),
         bean('feat-leaf', 'normal', undefined, 'feature'),
         bean('feat-container', 'normal', undefined, 'feature'),
-        bean('epic-1', 'normal', undefined, 'epic'),
+        bean('epic-leaf', 'normal', undefined, 'epic'),
+        bean('epic-container', 'normal', undefined, 'epic'),
         bean('bug-1', 'normal', undefined, 'bug'),
       ]
-      // feat-container has children → it's a container, not dispatchable
-      const containerIds = new Set(['feat-container'])
+      // feat-container and epic-container have children → containers, not dispatchable
+      const containerIds = new Set(['epic-container', 'feat-container'])
 
       const result = pickDispatchable(descendants, ready, containerIds)
-      expect(result.map((b) => b.id)).to.deep.equal(['bug-1', 'feat-leaf', 'task-1'])
+      // All leaves are dispatchable regardless of type; sorted by id
+      expect(result.map((b) => b.id)).to.deep.equal(['bug-1', 'epic-leaf', 'feat-leaf', 'task-1'])
     })
   })
 
@@ -198,6 +201,37 @@ describe('dispatch/dispatch', () => {
       _setShellForTesting(mock)
       const result = getDispatchable('hordr-test')
       expect(result.map((b) => b.id)).to.deep.equal(['hordr-0002', 'hordr-0003'])
+    })
+
+    it('includes the root bean itself when it is a leaf (no children)', () => {
+      // eslint-disable-next-line unicorn/consistent-function-scoping -- test-local mock
+      const mock: ShellFn = (args) => {
+        const joined = args.join(' ')
+        if (joined.startsWith('query')) {
+          return JSON.stringify({
+            bean: {
+              assigned: 'implementer',
+              children: [],
+              id: 'hordr-leaf',
+              priority: 'high',
+              title: 'Leaf Feature',
+              type: 'feature',
+            },
+          })
+        }
+
+        if (joined.includes('--ready')) {
+          return JSON.stringify([
+            {assigned: 'implementer', id: 'hordr-leaf', priority: 'high', title: 'Leaf Feature', type: 'feature'},
+          ])
+        }
+
+        throw new Error(`unexpected: ${joined}`)
+      }
+
+      _setShellForTesting(mock)
+      const result = getDispatchable('hordr-leaf')
+      expect(result.map((b) => b.id)).to.deep.equal(['hordr-leaf'])
     })
 
     it('listDrafts returns only status==draft descendants (any depth)', () => {
@@ -362,7 +396,20 @@ describe('dispatch/dispatch', () => {
     it('fetchDependencyStatus returns blockers, siblings, and parent blockers', () => {
       _setShellForTesting((args) => {
         if (args.includes('query')) {
-          return JSON.stringify({bean: {blockedBy: [{id: 'epic-A', status: 'todo', title: 'Shared module'}], parent: {blockedBy: [{id: 'epic-A', status: 'todo', title: 'Shared module'}], children: [{id: 'task-1', status: 'todo', title: 'My task', type: 'task'}, {id: 'task-2', status: 'todo', title: 'Sibling resolver', type: 'task'}, {id: 'task-3', status: 'completed', title: 'Done sibling', type: 'task'}], id: 'feat-1'}}})
+          return JSON.stringify({
+            bean: {
+              blockedBy: [{id: 'epic-A', status: 'todo', title: 'Shared module'}],
+              parent: {
+                blockedBy: [{id: 'epic-A', status: 'todo', title: 'Shared module'}],
+                children: [
+                  {id: 'task-1', status: 'todo', title: 'My task', type: 'task'},
+                  {id: 'task-2', status: 'todo', title: 'Sibling resolver', type: 'task'},
+                  {id: 'task-3', status: 'completed', title: 'Done sibling', type: 'task'},
+                ],
+                id: 'feat-1',
+              },
+            },
+          })
         }
 
         throw new Error(`unexpected: ${args.join(' ')}`)

@@ -4,15 +4,13 @@ import {expect} from 'chai'
 import {applySchema, openDb} from '../../src/storage/db.js'
 import {
   addLane,
+  countActiveLanes,
   deleteFleet,
   deleteLanes,
   ensureProject,
   getFleet,
   getProjectPath,
   listLanes,
-  listProvenance,
-  provenanceFor,
-  recordProvenance,
   registerFleet,
   setLanePane,
   updateLaneStatus,
@@ -83,6 +81,7 @@ describe('storage/fleets', () => {
         branch: 'hordr-ms1',
         createdAt: NOW,
         milestoneBeanId: MS,
+        paneId: null,
         projectKey: PK,
         status: 'active',
         worktreePath: '/wt/ms1',
@@ -141,7 +140,7 @@ describe('storage/fleets', () => {
         projectKey: PK,
         status: 'active',
         workspaceId: null,
-      worktreePath: '/wt/epic-a',
+        worktreePath: '/wt/epic-a',
       })
       addLane(db, {
         branch: 'epic-b',
@@ -153,7 +152,7 @@ describe('storage/fleets', () => {
         projectKey: PK,
         status: 'pending',
         workspaceId: null,
-      worktreePath: '/wt/epic-b',
+        worktreePath: '/wt/epic-b',
       })
 
       const lanes = listLanes(db, PK, MS)
@@ -217,54 +216,61 @@ describe('storage/fleets', () => {
       setLanePane(db, {epicId: 'epic-a', milestoneId: MS, projectKey: PK}, 'w1:p1')
       expect(listLanes(db, PK, MS)[0]!.paneId).to.equal('w1:p1')
     })
-  })
 
-  describe('provenance', () => {
-    it('recordProvenance + listProvenance + provenanceFor round-trip', () => {
-      seedFleet(db)
-      recordProvenance(db, {
-        createdByTaskBeanId: 'task-A',
-        fleetMilestoneBeanId: MS,
-        projectKey: PK,
-        recordedAt: NOW,
-        spawnedBeanId: 'spawn-1',
+    it('countActiveLanes counts in-flight lanes across all projects/fleets (excludes idle)', () => {
+      // second project + fleet so we prove the count is global, not per-fleet
+      ensureProject(db, {beansPath: '/b2', companyPath: null, configPath: '/c2', projectKey: 'pk2'})
+      registerFleet(db, {
+        branch: 'ms/ms2',
+        createdAt: NOW,
+        milestoneBeanId: 'hordr-ms2',
+        projectKey: 'pk2',
+        status: 'active',
+        worktreePath: '/wt-ms2',
       })
-      recordProvenance(db, {
-        createdByTaskBeanId: 'task-A',
+      seedFleet(db) // pk1 / hordr-ms1
+
+      // pk1/ms1: one in-flight, one idle
+      addLane(db, {
+        branch: 'a',
+        createdAt: NOW,
+        currentTaskBeanId: 't1',
+        epicBeanId: 'e1',
         fleetMilestoneBeanId: MS,
+        paneId: 'p',
         projectKey: PK,
-        recordedAt: '2026-07-09T00:00:01Z',
-        spawnedBeanId: 'spawn-2',
+        status: 'active',
+        workspaceId: null,
+        worktreePath: '/wt',
+      })
+      addLane(db, {
+        branch: 'b',
+        createdAt: NOW,
+        currentTaskBeanId: null,
+        epicBeanId: 'e2',
+        fleetMilestoneBeanId: MS,
+        paneId: null,
+        projectKey: PK,
+        status: 'active',
+        workspaceId: null,
+        worktreePath: '/wt2',
+      })
+      // pk2/ms2: one in-flight
+      addLane(db, {
+        branch: 'c',
+        createdAt: NOW,
+        currentTaskBeanId: 't2',
+        epicBeanId: 'e3',
+        fleetMilestoneBeanId: 'hordr-ms2',
+        paneId: 'p2',
+        projectKey: 'pk2',
+        status: 'active',
+        workspaceId: null,
+        worktreePath: '/wt3',
       })
 
-      const all = listProvenance(db, PK, MS)
-      expect(all.map((r) => r.spawnedBeanId)).to.deep.equal(['spawn-1', 'spawn-2'])
-      expect(all[0]!.createdByTaskBeanId).to.equal('task-A')
-
-      const one = provenanceFor(db, PK, 'spawn-1')
-      expect(one?.createdByTaskBeanId).to.equal('task-A')
-      expect(provenanceFor(db, PK, 'nope')).to.be.undefined
-    })
-
-    it('recordProvenance is idempotent — keeps the first creator', () => {
-      seedFleet(db)
-      recordProvenance(db, {
-        createdByTaskBeanId: 'task-A',
-        fleetMilestoneBeanId: MS,
-        projectKey: PK,
-        recordedAt: NOW,
-        spawnedBeanId: 'spawn-1',
-      })
-      recordProvenance(db, {
-        createdByTaskBeanId: 'task-B',
-        fleetMilestoneBeanId: MS,
-        projectKey: PK,
-        recordedAt: '2026-07-10T00:00:00Z',
-        spawnedBeanId: 'spawn-1',
-      })
-
-      expect(provenanceFor(db, PK, 'spawn-1')!.createdByTaskBeanId).to.equal('task-A')
-      expect(listProvenance(db, PK, MS)).to.have.length(1)
+      // t1 (pk1) + t2 (pk2); the idle e2 lane is excluded
+      expect(countActiveLanes(db)).to.equal(2)
     })
   })
 })

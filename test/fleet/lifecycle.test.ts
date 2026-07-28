@@ -6,7 +6,7 @@ import type {BeanRecord} from '../../src/beans/client.js'
 
 import {abortFleet, createFleet, describeFleet, finishFleet, FleetError, resetLane} from '../../src/fleet/lifecycle.js'
 import {applySchema, openDb} from '../../src/storage/db.js'
-import {addLane, ensureProject, type FleetRow, getFleet, getLane, registerFleet} from '../../src/storage/fleets.js'
+import {addLane, ensureProject, type FleetRow, getFleet, listLanes, registerFleet} from '../../src/storage/fleets.js'
 
 const PK = 'pk1'
 const MS = 'hordr-ms1'
@@ -110,6 +110,7 @@ describe('fleet/lifecycle', () => {
         branch: MS,
         createdAt: '2026-01-01T00:00:00Z',
         milestoneBeanId: MS,
+        paneId: null,
         projectKey: PK,
         status: 'active',
         worktreePath: '/repo',
@@ -170,6 +171,7 @@ describe('fleet/lifecycle', () => {
         branch: MS,
         createdAt: NOW,
         milestoneBeanId: MS,
+        paneId: null,
         projectKey: PK,
         status: 'active',
         worktreePath: '/repo',
@@ -223,8 +225,9 @@ describe('fleet/lifecycle', () => {
     let gitCalls: Array<{args: string[]; cwd: string}>
     let milestoneStatus: string
     let epicStatuses: Array<{id: string; status: string}>
-    let gitThrows: boolean
-    let removedBranches: string[]
+    let mergeConflicts: boolean
+    let removedWorktrees: string[]
+    let spawnedMergers: Array<{conflictedFiles: string[]; cwd: string; mainRepoCwd: string}>
 
     beforeEach(() => {
       db = openDb(':memory:')
@@ -234,6 +237,7 @@ describe('fleet/lifecycle', () => {
         branch: MS,
         createdAt: NOW,
         milestoneBeanId: MS,
+        paneId: null,
         projectKey: PK,
         status: 'active',
         worktreePath: '/repo',
@@ -244,8 +248,9 @@ describe('fleet/lifecycle', () => {
         {id: 'epic-1', status: 'completed'},
         {id: 'epic-2', status: 'completed'},
       ]
-      gitThrows = false
-      removedBranches = []
+      mergeConflicts = false
+      removedWorktrees = []
+      spawnedMergers = []
     })
 
     afterEach(() => {
@@ -254,44 +259,73 @@ describe('fleet/lifecycle', () => {
 
     function deps() {
       return {
+        beansDir(_worktreePath: string) {
+          return '.beans'
+        },
         beanStatus(id: string) {
           return id === MS ? milestoneStatus : undefined
         },
         fetchEpicStatuses() {
           return epicStatuses
         },
+        getConflictedFiles(_worktreePath: string) {
+          return ['src/foo.ts']
+        },
         git(args: string[], opts: {cwd: string}): void {
-          if (gitThrows) throw new Error('merge conflict')
+          // attemptMerge: stash (ignored) → checkout → merge --ff-only → merge --no-ff
+          // mergeConflicts makes BOTH merge attempts throw (ff fails = not
+          // fast-forwardable, no-ff fails = real conflict). Stash/checkout
+          // always succeed.
+          if (args[0] === 'merge' && mergeConflicts) throw new Error('merge conflict')
           gitCalls.push({args, cwd: opts.cwd})
         },
-        removeWorktree(branch: string): void {
-          removedBranches.push(branch)
+        removeWorktree(worktreePath: string): void {
+          removedWorktrees.push(worktreePath)
+        },
+        spawnMerger(opts: {conflictedFiles: string[]; cwd: string; mainRepoCwd: string}): string {
+          spawnedMergers.push(opts)
+          return 'mock-pane-1'
         },
       }
     }
 
     it('merges ms/<id> into primary and deletes rows when milestone + epics complete', () => {
-      finishFleet(db, MS, {cwd: '/repo', primaryBranch: PRIMARY, projectKey: PK}, deps())
+      finishFleet(db, MS, {cwd: '/repo', mainRepoCwd: '/main', primaryBranch: PRIMARY, projectKey: PK}, deps())
 
       expect(gitCalls.some((c) => c.args[0] === 'merge' && c.args.includes('hordr-ms1'))).to.be.true
-      // merge now stashes first — check by content not position
-
       expect(getFleet(db, PK, MS)).to.be.undefined
     })
 
-    it('tears down the ms worktree after a successful merge', () => {
-      finishFleet(db, MS, {cwd: '/repo', primaryBranch: PRIMARY, projectKey: PK}, deps())
+    it('uses 3-tier escalation: tries --ff-only before --no-ff', () => {
+      finishFleet(db, MS, {cwd: '/repo', mainRepoCwd: '/main', primaryBranch: PRIMARY, projectKey: PK}, deps())
 
-      expect(removedBranches).to.deep.equal([MS])
+      const ffOnly = gitCalls.find((c) => c.args[0] === 'merge' && c.args.includes('--ff-only'))
+      const noFF = gitCalls.find((c) => c.args[0] === 'merge' && c.args.includes('--no-ff'))
+      expect(ffOnly, 'must attempt --ff-only first').to.exist
+      // ff-only succeeds (mock doesn't throw) → no-ff never reached
+      expect(noFF, 'no-ff skipped when ff-only succeeds').to.be.undefined
+    })
+
+    it('deletes the ms branch after a successful merge', () => {
+      finishFleet(db, MS, {cwd: '/repo', mainRepoCwd: '/main', primaryBranch: PRIMARY, projectKey: PK}, deps())
+
+      const branchDelete = gitCalls.find((c) => c.args[0] === 'branch' && c.args[1] === '-d' && c.args.includes(MS))
+      expect(branchDelete, 'must run git branch -d <ms>').to.exist
+      expect(branchDelete!.cwd).to.equal('/main')
+    })
+
+    it('tears down the ms worktree after a successful merge', () => {
+      finishFleet(db, MS, {cwd: '/repo', mainRepoCwd: '/main', primaryBranch: PRIMARY, projectKey: PK}, deps())
+
+      expect(removedWorktrees).to.deep.equal(['/repo'])
       expect(getFleet(db, PK, MS)).to.be.undefined
     })
 
     it('refuses when the milestone bean is not completed', () => {
       milestoneStatus = 'in-progress'
-      expect(() => finishFleet(db, MS, {cwd: '/repo', primaryBranch: PRIMARY, projectKey: PK}, deps())).to.throw(
-        FleetError,
-        /not completed/,
-      )
+      expect(() =>
+        finishFleet(db, MS, {cwd: '/repo', mainRepoCwd: '/main', primaryBranch: PRIMARY, projectKey: PK}, deps()),
+      ).to.throw(FleetError, /not completed/)
       expect(gitCalls).to.have.length(0)
     })
 
@@ -300,27 +334,96 @@ describe('fleet/lifecycle', () => {
         {id: 'epic-1', status: 'completed'},
         {id: 'epic-2', status: 'in-progress'},
       ]
-      expect(() => finishFleet(db, MS, {cwd: '/repo', primaryBranch: PRIMARY, projectKey: PK}, deps())).to.throw(
-        FleetError,
-        /not all epics/,
-      )
+      expect(() =>
+        finishFleet(db, MS, {cwd: '/repo', mainRepoCwd: '/main', primaryBranch: PRIMARY, projectKey: PK}, deps()),
+      ).to.throw(FleetError, /not all epics/)
       expect(gitCalls).to.have.length(0)
     })
 
-    it('throws on merge conflict and keeps the fleet row', () => {
-      gitThrows = true
-      expect(() => finishFleet(db, MS, {cwd: '/repo', primaryBranch: PRIMARY, projectKey: PK}, deps())).to.throw(
-        FleetError,
-        /conflicted/,
+    it('spawns a merger agent on conflict and sets fleet to merging (tier 3)', () => {
+      mergeConflicts = true
+      const result = finishFleet(
+        db,
+        MS,
+        {cwd: '/repo', mainRepoCwd: '/main', primaryBranch: PRIMARY, projectKey: PK},
+        deps(),
       )
-      expect(getFleet(db, PK, MS)).to.exist
+
+      expect(result.merged).to.be.false
+      expect(result.conflictPaneId).to.equal('mock-pane-1')
+      expect(spawnedMergers).to.have.length(1)
+      expect(spawnedMergers[0].conflictedFiles).to.deep.equal(['src/foo.ts'])
+      // Fleet row stays, status = 'merging', pane stored for liveness tracking.
+      const fleet = getFleet(db, PK, MS)!
+      expect(fleet).to.exist
+      expect(fleet.status).to.equal('merging')
+      expect(fleet.paneId).to.equal('mock-pane-1')
+      // Worktree + branch NOT removed on conflict.
+      expect(removedWorktrees).to.deep.equal([])
     })
 
     it('refuses when no fleet row exists', () => {
-      expect(() => finishFleet(db, 'nope', {cwd: '/repo', primaryBranch: PRIMARY, projectKey: PK}, deps())).to.throw(
-        FleetError,
-        /no fleet for nope/,
-      )
+      expect(() =>
+        finishFleet(db, 'nope', {cwd: '/repo', mainRepoCwd: '/main', primaryBranch: PRIMARY, projectKey: PK}, deps()),
+      ).to.throw(FleetError, /no fleet for nope/)
+    })
+
+    it('hordr-hmbq: defensively commits .beans/ writes before worktree removal — mops straggler rollup dirt', () => {
+      // git diff --cached --quiet throws (exit 1) → something staged → commit must run.
+      // Then removeWorktree. The defensive commit must come BEFORE the remove call,
+      // so straggler .beans/ dirt doesn't make `git worktree remove` refuse.
+      let commitCallSeen = false
+      let removeCallSeen = false
+      let commitBeforeRemove: boolean | null = null
+      const orderedDeps = {
+        ...deps(),
+        git(args: string[], opts: {cwd: string}): void {
+          gitCalls.push({args, cwd: opts.cwd})
+          if (args[0] === 'add' || args[0] === 'commit' || (args[0] === 'diff' && args[1] === '--cached')) {
+            // pretend there's always staged dirt so the commit branch fires
+            if (args[0] === 'commit') commitCallSeen = true
+            if (commitCallSeen && !removeCallSeen) commitBeforeRemove = true
+          }
+        },
+        removeWorktree(worktreePath: string): void {
+          removeCallSeen = true
+          removedWorktrees.push(worktreePath)
+        },
+      }
+      // override the diff to "throw" so commit branch fires (idempotent skip not exercised here)
+      const origGit = orderedDeps.git
+      orderedDeps.git = (args: string[], opts: {cwd: string}) => {
+        if (args[0] === 'diff' && args[1] === '--cached') {
+          gitCalls.push({args, cwd: opts.cwd})
+          throw new Error('exit 1 = staged diffs')
+        }
+
+        origGit(args, opts)
+      }
+
+      finishFleet(db, MS, {cwd: '/repo', mainRepoCwd: '/main', primaryBranch: PRIMARY, projectKey: PK}, orderedDeps)
+
+      // The defensive commit fired (add + diff --cached --quiet + commit, in order).
+      expect(gitCalls.some((c) => c.args[0] === 'add' && c.args[1] === '.beans')).to.be.true
+      expect(commitCallSeen, 'a chore(beans) commit must fire before removeWorktree').to.be.true
+      expect(commitBeforeRemove, 'commit must come BEFORE removeWorktree').to.equal(true)
+      expect(removedWorktrees).to.deep.equal(['/repo'])
+    })
+
+    it('hordr-hmbq: when .beans/ has nothing staged, the defensive commit is skipped (idempotent) and remove still runs', () => {
+      // git diff --cached --quiet succeeds (exit 0) → nothing staged → no commit call.
+      const orderedDeps = {
+        ...deps(),
+        // default git returns void for everything → diff succeeds → idempotent skip
+      }
+
+      finishFleet(db, MS, {cwd: '/repo', mainRepoCwd: '/main', primaryBranch: PRIMARY, projectKey: PK}, orderedDeps)
+
+      expect(
+        gitCalls.some((c) => c.args[0] === 'commit'),
+        'no commit when nothing staged',
+      ).to.be.false
+      expect(removedWorktrees).to.deep.equal(['/repo'])
     })
   })
 
@@ -337,6 +440,7 @@ describe('fleet/lifecycle', () => {
         branch: MS,
         createdAt: NOW,
         milestoneBeanId: MS,
+        paneId: null,
         projectKey: PK,
         status: 'active',
         worktreePath: '/repo',
@@ -422,9 +526,14 @@ describe('fleet/lifecycle', () => {
       branch: MS,
       createdAt: NOW,
       milestoneBeanId: MS,
+      paneId: null,
       projectKey: PK,
       status: 'active',
       worktreePath: '/wt/ms',
+    }
+
+    function laneByEpic(epicId: string) {
+      return listLanes(db, PK, MS).find((l) => l.epicBeanId === epicId)!
     }
 
     function seedLane(
@@ -494,13 +603,13 @@ describe('fleet/lifecycle', () => {
     it('reuses existing worktree + pane, clears task, sets active', () => {
       seedLane()
 
-      const res = resetLane(db, getLane(db, 'epic-a')!, FLEET_ROW, deps())
+      const res = resetLane(db, laneByEpic('epic-a'), FLEET_ROW, deps())
 
       expect(res.worktreeCreated).to.equal(false)
       expect(res.paneCreated).to.equal(false)
       expect(createdWorktrees).to.equal(0)
       expect(createdPanes).to.equal(0)
-      const lane = getLane(db, 'epic-a')!
+      const lane = laneByEpic('epic-a')
       expect(lane.status).to.equal('active')
       expect(lane.currentTaskBeanId).to.equal(null)
     })
@@ -509,11 +618,11 @@ describe('fleet/lifecycle', () => {
       worktreeAlive = false
       seedLane()
 
-      const res = resetLane(db, getLane(db, 'epic-a')!, FLEET_ROW, deps())
+      const res = resetLane(db, laneByEpic('epic-a'), FLEET_ROW, deps())
 
       expect(res.worktreeCreated).to.equal(true)
       expect(createdWorktrees).to.equal(1)
-      const lane = getLane(db, 'epic-a')!
+      const lane = laneByEpic('epic-a')
       expect(lane.status).to.equal('active')
       expect(lane.worktreePath).to.equal('/wt/epic-a-new')
     })
@@ -522,7 +631,7 @@ describe('fleet/lifecycle', () => {
       worktreeAlive = false
       seedLane()
 
-      const res = resetLane(db, getLane(db, 'epic-a')!, FLEET_ROW, {
+      const res = resetLane(db, laneByEpic('epic-a'), FLEET_ROW, {
         ...deps(),
         createWorktree() {
           createdWorktrees++
@@ -533,7 +642,7 @@ describe('fleet/lifecycle', () => {
       expect(res.worktreeCreated).to.equal(true)
       expect(createdWorktrees).to.equal(1)
       expect(openedWorktrees).to.equal(1)
-      const lane = getLane(db, 'epic-a')!
+      const lane = laneByEpic('epic-a')
       expect(lane.worktreePath).to.equal('/wt/epic-a')
     })
 
@@ -541,18 +650,18 @@ describe('fleet/lifecycle', () => {
       paneAlive = false
       seedLane()
 
-      const res = resetLane(db, getLane(db, 'epic-a')!, FLEET_ROW, deps())
+      const res = resetLane(db, laneByEpic('epic-a'), FLEET_ROW, deps())
 
       expect(res.paneCreated).to.equal(true)
       expect(createdPanes).to.equal(1)
-      const lane = getLane(db, 'epic-a')!
+      const lane = laneByEpic('epic-a')
       expect(lane.paneId).to.equal('w1:p11')
     })
 
     it('creates pane when paneId is null', () => {
       seedLane({paneId: ''})
 
-      const res = resetLane(db, getLane(db, 'epic-a')!, FLEET_ROW, deps())
+      const res = resetLane(db, laneByEpic('epic-a'), FLEET_ROW, deps())
 
       expect(res.paneCreated).to.equal(true)
       expect(createdPanes).to.equal(1)

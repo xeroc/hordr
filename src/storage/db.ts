@@ -50,6 +50,13 @@ export function openFleetDb(dbPath?: string): Database.Database {
     db.exec('ALTER TABLE lanes ADD COLUMN workspace_id TEXT')
   }
 
+  // Migrate older DBs: add pane_id column to fleets if missing (fleet merger agent tracking)
+  try {
+    db.prepare('SELECT pane_id FROM fleets LIMIT 0').all()
+  } catch {
+    db.exec('ALTER TABLE fleets ADD COLUMN pane_id TEXT')
+  }
+
   return db
 }
 
@@ -73,6 +80,7 @@ CREATE TABLE IF NOT EXISTS fleets (
   worktree_path     TEXT NOT NULL,
   branch            TEXT NOT NULL,
   status            TEXT NOT NULL,
+  pane_id           TEXT,
   created_at        TEXT NOT NULL,
   PRIMARY KEY (project_key, milestone_bean_id)
 );
@@ -89,19 +97,6 @@ CREATE TABLE IF NOT EXISTS lanes (
   current_task_bean_id    TEXT,
   created_at              TEXT NOT NULL,
   PRIMARY KEY (project_key, fleet_milestone_bean_id, epic_bean_id),
-  FOREIGN KEY (project_key, fleet_milestone_bean_id) REFERENCES fleets(project_key, milestone_bean_id)
-);
-
--- ADR-0013 provenance: which invocation created a dynamic bean. Forensics for
--- tracing cycles/runaway — not a dispatch gate. SQLite-only (hordr is read-only
--- on beans; frontmatter would need agent compliance + a beans write path).
-CREATE TABLE IF NOT EXISTS bean_provenance (
-  project_key             TEXT NOT NULL REFERENCES projects(project_key),
-  fleet_milestone_bean_id TEXT NOT NULL,
-  created_by_task_bean_id TEXT NOT NULL,
-  spawned_bean_id         TEXT NOT NULL,
-  recorded_at             TEXT NOT NULL,
-  PRIMARY KEY (project_key, spawned_bean_id),
   FOREIGN KEY (project_key, fleet_milestone_bean_id) REFERENCES fleets(project_key, milestone_bean_id)
 );
 `

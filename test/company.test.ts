@@ -13,7 +13,6 @@ import {
   CompanyError,
   getCompanyContext,
   parseAgentManifest,
-  parseCompanyManifest,
   parseFrontmatter,
   parseProjectManifest,
   parseSkillManifest,
@@ -123,13 +122,6 @@ Body without path.
       expect(m.name).to.equal('Commit Conventional')
       expect(m.slug).to.equal('commit-conventional')
       expect(m.body).to.match(/conventional commit/)
-    })
-
-    it('parseCompanyManifest extracts name and slug', () => {
-      const m = parseCompanyManifest(COMPANY_MD)
-      expect(m.name).to.equal('Lean Dev Shop')
-      expect(m.slug).to.equal('lean-dev-shop')
-      expect(m.body).to.match(/engineering-focused/)
     })
   })
 

@@ -33,16 +33,22 @@ export function loadConfig(pathArg?: string): HordrConfig {
   getCompanyContext()
 
   const configPath = pathArg ?? findConfigPath(process.cwd())
-  if (!configPath) throw new ConfigError('No hordr config found')
 
-  let raw: unknown
-  try {
-    raw = parse(readFileSync(configPath, 'utf8'))
-  } catch (error) {
-    throw new ConfigError(`Failed to parse config: ${(error as Error).message}`, configPath)
+  // No config file found (and none passed explicitly) → load defaults. A
+  // missing .beans.yml must not be fatal: DEFAULT_AGENTS + primary_branch
+  // 'develop' make hordr work zero-config out of any directory.
+  let doc: Record<string, unknown> = {}
+  if (configPath) {
+    let raw: unknown
+    try {
+      raw = parse(readFileSync(configPath, 'utf8'))
+    } catch (error) {
+      throw new ConfigError(`Failed to parse config: ${(error as Error).message}`, configPath)
+    }
+
+    doc = (raw ?? {}) as Record<string, unknown>
   }
 
-  const doc = (raw ?? {}) as Record<string, unknown>
   // Missing hordr: block is fine — defaults cover it.
   const hordrBlock = ('hordr' in doc ? doc.hordr : {}) as Record<string, unknown>
 

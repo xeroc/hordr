@@ -5,6 +5,9 @@ beans as their briefs. Two modes: **single-bean** (one agent, one task,
 fire-and-forget) and **fleet** (a team of agents working a milestone in
 parallel, each epic in its own worktree, advanced by `hordr fleet check`).
 
+> **New here?** Read [PROJECT.md](PROJECT.md) for the WHY and WHAT. This README
+> is the HOW. [CONTEXT.md](CONTEXT.md) defines the domain vocabulary.
+
 ```bash
 npx skills@latest xeroc/hordr   # skill for coding agents
 ```
@@ -17,16 +20,17 @@ npx skills@latest xeroc/hordr   # skill for coding agents
                     ┌─────────┴──────────┐
                     │       Hordr        │
                     │  run / finish /    │
-                    │  fleet / daemon    │
+                    │  fleet / done      │
                     └─────────┬──────────┘
                               │
               ┌───────────────┼───────────────┐
               │               │               │
          ┌────┴────┐    ┌─────┴─────┐   ┌─────┴──────┐
-         │  Herdr  │    │  Harness  │   │  Daemon    │
-         │ (panes, │    │ (opencode,│   │ (broker:   │
-         │  wtrees)│    │  claude…) │   │  dispatch, │
-         └─────────┘    └───────────┘   │  rollup,   │
+         │  Herdr  │    │  Harness  │   │   Engine   │
+         │ (panes, │    │ (opencode,│   │ (fleet     │
+         │  wtrees)│    │  claude…) │   │  check:    │
+         └─────────┘    └───────────┘   │  dispatch, │
+                                         │  rollup,   │
                                          │  merge)    │
                                          └────────────┘
 ```
@@ -159,7 +163,7 @@ EOF
 )"
 ```
 
-**Step 2: Start the fleet** (coming soon — commands in development):
+**Step 2: Start the fleet:**
 
 ```bash
 hordr fleet create hordr-MS
@@ -189,18 +193,20 @@ hordr fleet status hordr-MS
 
 ```bash
 hordr fleet finish hordr-MS
-# → merged ms/hordr-MS into develop (--no-ff)
-# → all worktrees removed, fleet torn down
+# → 3-tier merge: ff-only → no-ff → merger agent (on conflict)
+# → on success: worktree + branch removed, fleet torn down
+# → on conflict: merger agent spawned, fleet → 'merging'
+#   (run 'hordr fleet check' to complete after resolution)
 ```
 
 **What happens inside each lane:**
 
 ```
-1. Daemon picks the next ready task (beans list --ready, scoped to the epic)
+1. fleet check picks the next ready task (beans list --ready, scoped to the epic)
 2. Reads assigned: from the bean → resolves role/persona/harness
 3. Spawns agent invocation: "<harness> run --interactive '<persona + bean body>'"
 4. Agent works, commits (one task = one commit), calls hordr done <bean-id>
-5. Daemon verifies completion, rolls up status (fixup + autosquash into the commit)
+5. fleet check (or hordr done inline) verifies completion, rolls up status (separate `chore(beans): rollup status changes` commit)
 6. Picks the next task (respecting --blocked-by chains)
 7. When the epic completes: merges epic branch into ms/<milestone-id>
 ```
@@ -234,7 +240,7 @@ fleet create → ms/MS branch from develop
 
 If a merge produces a conflict (parallel epics touch the same file), the lane
 enters `conflict` status. `fleet status` shows it. The human resolves manually;
-the daemon detects the resolution on the next tick.
+the next `hordr fleet check` detects the resolution.
 
 ### 4. Mixed-backend team
 
@@ -260,7 +266,7 @@ hordr:
 ```
 
 Each invocation spawns the role's harness — no fleet-level configuration needed.
-The daemon is harness-agnostic.
+hordr is harness-agnostic.
 
 ---
 
@@ -285,6 +291,7 @@ beans:
 | `agents.implementer` | `opencode` | Fleet-shaped persona (one task, commit, done) |
 | `agents.tester`      | `opencode` | Fleet-shaped persona                          |
 | `agents.reviewer`    | `opencode` | Fleet-shaped persona                          |
+| `agents.merger`      | `opencode` | Merge conflict resolver (spawned on tier-3)   |
 
 Default personas are minimal fleet instructions: read one assigned bean, do the
 work, commit, `hordr done <id>`, stop. See [docs/fleet-guide.md](docs/fleet-guide.md)
@@ -354,7 +361,7 @@ assigned: implementer
 ---
 ```
 
-The planner writes `assigned:` during the planning session. The daemon reads it
+The planner writes `assigned:` during the planning session. The engine reads it
 at dispatch time to resolve the persona + harness. Missing `assigned:` defaults
 to `implementer`. See [docs/fleet-guide.md](docs/fleet-guide.md) for details.
 
@@ -364,12 +371,12 @@ to `implementer`. See [docs/fleet-guide.md](docs/fleet-guide.md) for details.
 
 ### Single-bean mode (available now)
 
-| Command                | Description                                                                  |
-| ---------------------- | ---------------------------------------------------------------------------- |
-| `hordr run <bean>`     | Create a worktree, spawn the agent harness in a fresh pane. Fire-and-forget. |
-| `hordr finish <bean>`  | Verify the bean is `completed`, merge its branch, remove the worktree.       |
-| `hordr cleanup <bean>` | Remove the worktree for a bean. `--force` for unmerged changes.              |
-| `hordr done <task>`    | Agent-facing: verify a task done, roll up, return the next bean in the lane. |
+| Command                | Description                                                                        |
+| ---------------------- | ---------------------------------------------------------------------------------- |
+| `hordr run <bean>`     | Create a worktree, spawn the agent harness in a fresh pane. Fire-and-forget.       |
+| `hordr finish <bean>`  | Verify the bean is `completed`, merge its branch, remove worktree + delete branch. |
+| `hordr cleanup <bean>` | Remove the worktree for a bean. `--force` for unmerged changes.                    |
+| `hordr done <task>`    | Agent-facing: verify a task done, roll up, return the next bean in the lane.       |
 
 #### `hordr run`
 
@@ -399,15 +406,16 @@ repo — the worktree has the up-to-date status), merges `<id>` into
 hordr cleanup <bean> [--force] [--json]
 ```
 
-### Fleet mode (in development)
+### Fleet mode
 
 | Command                          | Description                                                                                  |
 | -------------------------------- | -------------------------------------------------------------------------------------------- |
 | `hordr fleet create <milestone>` | Create the milestone integration branch, scan for unblocked epics, start lanes.              |
 | `hordr fleet check`              | Advance every active fleet one step (scan + heal + merge + spawn). Run manually or via cron. |
 | `hordr fleet status <milestone>` | Show fleet state + all lanes (active/pending/merging/conflict/done).                         |
-| `hordr fleet finish <milestone>` | Assert all epics merged, merge `ms/<id>` into primary, teardown.                             |
+| `hordr fleet finish <milestone>` | Assert all epics merged, 3-tier merge ms→primary, teardown.                                  |
 | `hordr fleet abort <milestone>`  | Stop all lanes. `--force` removes all worktrees + milestone branch.                          |
+| `hordr fleet reset <milestone>`  | Reset a lane from conflict/uncommitted — recreates worktree + pane if gone.                  |
 
 There is **no long-running daemon** (ADR-0015). A fleet makes progress when `hordr
 fleet check` runs. Run it by hand when you're watching, or cron it for autonomy:
@@ -427,30 +435,46 @@ bean in the lane so the agent continues in-place.
 
 ```
 src/
-├── commands/          # OCLIF command classes (run, finish, cleanup, done, fleet/*)
-├── beans/             # beans CLI client (read-only: getBean, getBody)
+├── commands/          # OCLIF command classes (run, finish, cleanup, done, prime, fleet/*)
+├── beans/             # beans CLI client (getBean, getBody, markBeanCompleted, resetBeanToTodo)
+│                      # + dir.ts (resolveBeansDir: reads .beans.yml)
 ├── config/            # schema (Zod), loader, defaults
-├── company/           # Agent Companies manifest parsing
+├── company.ts         # Agent Companies manifest parsing (AGENTS/PROJECT/SKILL/COMPANY.md)
 ├── dispatch/          # the fleet dispatch core (pure functions, injected deps):
+│   ├── engine.ts      #   createFleetEngine: scanFleet + advanceLane + continueTask (production)
 │   ├── dispatch.ts    #   getDispatchable (subtree ∩ --ready, priority sort)
 │   ├── role.ts        #   resolveRole (bean's assigned: → persona + harness)
 │   ├── spawn.ts       #   buildInvocationPrompt + spawnInvocation
 │   ├── loop.ts        #   dispatchNext (the per-lane step function)
+│   ├── continue.ts    #   continueLane (in-place continuation after /done)
 │   ├── done.ts        #   runDoneChecks + handleDone (done acceptance gate)
 │   ├── heal.ts        #   checkInvocation (self-heal: done? crash? wait?)
 │   ├── rollup.ts      #   rollup (ancestry walk) + isMilestoneComplete + areAllEpicsCompleted
-│   ├── squash.ts      #   squashRollup (fixup + autosquash into work commit)
+│   ├── commit-beans.ts #  commitBeanChanges (idempotent: stages + commits .beans/)
+│   ├── lane-create.ts #   createLaneForEpic (worktree + pane + branch for a new epic)
+│   ├── pane-heal.ts   #   ensureLanePane (recreate/reattach dead panes)
 │   ├── scan.ts        #   scanForNewLanes (lazy worktree creation)
-│   └── merge.ts       #   mergeBranch + mergeMilestoneToPrimary (conflict detection)
-├── harness/           # buildPrompt, launchAgent, shellQuote
+│   ├── merge.ts       #   attemptMerge (3-tier: ff-only → no-ff → conflict) + mergeBranch
+│   ├── merger.ts      #   merger agent spawn + conflicted-file detection + merge-complete check
+│   ├── advance.ts     #   (legacy) old per-lane step — only test/helpers/fleet-engine.ts imports it
+│   └── tick.ts        #   (legacy) old broker scan loop — only test/helpers/fleet-engine.ts imports it
+├── fleet/             # lifecycle.ts: createFleet, finishFleet (3-tier merge), finishFleetTeardown, abortFleet, resetLane
+├── harness/           # buildPrompt, buildHarnessCommand, resolveHarness, launchAgent, shellQuote
 ├── herdr/             # pane + worktree wrappers (shells out to herdr CLI)
-├── storage/           # SQLite (db.ts: schema + pragmas; project.ts: git-common-dir key; lock.ts: fleet-check mutex)
-└── runtime.ts         # HordrDeps + gitMergeBranch + test seams
+├── storage/           # SQLite (db.ts: schema + pragmas; fleets.ts: fleet/lane/project rows;
+│                      # project.ts: git-common-dir key; lock.ts: fleet-check PID mutex)
+├── logger.ts          # stderr logger (debug/info/warn/error)
+└── runtime.ts         # HordrDeps + gitMergeBranch + GitRunner test seam
 ```
 
 Every dispatch module is a **pure function with injected dependencies** —
-testable in isolation, wired to real I/O by the command classes (`hordr done`,
-`hordr fleet check`). There is no long-running process (ADR-0015).
+testable in isolation, wired to real I/O by the FleetEngine and command classes
+(`hordr done`, `hordr fleet check`). There is no long-running process (ADR-0015).
+
+> **engine.ts vs advance.ts/tick.ts:** production runs through `engine.ts`
+> (`createFleetEngine`, wired by `fleet/create`, `fleet/check`, and `done`).
+> `advance.ts` and `tick.ts` are the pre-ADR-0015 implementations kept alive
+> by `test/helpers/fleet-engine.ts`; they are not in the production call path.
 
 ---
 
@@ -511,13 +535,16 @@ code. When an epic unblocks, its worktree branches from the current branch
 state, so it **auto-inherits** earlier epics' code. No explicit merge-forward.
 The unblock is detected on the next `hordr fleet check`.
 
-### One task = one commit
+### Rollup commits
 
-Each task bean produces exactly one commit. The agent commits code + bean
-status; `hordr done` folds any rollup status changes into the same commit via
-`git commit --fixup` + `GIT_SEQUENCE_EDITOR=true git rebase -i --autosquash`.
-The commit SHA is rewritten (autosquash); the audit row records the post-squash
-SHA.
+Each task bean produces a work commit (code + the task's own bean status). When
+a task completion triggers ancestry rollup (parent feature/epic flipping to
+`completed`), the engine writes those `.beans/` changes and commits them as a
+separate `chore(beans): rollup status changes` commit via `commitBeanChanges`
+(idempotent — a no-op when nothing is staged). The "one task = one commit"
+folding via `git commit --fixup` + `git rebase --autosquash` specified in
+ADR-0011 was never wired and the design was amended; see
+`docs/adr/0011-rollup-via-fixup-autosquash.md`.
 
 ### Self-heal, no timeouts
 
@@ -528,20 +555,34 @@ the task to `todo` for re-dispatch. **No wall-clock timeouts** — nothing kills
 an agent for taking too long. The human decides what's stuck. Between checks, a
 crashed lane simply waits.
 
-### Merge conflicts → block, don't auto-resolve
+### Merge escalation: 3-tier (ff → no-ff → agent)
 
-If an epic→milestone merge conflicts, the lane enters `conflict` status. The
-human resolves manually. The next `hordr fleet check` detects the resolution.
-No agentic conflict resolution — it needs human judgment.
+Both epic→integration and integration→primary merges use the same 3-tier
+strategy:
+
+```
+Tier 1: git merge --ff-only     →  clean fast-forward, no merge commit
+Tier 2: git merge --no-ff       →  merge commit
+Tier 3: conflict in-progress    →  spawn merger agent to resolve
+```
+
+On tier 1 or 2 success, the source worktree is removed and the source branch
+is deleted (`git branch -d`, safe delete). On tier 3 conflict, a merger agent
+(a role-configured harness) is spawned in the target worktree where the
+conflicted merge is left in-progress. It resolves conflicts, commits, and
+stops. The next `hordr fleet check` detects completion (pane dead + merge
+committed) and finishes the teardown — removing the worktree and deleting the
+branch. If the merger agent aborts (genuine semantic incompatibility), the
+fleet or lane enters `conflict` status for human resolution.
 
 ### Storage boundary
 
-| Lives in **beans** (in-repo, committed)     | Lives in **SQLite** (machine-scoped)              |
-| ------------------------------------------- | ------------------------------------------------- |
-| Bean bodies, types, statuses, assignments   | Project registry (git-common-dir keys)            |
-| Milestone's work contract + child task tree | Fleet rows (milestone, integration branch)        |
-| Status rollup (task → epic → milestone)     | Lane rows (per-epic: worktree, pane, status)      |
-| Dynamic beans (created mid-work)            | Invocation audit (task → commit sha → timestamps) |
+| Lives in **beans** (in-repo, committed)     | Lives in **SQLite** (machine-scoped)          |
+| ------------------------------------------- | --------------------------------------------- |
+| Bean bodies, types, statuses, assignments   | Project registry (git-common-dir keys)        |
+| Milestone's work contract + child task tree | Fleet rows (milestone, integration branch)    |
+| Status rollup (task → epic → milestone)     | Lane rows (per-epic: worktree, pane, status)  |
+| Dynamic beans (created mid-work)            | Bean provenance (spawned bean ← task ← fleet) |
 
 Nothing mirrors bean status into SQLite. The check re-reads `.beans/` in the
 worktree whenever it needs work-state. Crash recovery = run `hordr fleet check`
@@ -557,31 +598,30 @@ bun run typecheck     # tsc --noEmit
 bun run lint          # ESLint
 ```
 
-177 tests, all passing. Tests use module-level seams (`_setShellForTesting`,
-`_setGitRunnerForTesting`) to mock beans/git/herdr — no real I/O in the test
-suite.
+Tests use module-level seams (`_setShellForTesting`, `_setGitRunnerForTesting`)
+to mock beans/git/herdr — no real I/O in the test suite.
 
 ---
 
 ## Architecture Decision Records
 
-| ADR                                                          | Title                                       | Status                             |
-| ------------------------------------------------------------ | ------------------------------------------- | ---------------------------------- |
-| [0001](docs/adr/0001-standalone-herdr-plugin.md)             | Standalone OCLIF binary as a herdr plugin   | Active                             |
-| [0002](docs/adr/0002-typescript-oclif-zod.md)                | TypeScript + OCLIF + Zod                    | Active                             |
-| [0003](docs/adr/0003-fire-and-forget-run.md)                 | Fire-and-forget run model                   | Superseded by 0009 (fleet)         |
-| [0004](docs/adr/0004-unix-socket-daemon-stub.md)             | Unix-socket daemon stub                     | Superseded by 0012 (broker)        |
-| [0005](docs/adr/0005-worktree-per-bean.md)                   | Worktree-per-bean                           | Superseded by 0009 (per-milestone) |
-| [0006](docs/adr/0006-bean-body-is-prompt.md)                 | Bean body is the agent prompt               | Active                             |
-| [0007](docs/adr/0007-agent-companies.md)                     | Agent Companies support                     | Active                             |
-| [0008](docs/adr/0008-no-lifecycle-state.md)                  | Hordr owns no lifecycle state               | Superseded by 0009 + 0012          |
-| [0009](docs/adr/0009-fleet-serialized-milestone-dispatch.md) | Fleet: milestone-scoped team dispatch       | Active                             |
-| [0010](docs/adr/0010-bean-projection-broker-no-timeouts.md)  | Bean-state-projection broker, no timeouts   | Superseded by 0015 (daemonless)    |
-| [0011](docs/adr/0011-rollup-via-fixup-autosquash.md)         | Broker-owned rollup via fixup + autosquash  | Active                             |
-| [0012](docs/adr/0012-daemon-as-broker-with-sqlite.md)        | Daemon-as-broker with SQLite process state  | Superseded by 0015 (daemonless)    |
-| [0013](docs/adr/0013-dynamic-beans-draft-gated.md)           | Dynamic beans: draft-gated                  | Active                             |
-| [0014](docs/adr/0014-per-epic-worktrees-lazy-creation.md)    | Per-epic worktrees with lazy creation       | Amended by 0015 (daemonless)       |
-| [0015](docs/adr/0015-daemonless-fleet-check.md)              | Daemonless fleet: inline done + fleet check | Active                             |
+| ADR                                                          | Title                                                                                       | Status                             |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------- | ---------------------------------- |
+| [0001](docs/adr/0001-standalone-herdr-plugin.md)             | Standalone OCLIF binary as a herdr plugin                                                   | Active                             |
+| [0002](docs/adr/0002-typescript-oclif-zod.md)                | TypeScript + OCLIF + Zod                                                                    | Active                             |
+| [0003](docs/adr/0003-fire-and-forget-run.md)                 | Fire-and-forget run model                                                                   | Superseded by 0009 (fleet)         |
+| [0004](docs/adr/0004-unix-socket-daemon-stub.md)             | Unix-socket daemon stub                                                                     | Superseded by 0012 (broker)        |
+| [0005](docs/adr/0005-worktree-per-bean.md)                   | Worktree-per-bean                                                                           | Superseded by 0009 (per-milestone) |
+| [0006](docs/adr/0006-bean-body-is-prompt.md)                 | Bean body is the agent prompt                                                               | Active                             |
+| [0007](docs/adr/0007-agent-companies.md)                     | Agent Companies support                                                                     | Active                             |
+| [0008](docs/adr/0008-no-lifecycle-state.md)                  | Hordr owns no lifecycle state                                                               | Superseded by 0009 + 0012          |
+| [0009](docs/adr/0009-fleet-serialized-milestone-dispatch.md) | Fleet: milestone-scoped team dispatch                                                       | Active                             |
+| [0010](docs/adr/0010-bean-projection-broker-no-timeouts.md)  | Bean-state-projection broker, no timeouts                                                   | Superseded by 0015 (daemonless)    |
+| [0011](docs/adr/0011-rollup-via-fixup-autosquash.md)         | Broker-owned rollup (amended: fixup+autosquash never wired; separate rollup commit instead) | Active                             |
+| [0012](docs/adr/0012-daemon-as-broker-with-sqlite.md)        | Daemon-as-broker with SQLite process state                                                  | Superseded by 0015 (daemonless)    |
+| [0013](docs/adr/0013-dynamic-beans-draft-gated.md)           | Dynamic beans: draft-gated                                                                  | Active                             |
+| [0014](docs/adr/0014-per-epic-worktrees-lazy-creation.md)    | Per-epic worktrees with lazy creation                                                       | Amended by 0015 (daemonless)       |
+| [0015](docs/adr/0015-daemonless-fleet-check.md)              | Daemonless fleet: inline done + fleet check                                                 | Active                             |
 
 ---
 

@@ -3,8 +3,8 @@
 Hordr is a herdr plugin that gives coding agents isolated git worktrees and
 panes, with beans as their briefs. Two modes: single-bean (`hordr run`) and
 fleet (a team working a milestone in parallel, each epic in its own worktree,
-coordinated by a daemon broker). See README.md for the full feature set and
-docs/fleet-guide.md for the fleet model.
+advanced by `hordr fleet check` — no long-running daemon, ADR-0015). See
+README.md for the full feature set and docs/fleet-guide.md for the fleet model.
 
 ## Before You Start
 
@@ -15,31 +15,70 @@ relevant bean IDs in the commit message.
 
 ```
 src/
-├── commands/          OCLIF command classes (run, finish, cleanup, daemon, fleet/*)
-├── beans/             beans CLI client (read-only: getBean, getBody)
+├── commands/          OCLIF command classes (run, finish, cleanup, done, prime, fleet/*)
+├── beans/             beans CLI client (getBean, getBody, markBeanCompleted, resetBeanToTodo)
+│                      + dir.ts (resolveBeansDir: reads .beans.yml, default '.beans')
 ├── config/            schema (Zod), loader, defaults (zero-config agents)
-├── company/           Agent Companies manifest parsing (AGENTS.md, SKILL.md)
-├── daemon/            unix-socket server (extensible route registry)
-├── dispatch/          the fleet dispatch core — all pure functions:
+├── company.ts         Agent Companies manifest parsing (AGENTS/PROJECT/SKILL/COMPANY.md)
+├── dispatch/          the fleet dispatch core — pure functions with injected deps:
+│   ├── engine.ts      createFleetEngine: scanFleet + advanceLane + continueTask (production)
+│                      Top-level helpers: rollupSweep, rollupAncestors, mergeEpicLane,
+│                      maybeCompleteMilestone (milestone auto-complete, hordr-45f3),
+│                      refreshLaneIfStale (cross-epic blocker ff-merge, hordr-lcsi).
+│                      scanFleet loop owns: lane scan, stale-done cleanup (hordr-sq00),
+│                      worktree recreation, milestone completion sweep.
 │   ├── dispatch.ts    getDispatchable (subtree ∩ --ready, priority sort)
 │   ├── role.ts        resolveRole (bean's assigned: → persona + harness)
 │   ├── spawn.ts       buildInvocationPrompt + spawnInvocation
 │   ├── loop.ts        dispatchNext (per-lane step function)
-│   ├── done.ts        handleDone (/done route: verify + acknowledge)
+│   ├── continue.ts    continueLane (in-place continuation after /done)
+│   ├── done.ts        handleDone + runDoneChecks (done acceptance gate)
 │   ├── heal.ts        checkInvocation (self-heal: done? crash? wait?)
 │   ├── rollup.ts      rollup + isMilestoneComplete + areAllEpicsCompleted
-│   ├── squash.ts      squashRollup (fixup + autosquash into work commit)
+│   ├── commit-beans.ts commitBeanChanges (idempotent: stages + commits .beans/)
+│   ├── lane-create.ts createLaneForEpic (worktree + pane + branch for a new epic)
+│   ├── pane-heal.ts   ensureLanePane (recreate/reattach dead panes)
 │   ├── scan.ts        scanForNewLanes (lazy worktree creation)
-│   └── merge.ts       mergeBranch + mergeMilestoneToPrimary (conflict detection)
-├── harness/           buildPrompt, launchAgent, shellQuote
-├── herdr/             pane + worktree wrappers
-├── storage/           SQLite (db.ts: schema + pragmas; project.ts: git-common-dir)
-└── runtime.ts         HordrDeps + gitMergeBranch + test seams
+│   ├── merge.ts       mergeBranch + mergeMilestoneToPrimary (conflict detection)
+│   ├── advance.ts     ⚠ LEGACY — old per-lane step. Only test/helpers/fleet-engine.ts imports it. Candidate for deletion (see note below).
+│   └── tick.ts        ⚠ LEGACY — old broker scan loop. Only test/helpers/fleet-engine.ts imports it. Candidate for deletion (see note below).
+├── fleet/             lifecycle.ts: createFleet, describeFleet, finishFleet, abortFleet, resetLane
+├── harness/           buildPrompt, buildHarnessCommand, resolveHarness, launchAgent, shellQuote
+├── herdr/             pane + worktree wrappers (shells out to herdr CLI)
+├── storage/           SQLite (db.ts: schema + pragmas; fleets.ts: fleet/lane/project rows;
+│                      project.ts: git-common-dir key; lock.ts: fleet-check PID mutex)
+├── logger.ts          stderr logger (debug/info/warn/error)
+└── runtime.ts         HordrDeps + gitMergeBranch + GitRunner test seam
 ```
 
 Every dispatch module is a **pure function with injected dependencies**
-(`ShellFn`, `GitFn`, `DispatchDeps`, etc.). Tests mock the deps; the daemon
-and command classes wire the real I/O. Follow this pattern for new modules.
+(`ShellFn`, `GitFn`, `DispatchDeps`, etc.). Tests mock the deps; `engine.ts`
+and the command classes wire the real I/O. Follow this pattern for new modules.
+
+> **engine.ts vs advance.ts/tick.ts:** production runs through `engine.ts`
+> (`createFleetEngine`, wired by `fleet/create`, `fleet/check`, and `done`).
+> `advance.ts` and `tick.ts` are the pre-ADR-0015 implementations kept alive
+> by `test/helpers/fleet-engine.ts`; they are not in the production call path.
+> When adding new dispatch logic, modify `engine.ts` — and prefer moving the
+> orphaned tests over to the production engine rather than extending the
+> legacy pair.
+>
+> **Status (Jul 2026):** engine.ts is now feature-complete vs tick.ts. The
+> three behaviors that previously lived only in tick.ts were ported in
+> hordr-sq00 (stale-done lane cleanup), hordr-45f3 (milestone auto-complete),
+> and hordr-lcsi (cross-epic blocker refresh). The legacy pair is now strictly
+> redundant as a _reference_ implementation. Their only remaining value is
+> backing 19 tests via `test/helpers/fleet-engine.ts` (TestFleetEngine mock).
+> **Recommended cleanup:** delete `tick.ts`, `advance.ts`, and the
+> `TestFleetEngine` helper in one PR; migrate or delete the 19 tests
+> (most are redundant with the production-engine tests in
+> `test/dispatch/engine.test.ts`). This is a mechanical refactor, not a
+> behavior change — both implementations call the same shared helpers
+> (`rollup.ts`, `scan.ts`, `heal.ts`, `dispatch.ts`).
+>
+> **Bug class to remember:** when a future port moves logic between modules,
+> diff "what does the old place do that the new place doesn't" — all three
+> 2026-07 bugs were missing ports, found by exactly that diff.
 
 ## Beans — Structure and Planning
 
@@ -104,7 +143,7 @@ Build the frobnicator module.
 
 When creating task beans during planning, **always set `assigned:`** to the
 appropriate role. Missing `assigned:` defaults to `implementer` (with a
-warning). Unresolvable roles (not in config) cause the daemon to block the
+warning). Unresolvable roles (not in config) cause the engine to block the
 task.
 
 ### Implement → test → review pipelines
@@ -124,7 +163,7 @@ beans create "Review X" -t task --parent hordr-EPIC \
 # → hordr-0003 (not ready until 0002 completes)
 ```
 
-The daemon dispatches only unblocked tasks (`beans list --ready`). After
+The engine dispatches only unblocked tasks (`beans list --ready`). After
 `hordr-0001` completes, `hordr-0002` becomes ready, then `hordr-0003`. This
 creates the implement → test → review pipeline naturally.
 
@@ -144,15 +183,19 @@ automatic dependency resolution.
 
 An agent may discover new work during a task. It creates beans via `beans
 create ... -s draft`. Dynamic beans land in `draft` status — the human reviews
-and flips to `todo` to dispatch them. The daemon never auto-dispatches draft
+and flips to `todo` to dispatch them. The engine never auto-dispatches draft
 beans.
 
 ### Status flow
 
-Status flows up automatically via the daemon's rollup: a parent is `completed`
+Status flows up automatically via the engine's rollup: a parent is `completed`
 only when all descendants are `completed`. The agent does NOT walk the tree or
-propagate status — the daemon owns rollup (fixup + autosquash into the work
-commit).
+propagate status — the engine owns rollup. Rollup writes (`.beans/` status
+changes) are committed by the engine as a separate `chore(beans): rollup
+status changes` commit via `commitBeanChanges` (idempotent: a no-op when
+nothing is staged). ADR-0011 specified fixup+autosquash into the work commit;
+that folding was never wired and the design was amended — see
+`docs/adr/0011-rollup-via-fixup-autosquash.md`.
 
 ## Bean Hygiene
 

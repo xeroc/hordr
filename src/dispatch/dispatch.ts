@@ -37,9 +37,6 @@ export interface DispatchableBean {
   type: string
 }
 
-/** Only task and bug beans are executable — features, epics, milestones are containers. */
-const EXECUTABLE_TYPES = new Set(['bug', 'feature', 'task'])
-
 // --- priority ordering ---
 
 const PRIORITY_RANK: Record<string, number> = {
@@ -64,8 +61,8 @@ function byPriorityThenId(a: DispatchableBean, b: DispatchableBean): number {
 // --- pure logic ---
 
 /**
- * Intersection of descendants ∩ ready ∩ executable, sorted by priority then id.
- *  Features with children are containers — excluded from dispatch.
+ * Intersection of descendants ∩ ready ∩ non-container, sorted by priority then id.
+ * Any bean with children is a container — excluded from dispatch.
  */
 export function pickDispatchable(
   descendants: DispatchableBean[],
@@ -76,9 +73,8 @@ export function pickDispatchable(
   return ready
     .filter((r) => {
       if (!descendantIds.has(r.id)) return false
-      if (!EXECUTABLE_TYPES.has(r.type)) return false
-      // Features with children are containers, not work items
-      if (r.type === 'feature' && containerIds?.has(r.id)) return false
+      // Any bean with children is a container, not a dispatchable work item
+      if (containerIds?.has(r.id)) return false
       return true
     })
     .sort(byPriorityThenId)
@@ -118,17 +114,32 @@ function flattenDescendants(node: RawBean, containerIds: Set<string>): Dispatcha
 
 // --- I/O: query beans ---
 
-/** Fetch the subtree and flatten to a list. Returns descendants + container IDs. */
+/**
+ * Fetch the subtree and flatten to a list. Returns descendants + container IDs.
+ * When the root itself is a leaf (no children), it is included as a descendant
+ * so callers like getDispatchable(leafId) return the leaf itself.
+ */
 function fetchDescendants(
   rootBeanId: string,
   cwd?: string,
 ): {containerIds: Set<string>; descendants: DispatchableBean[]} {
-  const query = `{ bean(id: "${rootBeanId}") { children { id title type priority children { id title type priority children { id title type priority } } } } }`
+  const query = `{ bean(id: "${rootBeanId}") { id title type priority children { id title type priority children { id title type priority children { id title type priority } } } } }`
   const raw = _shell(['query', '--json', query], {cwd})
   const data = JSON.parse(raw) as {bean?: RawBean}
   if (!data.bean) return {containerIds: new Set(), descendants: []}
   const containerIds = new Set<string>()
   const descendants = flattenDescendants(data.bean, containerIds)
+  // Root is a leaf (no children) → include it so it can be dispatched directly
+  if ((data.bean.children?.length ?? 0) === 0) {
+    descendants.push({
+      assigned: data.bean.assigned,
+      id: data.bean.id,
+      priority: data.bean.priority ?? 'normal',
+      title: data.bean.title ?? '',
+      type: data.bean.type ?? 'task',
+    })
+  }
+
   return {containerIds, descendants}
 }
 

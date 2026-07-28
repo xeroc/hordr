@@ -1,11 +1,11 @@
 ---
 # hordr-ph01
 title: finishFleet must tear down ms worktree after merge
-status: in-progress
+status: completed
 type: bug
 priority: high
 created_at: 2026-07-15T13:28:02Z
-updated_at: 2026-07-15T13:37:34Z
+updated_at: 2026-07-17T11:47:58Z
 ---
 
 finishFleet merges ms/<id> into primary but never removes the milestone worktree (fleet.worktreePath). Only abortFleet --force cleans it. Lane worktrees are torn down by the tick (correct), but the ms worktree leaks on a successful finish.
@@ -24,3 +24,7 @@ finishFleet merges ms/<id> into primary but never removes the milestone worktree
 - commands/fleet/finish.ts: wires removeWorktree to the shared removeWorktreeByBranch(branch, process.cwd()) helper (mirrors abort).
 - herdr/worktree.removeWorktreeByBranch: broadened tolerance to also swallow not_git_worktree (both that and worktree_not_found mean "nothing to remove") so finish is robust when the worktree is already gone / in a non-worktree cwd.
 - TDD: RED test first, then implementation. 263 passing, 1 pre-existing unrelated failure (commands/run — bean/ prefix rename).
+
+## Note (hordr-rrwi)
+
+The shared `removeWorktreeByBranch` helper this bean wired into finishFleet was itself broken (herdr open roundtrip -> linked_worktree_source). hordr-rrwi rewrote it as `removeWorktreeByPath` (direct git worktree remove, no herdr, no --force). finish.ts now wires the new helper; the finishFleet dep signature changed from `(branch)` to `(worktreePath)`. The ms-worktree teardown this bean asked for now actually works.

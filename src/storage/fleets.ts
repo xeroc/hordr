@@ -38,6 +38,8 @@ export interface FleetRow {
   branch: string
   createdAt: string
   milestoneBeanId: string
+  /** Merger agent pane ID when fleet status is 'merging' (ms→primary conflict). */
+  paneId?: null | string
   projectKey: string
   status: string
   worktreePath: string
@@ -47,6 +49,7 @@ interface FleetDbRow {
   branch: string
   created_at: string
   milestone_bean_id: string
+  pane_id: null | string
   project_key: string
   status: string
   worktree_path: string
@@ -57,6 +60,7 @@ function toFleetRow(r: FleetDbRow): FleetRow {
     branch: r.branch,
     createdAt: r.created_at,
     milestoneBeanId: r.milestone_bean_id,
+    paneId: r.pane_id ?? null,
     projectKey: r.project_key,
     status: r.status,
     worktreePath: r.worktree_path,
@@ -102,6 +106,20 @@ export function updateFleetStatus(
 ): void {
   db.prepare('UPDATE fleets SET status = ? WHERE project_key = ? AND milestone_bean_id = ?').run(
     status,
+    projectKey,
+    milestoneId,
+  )
+}
+
+/** Record the fleet's merger-agent pane id (set on ms→primary conflict, cleared on teardown). */
+export function setFleetPane(
+  db: Database.Database,
+  projectKey: string,
+  milestoneId: string,
+  paneId: null | string,
+): void {
+  db.prepare('UPDATE fleets SET pane_id = ? WHERE project_key = ? AND milestone_bean_id = ?').run(
+    paneId,
     projectKey,
     milestoneId,
   )
@@ -175,11 +193,6 @@ export function listLanes(db: Database.Database, projectKey: string, milestoneId
   return rows.map((r) => toLaneRow(r))
 }
 
-export function getLane(db: Database.Database, epicId: string): LaneRow | undefined {
-  const row = db.prepare('SELECT * FROM lanes WHERE epic_bean_id = ?').get(epicId) as LaneDbRow | undefined
-  return row ? toLaneRow(row) : undefined
-}
-
 export function deleteLanes(db: Database.Database, projectKey: string, milestoneId: string): void {
   db.prepare('DELETE FROM lanes WHERE project_key = ? AND fleet_milestone_bean_id = ?').run(projectKey, milestoneId)
 }
@@ -220,9 +233,19 @@ export function setLaneCurrentTask(db: Database.Database, loc: LaneLoc, taskId: 
 
 /** Find the lane that currently has this task assigned. Returns undefined if no lane owns it. */
 export function findLaneByTask(db: Database.Database, taskId: string): LaneRow | undefined {
-  return db.prepare('SELECT * FROM lanes WHERE current_task_bean_id = ?').get(taskId) as LaneDbRow | undefined as
-    | LaneRow
-    | undefined
+  const r = db.prepare('SELECT * FROM lanes WHERE current_task_bean_id = ?').get(taskId) as LaneDbRow | undefined
+  return r === undefined ? undefined : toLaneRow(r)
+}
+
+/**
+ * Count lanes with a running agent invocation (current_task_bean_id IS NOT
+ * NULL) across every project and fleet — a single global ceiling. Backs the
+ * `hordr fleet check --max-lanes` concurrency cap: an idle lane may not
+ * dispatch a new agent once this many are already in flight.
+ */
+export function countActiveLanes(db: Database.Database): number {
+  const row = db.prepare('SELECT COUNT(*) AS n FROM lanes WHERE current_task_bean_id IS NOT NULL').get() as {n: number}
+  return row.n
 }
 
 export function setLaneWorktree(
@@ -236,63 +259,4 @@ export function setLaneWorktree(
     `UPDATE lanes SET worktree_path = ?, workspace_id = ?, pane_id = ?, current_task_bean_id = NULL
      WHERE project_key = ? AND fleet_milestone_bean_id = ? AND epic_bean_id = ?`,
   ).run(worktreePath, workspaceId, paneId, loc.projectKey, loc.milestoneId, loc.epicId)
-}
-
-// --- provenance (ADR-0013) ---
-
-export interface ProvenanceRow {
-  createdByTaskBeanId: string
-  fleetMilestoneBeanId: string
-  projectKey: string
-  recordedAt: string
-  spawnedBeanId: string
-}
-
-interface ProvenanceDbRow {
-  created_by_task_bean_id: string
-  fleet_milestone_bean_id: string
-  project_key: string
-  recorded_at: string
-  spawned_bean_id: string
-}
-
-function toProvenanceRow(r: ProvenanceDbRow): ProvenanceRow {
-  return {
-    createdByTaskBeanId: r.created_by_task_bean_id,
-    fleetMilestoneBeanId: r.fleet_milestone_bean_id,
-    projectKey: r.project_key,
-    recordedAt: r.recorded_at,
-    spawnedBeanId: r.spawned_bean_id,
-  }
-}
-
-/**
- * Record that a task invocation spawned a dynamic bean. Forensics only — not a
- * dispatch gate. Idempotent on (project_key, spawned_bean_id): a bean keeps its
- * first-recorded creator.
- */
-export function recordProvenance(db: Database.Database, row: ProvenanceRow): void {
-  db.prepare(
-    'INSERT OR IGNORE INTO bean_provenance (project_key, fleet_milestone_bean_id, created_by_task_bean_id, spawned_bean_id, recorded_at) VALUES (?, ?, ?, ?, ?)',
-  ).run(row.projectKey, row.fleetMilestoneBeanId, row.createdByTaskBeanId, row.spawnedBeanId, row.recordedAt)
-}
-
-/** All provenance entries for a fleet (which beans each task spawned). */
-export function listProvenance(db: Database.Database, projectKey: string, milestoneId: string): ProvenanceRow[] {
-  const rows = db
-    .prepare('SELECT * FROM bean_provenance WHERE project_key = ? AND fleet_milestone_bean_id = ? ORDER BY recorded_at')
-    .all(projectKey, milestoneId) as ProvenanceDbRow[]
-  return rows.map((r) => toProvenanceRow(r))
-}
-
-/** The task that created a given bean, if recorded. */
-export function provenanceFor(
-  db: Database.Database,
-  projectKey: string,
-  spawnedBeanId: string,
-): ProvenanceRow | undefined {
-  const r = db
-    .prepare('SELECT * FROM bean_provenance WHERE project_key = ? AND spawned_bean_id = ?')
-    .get(projectKey, spawnedBeanId) as ProvenanceDbRow | undefined
-  return r ? toProvenanceRow(r) : undefined
 }

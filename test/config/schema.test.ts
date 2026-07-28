@@ -4,7 +4,7 @@ import {tmpdir} from 'node:os'
 import path from 'node:path'
 
 import {_resetCompanyContext} from '../../src/company.js'
-import {ConfigError, loadConfig} from '../../src/config/index.js'
+import {ConfigError, loadConfig} from '../../src/config/loader.js'
 
 const VALID_YAML = `
 beans:
@@ -89,6 +89,28 @@ describe('config/schema', () => {
     expect(cfg.agents).to.have.property('reviewer')
     expect(cfg.agents.implementer!.harness).to.equal('opencode')
     expect(cfg.agents.implementer!.persona).to.contain('hordr done')
+  })
+
+  it('returns defaults with no config file present (zero-config) — no ConfigError', () => {
+    // chdir into a temp dir whose ancestry has no .beans.yml so the upward
+    // search returns undefined. loadConfig() with no pathArg must NOT throw —
+    // it falls back to DEFAULT_AGENTS + primary_branch 'develop'.
+    const origCwd = process.cwd()
+    process.chdir(dir)
+    try {
+      delete process.env.HORDR_COMPANY
+      delete process.env.HORDR_PROJECT
+      delete process.env.HORDR_COMPANY_PATH
+      _resetCompanyContext()
+
+      const cfg = loadConfig()
+      expect(cfg.primary_branch).to.equal('develop')
+      expect(cfg.agents).to.have.property('implementer')
+      expect(cfg.agents.implementer!.harness).to.equal('opencode')
+      expect(cfg.agents.implementer!.persona).to.be.a('string').with.length.greaterThan(0)
+    } finally {
+      process.chdir(origCwd)
+    }
   })
 
   it('produces a zod error naming the harness field when empty', () => {

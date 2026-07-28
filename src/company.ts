@@ -61,12 +61,6 @@ export interface SkillManifest {
   slug?: string
 }
 
-export interface CompanyManifest {
-  body: string
-  name?: string
-  slug?: string
-}
-
 // --- manifest parsers ---
 
 export function parseAgentManifest(raw: string): AgentManifest {
@@ -94,15 +88,6 @@ export function parseProjectManifest(raw: string): ProjectManifest {
 }
 
 export function parseSkillManifest(raw: string): SkillManifest {
-  const {body, frontmatter} = parseFrontmatter(raw)
-  return {
-    body,
-    name: frontmatter.name as string | undefined,
-    slug: frontmatter.slug as string | undefined,
-  }
-}
-
-export function parseCompanyManifest(raw: string): CompanyManifest {
   const {body, frontmatter} = parseFrontmatter(raw)
   return {
     body,

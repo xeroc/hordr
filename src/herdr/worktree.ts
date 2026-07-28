@@ -5,7 +5,6 @@
  * simple. Mirrors the seam pattern in `src/beans/client.ts`.
  */
 import {execFileSync} from 'node:child_process'
-import path from 'node:path'
 
 const HERDR_BIN = process.env.HERDR_BIN_PATH ?? 'herdr'
 
@@ -49,6 +48,23 @@ export function _resetShell(): void {
 
 export function _setHerdrPresentForTesting(present: boolean): void {
   _herdrPresent = present
+}
+
+// --- git seam (for the worktree-remove path; herdr is bypassed there) ---
+export type GitShellFn = (args: string[], opts?: {cwd?: string}) => void
+
+const defaultGit: GitShellFn = (args, opts) => {
+  execFileSync('git', args, {cwd: opts?.cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe']})
+}
+
+let _git: GitShellFn = defaultGit
+
+export function _setGitForTesting(fn: GitShellFn): void {
+  _git = fn
+}
+
+export function _resetGit(): void {
+  _git = defaultGit
 }
 
 function assertHerdrOnPath(): void {
@@ -191,41 +207,32 @@ export function removeWorktree(opts: WorktreeRemoveOpts): void {
 }
 
 /**
- * Remove a worktree by its branch: open (resolve workspace) then remove.
- * Tolerant of an already-gone worktree (lane was 'done' / merged). Used by
- * the broker's epic-merge teardown. Does NOT force — dirty trees are refused
- * so uncommitted work survives (hordr-wd46). The abort --force path passes
- * force=true explicitly via its own helper.
+ * Remove a linked worktree by path via `git worktree remove` directly — no
+ * herdr roundtrip, no --force. git itself refuses dirty/locked worktrees,
+ * which is the safety net (hordr-wd46); --force is never passed because the
+ * merge already landed and the caller's gates (bean completed + clean dir)
+ * have already run. Tolerant of an already-gone worktree.
+ *
+ * Replaces the old branch-based helper that roundtripped through
+ * `herdr worktree open` to resolve a workspace_id: that path resolved the
+ * main repo via `git rev-parse --git-common-dir`, which returns the relative
+ * `.git` when cwd IS the main repo → `--cwd .` → herdr rejected it with
+ * `linked_worktree_source`. We already hold the worktree path, so a direct
+ * `git worktree remove <path>` sidesteps the whole class of errors.
  */
-export function removeWorktreeByBranch(branch: string, cwd: string, opts?: {force?: boolean}): void {
-  // herdr worktree open/remove must run from the repo parent workspace, not
-  // from inside a linked worktree. Resolve the main repo from any cwd.
-  let mainRepo = cwd
-  try {
-    const gitCommonDir = execFileSync('git', ['rev-parse', '--git-common-dir'], {
-      cwd,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim()
-    mainRepo = path.dirname(gitCommonDir)
-  } catch {
-    // If git fails, fall back to the given cwd
-  }
+export function removeWorktreeByPath(worktreePath: string): void {
+  if (!worktreePath) throw new HerdrError('worktreePath is required')
 
-  let workspaceId: string | undefined
   try {
-    const result = openWorktree({branch, cwd: mainRepo})
-    workspaceId = result.workspace_id
+    _git(['worktree', 'remove', worktreePath])
   } catch (error) {
-    // ponytail: tolerate "no worktree here" in all forms — worktree_not_found
-    // (branch has no worktree) and not_git_worktree (cwd isn't a worktree at
-    // all, e.g. a test env or an already-torn-down fleet). Both mean nothing
-    // to remove.
-    if (!(error instanceof HerdrError) || !/worktree_not_found|not_git_worktree/.test(error.message)) throw error
-    return // already gone
+    const err = error as {message?: string; stderr?: {toString(): string}}
+    const stderr = err.stderr?.toString() ?? err.message ?? ''
+    // ponytail: "not a working tree" / "does not exist" means already gone —
+    // tolerate it (lane was 'done'/merged, or fleet already torn down).
+    if (/not a working tree|no working tree|does not exist|not a worktree/i.test(stderr)) return
+    throw new HerdrError(`git worktree remove ${worktreePath} failed: ${stderr.slice(0, 200)}`)
   }
-
-  if (workspaceId) removeWorktree({force: opts?.force, workspaceId})
 }
 
 /**

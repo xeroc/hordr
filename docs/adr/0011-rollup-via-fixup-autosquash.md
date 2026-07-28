@@ -2,7 +2,9 @@
 
 **Amended:** 2026-07-08 — rollup scope changed to epic-level (stops at epic, not milestone) under the per-epic model (ADR-0014). Milestone-level completion is a separate fleet-level check after all epic merges.
 
-**Amended:** 2026-07-13 — the fixup + autosquash folding was never wired. The rollup's `.beans` status writes are now committed via a plain `commitBeans` (git add + git commit) in `advance.ts` after the ancestry walk. The ancestry-walk-and-mark rollup itself (`rollup.ts`) stands; only the squash step is gone. The code below is retained as the historical decision record.
+**Amended:** 2026-07-13 — the fixup + autosquash folding was never wired. The rollup's `.beans` status writes are now committed via a plain `commitBeans` (git add + git commit) after the ancestry walk. The ancestry-walk-and-mark rollup itself (`rollup.ts`) stands; only the squash step is gone. The code below is retained as the historical decision record.
+
+**Amended:** 2026-07-17 — the rollup commit is now idempotent and defensive. `commitBeanChanges` (in `src/dispatch/commit-beans.ts`, a pure dep-injected function) skips the commit when nothing is staged (`git diff --cached --quiet` exit 0), so it can be called unconditionally after every rollup attempt AND defensively inside `mergeEpicLane`/`finishFleet` right before worktree removal. This closes a stuck-lane bug (hordr-hmbq) where a previously-skipped or failed rollup commit left `.beans/` dirt that `git worktree remove` (no `--force`) refused.
 
 When a task bean flips to `completed`, status must propagate upward: an epic/feature/milestone is `completed` only when **all** its descendants are. The daemon owns this rollup deterministically — not the member, not a planner agent. Rollup is a pure function of the bean tree; spending a model call on it is waste, and trusting every role's persona to walk ancestry correctly is fragile.
 
