@@ -5,6 +5,9 @@ beans as their briefs. Two modes: **single-bean** (one agent, one task,
 fire-and-forget) and **fleet** (a team of agents working a milestone in
 parallel, each epic in its own worktree, advanced by `hordr fleet check`).
 
+> **New here?** Read [PROJECT.md](PROJECT.md) for the WHY and WHAT. This README
+> is the HOW. [CONTEXT.md](CONTEXT.md) defines the domain vocabulary.
+
 ```bash
 npx skills@latest xeroc/hordr   # skill for coding agents
 ```
@@ -190,8 +193,10 @@ hordr fleet status hordr-MS
 
 ```bash
 hordr fleet finish hordr-MS
-# → merged ms/hordr-MS into develop (--no-ff)
-# → all worktrees removed, fleet torn down
+# → 3-tier merge: ff-only → no-ff → merger agent (on conflict)
+# → on success: worktree + branch removed, fleet torn down
+# → on conflict: merger agent spawned, fleet → 'merging'
+#   (run 'hordr fleet check' to complete after resolution)
 ```
 
 **What happens inside each lane:**
@@ -286,6 +291,7 @@ beans:
 | `agents.implementer` | `opencode` | Fleet-shaped persona (one task, commit, done) |
 | `agents.tester`      | `opencode` | Fleet-shaped persona                          |
 | `agents.reviewer`    | `opencode` | Fleet-shaped persona                          |
+| `agents.merger`      | `opencode` | Merge conflict resolver (spawned on tier-3)   |
 
 Default personas are minimal fleet instructions: read one assigned bean, do the
 work, commit, `hordr done <id>`, stop. See [docs/fleet-guide.md](docs/fleet-guide.md)
@@ -365,12 +371,12 @@ to `implementer`. See [docs/fleet-guide.md](docs/fleet-guide.md) for details.
 
 ### Single-bean mode (available now)
 
-| Command                | Description                                                                  |
-| ---------------------- | ---------------------------------------------------------------------------- |
-| `hordr run <bean>`     | Create a worktree, spawn the agent harness in a fresh pane. Fire-and-forget. |
-| `hordr finish <bean>`  | Verify the bean is `completed`, merge its branch, remove the worktree.       |
-| `hordr cleanup <bean>` | Remove the worktree for a bean. `--force` for unmerged changes.              |
-| `hordr done <task>`    | Agent-facing: verify a task done, roll up, return the next bean in the lane. |
+| Command                | Description                                                                        |
+| ---------------------- | ---------------------------------------------------------------------------------- |
+| `hordr run <bean>`     | Create a worktree, spawn the agent harness in a fresh pane. Fire-and-forget.       |
+| `hordr finish <bean>`  | Verify the bean is `completed`, merge its branch, remove worktree + delete branch. |
+| `hordr cleanup <bean>` | Remove the worktree for a bean. `--force` for unmerged changes.                    |
+| `hordr done <task>`    | Agent-facing: verify a task done, roll up, return the next bean in the lane.       |
 
 #### `hordr run`
 
@@ -407,8 +413,9 @@ hordr cleanup <bean> [--force] [--json]
 | `hordr fleet create <milestone>` | Create the milestone integration branch, scan for unblocked epics, start lanes.              |
 | `hordr fleet check`              | Advance every active fleet one step (scan + heal + merge + spawn). Run manually or via cron. |
 | `hordr fleet status <milestone>` | Show fleet state + all lanes (active/pending/merging/conflict/done).                         |
-| `hordr fleet finish <milestone>` | Assert all epics merged, merge `ms/<id>` into primary, teardown.                             |
+| `hordr fleet finish <milestone>` | Assert all epics merged, 3-tier merge ms→primary, teardown.                                  |
 | `hordr fleet abort <milestone>`  | Stop all lanes. `--force` removes all worktrees + milestone branch.                          |
+| `hordr fleet reset <milestone>`  | Reset a lane from conflict/uncommitted — recreates worktree + pane if gone.                  |
 
 There is **no long-running daemon** (ADR-0015). A fleet makes progress when `hordr
 fleet check` runs. Run it by hand when you're watching, or cron it for autonomy:
@@ -447,10 +454,11 @@ src/
 │   ├── lane-create.ts #   createLaneForEpic (worktree + pane + branch for a new epic)
 │   ├── pane-heal.ts   #   ensureLanePane (recreate/reattach dead panes)
 │   ├── scan.ts        #   scanForNewLanes (lazy worktree creation)
-│   ├── merge.ts       #   mergeBranch + mergeMilestoneToPrimary (conflict detection)
+│   ├── merge.ts       #   attemptMerge (3-tier: ff-only → no-ff → conflict) + mergeBranch
+│   ├── merger.ts      #   merger agent spawn + conflicted-file detection + merge-complete check
 │   ├── advance.ts     #   (legacy) old per-lane step — only test/helpers/fleet-engine.ts imports it
 │   └── tick.ts        #   (legacy) old broker scan loop — only test/helpers/fleet-engine.ts imports it
-├── fleet/             # lifecycle.ts: createFleet, describeFleet, finishFleet, abortFleet, resetLane
+├── fleet/             # lifecycle.ts: createFleet, finishFleet (3-tier merge), finishFleetTeardown, abortFleet, resetLane
 ├── harness/           # buildPrompt, buildHarnessCommand, resolveHarness, launchAgent, shellQuote
 ├── herdr/             # pane + worktree wrappers (shells out to herdr CLI)
 ├── storage/           # SQLite (db.ts: schema + pragmas; fleets.ts: fleet/lane/project rows;
@@ -547,11 +555,25 @@ the task to `todo` for re-dispatch. **No wall-clock timeouts** — nothing kills
 an agent for taking too long. The human decides what's stuck. Between checks, a
 crashed lane simply waits.
 
-### Merge conflicts → block, don't auto-resolve
+### Merge escalation: 3-tier (ff → no-ff → agent)
 
-If an epic→milestone merge conflicts, the lane enters `conflict` status. The
-human resolves manually. The next `hordr fleet check` detects the resolution.
-No agentic conflict resolution — it needs human judgment.
+Both epic→integration and integration→primary merges use the same 3-tier
+strategy:
+
+```
+Tier 1: git merge --ff-only     →  clean fast-forward, no merge commit
+Tier 2: git merge --no-ff       →  merge commit
+Tier 3: conflict in-progress    →  spawn merger agent to resolve
+```
+
+On tier 1 or 2 success, the source worktree is removed and the source branch
+is deleted (`git branch -d`, safe delete). On tier 3 conflict, a merger agent
+(a role-configured harness) is spawned in the target worktree where the
+conflicted merge is left in-progress. It resolves conflicts, commits, and
+stops. The next `hordr fleet check` detects completion (pane dead + merge
+committed) and finishes the teardown — removing the worktree and deleting the
+branch. If the merger agent aborts (genuine semantic incompatibility), the
+fleet or lane enters `conflict` status for human resolution.
 
 ### Storage boundary
 
