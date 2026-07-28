@@ -4,6 +4,7 @@ import {getBean} from '../../beans/client.js'
 import {resolveBeansDir} from '../../beans/dir.js'
 import {loadConfig} from '../../config/loader.js'
 import {fetchChildStatuses} from '../../dispatch/dispatch.js'
+import {getConflictedFiles,spawnMerger} from '../../dispatch/merger.js'
 import {finishFleet} from '../../fleet/lifecycle.js'
 import {removeWorktreeByPath} from '../../herdr/worktree.js'
 import {getGitRunner} from '../../runtime.js'
@@ -51,20 +52,33 @@ export default class FleetFinish extends Command {
       const result = finishFleet(
         db,
         milestoneId,
-        {cwd: msCwd, primaryBranch: primary, projectKey},
+        {cwd: msCwd, mainRepoCwd: cwd, primaryBranch: primary, projectKey},
         {
           beansDir: resolveBeansDir,
           beanStatus: (id) => getBean(id, {cwd: msCwd}).status as string | undefined,
           fetchEpicStatuses: (id) => fetchChildStatuses(id, {cwd: msCwd}),
+          getConflictedFiles,
           git: getGitRunner(),
           removeWorktree: (worktreePath) => removeWorktreeByPath(worktreePath),
+          spawnMerger: (opts) =>
+            spawnMerger({
+              config,
+              ctx: {conflictedFiles: opts.conflictedFiles, sourceBranch: fleet.branch, targetBranch: primary},
+              cwd: opts.cwd,
+              mainRepoCwd: opts.mainRepoCwd,
+            }),
         },
       )
 
       if (flags.json) {
         this.log(JSON.stringify({branch: result.branch, merged: result.merged, milestone: milestoneId, primary}))
-      } else {
+      } else if (result.merged) {
         this.log(`finished fleet ${milestoneId}: merged ${result.branch} into ${primary}`)
+      } else {
+        this.log(
+          `fleet ${milestoneId}: merge conflicted — spawned merger agent (pane=${result.conflictPaneId}). ` +
+            `Run 'hordr fleet check' to complete.`,
+        )
       }
     } finally {
       db.close()

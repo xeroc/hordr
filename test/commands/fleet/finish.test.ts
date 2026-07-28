@@ -12,7 +12,14 @@ import {
   _resetShell as _resetDispatchShell,
   _setShellForTesting as _setDispatchShell,
 } from '../../../src/dispatch/dispatch.js'
-import {_resetGit as _resetWorktreeGit, _setGitForTesting as _setWorktreeGit} from '../../../src/herdr/worktree.js'
+import {_resetWhich, _setWhichForTesting as _setWhich} from '../../../src/harness/launcher.js'
+import {_resetShell as _resetPaneShell, _setShellForTesting as _setPaneShell} from '../../../src/herdr/pane.js'
+import {
+  _resetGit as _resetWorktreeGit,
+  _resetShell as _resetWorktreeShell,
+  _setGitForTesting as _setWorktreeGit,
+  _setShellForTesting as _setWorktreeShell,
+} from '../../../src/herdr/worktree.js'
 import {_resetGitRunner, _setGitRunnerForTesting, type GitRunner} from '../../../src/runtime.js'
 import {openFleetDb} from '../../../src/storage/db.js'
 import {_setProjectKeyResolverForTesting} from '../../../src/storage/project.js'
@@ -113,13 +120,23 @@ describe('commands/fleet/finish', () => {
       {id: 'epic-2', status: 'completed'},
     ]
     _setGitRunnerForTesting(((args, opts): void => {
-      if (gitThrows) throw new Error('conflict')
+      if (gitThrows && args[0] === 'merge') throw new Error('conflict')
       gitCalls.push({args, cwd: opts.cwd})
     }) as GitRunner)
     // removeWorktreeByPath uses its own git seam (herdr/worktree.ts) so it
     // doesn't roundtrip through runtime's GitRunner. Stub it to no-op so the
     // command's ms-worktree teardown doesn't shell out to real git.
     _setWorktreeGit(() => {})
+    // spawnMerger calls openWorktree (worktree shell) + createTab/runInPane
+    // (pane shell) + buildHarnessCommand (which). Stub them so the merger
+    // agent spawn path works in the test env without real herdr/tmux.
+    _setWorktreeShell(() => JSON.stringify({result: {branch: `ms/${MS}`, path: '/repo', workspace_id: 'ws-test'}}))
+    _setPaneShell((args) => {
+      if (args[0] === 'tab' && args[1] === 'create')
+        return JSON.stringify({result: {root_pane: {pane_id: 'test-pane-1'}}})
+      return ''
+    })
+    _setWhich(() => true)
     _setProjectKeyResolverForTesting(() => PK)
     _setBeansShell(() => JSON.stringify({...MILESTONE_BEAN, status: milestoneStatus}))
     _setDispatchShell((args) => {
@@ -138,6 +155,9 @@ describe('commands/fleet/finish', () => {
     rmSync(configDir, {force: true, recursive: true})
     _resetGitRunner()
     _resetWorktreeGit()
+    _resetWorktreeShell()
+    _resetPaneShell()
+    _resetWhich()
     _setProjectKeyResolverForTesting(null)
     _resetBeansShell()
     _resetDispatchShell()
@@ -185,16 +205,21 @@ describe('commands/fleet/finish', () => {
     expect(gitCalls).to.have.length(0)
   })
 
-  it('throws on merge conflict and keeps the fleet row', async () => {
+  it('spawns a merger agent on conflict and sets fleet to merging', async () => {
     seedFleet(dbFile, 'active')
     gitThrows = true
     const res = await invoke([MS])
 
-    expect(res.error).to.be.instanceOf(Error)
-    expect(res.error!.message).to.match(/conflicted/)
+    expect(res.error, res.error?.message).to.be.undefined
+    expect(res.stdout).to.match(/spawned merger agent/)
     const db = openFleetDb(dbFile)
     try {
-      expect(db.prepare('SELECT status FROM fleets WHERE milestone_bean_id = ?').get(MS)).to.exist
+      const row = db.prepare('SELECT status, pane_id FROM fleets WHERE milestone_bean_id = ?').get(MS) as
+        | undefined
+        | {pane_id: null | string; status: string;}
+      expect(row).to.exist
+      expect(row!.status).to.equal('merging')
+      expect(row!.pane_id).to.exist
     } finally {
       db.close()
     }

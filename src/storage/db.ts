@@ -50,6 +50,13 @@ export function openFleetDb(dbPath?: string): Database.Database {
     db.exec('ALTER TABLE lanes ADD COLUMN workspace_id TEXT')
   }
 
+  // Migrate older DBs: add pane_id column to fleets if missing (fleet merger agent tracking)
+  try {
+    db.prepare('SELECT pane_id FROM fleets LIMIT 0').all()
+  } catch {
+    db.exec('ALTER TABLE fleets ADD COLUMN pane_id TEXT')
+  }
+
   return db
 }
 
@@ -73,6 +80,7 @@ CREATE TABLE IF NOT EXISTS fleets (
   worktree_path     TEXT NOT NULL,
   branch            TEXT NOT NULL,
   status            TEXT NOT NULL,
+  pane_id           TEXT,
   created_at        TEXT NOT NULL,
   PRIMARY KEY (project_key, milestone_bean_id)
 );

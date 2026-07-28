@@ -38,6 +38,8 @@ export interface FleetRow {
   branch: string
   createdAt: string
   milestoneBeanId: string
+  /** Merger agent pane ID when fleet status is 'merging' (ms→primary conflict). */
+  paneId?: null | string
   projectKey: string
   status: string
   worktreePath: string
@@ -47,6 +49,7 @@ interface FleetDbRow {
   branch: string
   created_at: string
   milestone_bean_id: string
+  pane_id: null | string
   project_key: string
   status: string
   worktree_path: string
@@ -57,6 +60,7 @@ function toFleetRow(r: FleetDbRow): FleetRow {
     branch: r.branch,
     createdAt: r.created_at,
     milestoneBeanId: r.milestone_bean_id,
+    paneId: r.pane_id ?? null,
     projectKey: r.project_key,
     status: r.status,
     worktreePath: r.worktree_path,
@@ -102,6 +106,20 @@ export function updateFleetStatus(
 ): void {
   db.prepare('UPDATE fleets SET status = ? WHERE project_key = ? AND milestone_bean_id = ?').run(
     status,
+    projectKey,
+    milestoneId,
+  )
+}
+
+/** Record the fleet's merger-agent pane id (set on ms→primary conflict, cleared on teardown). */
+export function setFleetPane(
+  db: Database.Database,
+  projectKey: string,
+  milestoneId: string,
+  paneId: null | string,
+): void {
+  db.prepare('UPDATE fleets SET pane_id = ? WHERE project_key = ? AND milestone_bean_id = ?').run(
+    paneId,
     projectKey,
     milestoneId,
   )

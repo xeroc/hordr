@@ -28,9 +28,7 @@ const config: HordrConfig = {
 function shellWithReadyWork(): ShellFn {
   return ((args: string[]) => {
     if (args[0] === 'list') {
-      return JSON.stringify([
-        {id: 'task-idle', priority: 'normal', status: 'todo', title: 'Idle Task', type: 'task'},
-      ])
+      return JSON.stringify([{id: 'task-idle', priority: 'normal', status: 'todo', title: 'Idle Task', type: 'task'}])
     }
 
     return JSON.stringify({
@@ -141,6 +139,48 @@ describe('dispatch/engine', () => {
       // The healthy fleet's worktree cwd reached the beans shell → it was not abandoned.
       expect(shellCwds, 'healthy fleet must still be scanned').to.include(healthyWt)
       expect(shellCwds, 'broken fleet cwd must never reach beans').to.not.include('/does/not/exist/fleet-wt')
+    })
+  })
+
+  describe('scanFleet: fleet merging detection (ms→primary tier 3)', () => {
+    let db: Database.Database
+    let wt: string
+
+    beforeEach(() => {
+      db = openDb(':memory:')
+      applySchema(db)
+      ensureProject(db, {beansPath: '/b', companyPath: null, configPath: '/c', projectKey: 'pk1'})
+      wt = join(tmpdir(), `hordr-merge-fleet-wt-${process.pid}-${Date.now()}`)
+      mkdirSync(wt, {recursive: true})
+    })
+
+    afterEach(() => {
+      _resetGitRunner()
+      db.close()
+    })
+
+    it('picks up a merging fleet and sets conflict when merger exited but merge is not resolved', () => {
+      registerFleet(db, {
+        branch: 'ms/ms1',
+        createdAt: '2026-07-16T00:00:00Z',
+        milestoneBeanId: 'ms1',
+        paneId: 'dead-pane-1',
+        projectKey: 'pk1',
+        status: 'merging',
+        worktreePath: wt,
+      })
+
+      _setGitRunnerForTesting((() => {
+        // git ops from restoreWorktree + finishFleetTeardown — shouldn't be
+        // reached because isMergeComplete returns false (no real git repo).
+      }) as GitRunner)
+
+      const engine = createFleetEngine(config)
+      engine.scanFleet(db)
+
+      // Merger pane is dead (no herdr in test env → fetchPanes returns null),
+      // isMergeComplete returns false (not a real git repo) → fleet → 'conflict'.
+      expect(getFleet(db, 'pk1', 'ms1')!.status).to.equal('conflict')
     })
   })
 

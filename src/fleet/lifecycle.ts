@@ -12,8 +12,9 @@ import type Database from 'better-sqlite3'
 import type {BeanRecord} from '../beans/client.js'
 
 import {commitBeanChanges} from '../dispatch/commit-beans.js'
-import {type GitFn, mergeMilestoneToPrimary} from '../dispatch/merge.js'
+import {attemptMerge, type GitFn} from '../dispatch/merge.js'
 import {areAllEpicsCompleted, isMilestoneComplete} from '../dispatch/rollup.js'
+import {logger} from '../logger.js'
 import {
   deleteFleet,
   deleteLanes,
@@ -24,7 +25,9 @@ import {
   type LaneRow,
   listLanes,
   registerFleet,
+  setFleetPane,
   setLaneWorktree,
+  updateFleetStatus,
   updateLaneStatus,
 } from '../storage/fleets.js'
 
@@ -133,6 +136,8 @@ export interface FinishFleetDeps {
   beanStatus: (id: string) => string | undefined
   /** The milestone's direct children (epics) with their status. */
   fetchEpicStatuses: (id: string) => Array<{id: string; status: string}>
+  /** List files with unresolved merge conflicts in a worktree. */
+  getConflictedFiles: (worktreePath: string) => string[]
   git: GitFn
   /**
    * Remove the milestone worktree by path via `git worktree remove` (no
@@ -141,33 +146,49 @@ export interface FinishFleetDeps {
    * has landed.
    */
   removeWorktree: (worktreePath: string) => void
+  /**
+   * Spawn a merger agent in the ms worktree to resolve ms→primary conflicts.
+   * Returns the pane ID for liveness tracking. Called only on tier-3 conflict.
+   */
+  spawnMerger: (opts: {conflictedFiles: string[]; cwd: string; mainRepoCwd: string}) => string
 }
 
 export interface FinishFleetResult {
   branch: string
+  /** Pane ID of the spawned merger agent (present when tier-3 conflict escalation fired). */
+  conflictPaneId?: string
   merged: boolean
 }
 
 /**
  * Finish a fleet: assert the milestone + all its epics are completed, merge
- * ms/<id> into primary (--no-ff), tear down the milestone worktree, then
- * delete the lane + fleet rows. Refuses if the milestone isn't complete or
- * any epic is still open. On a merge conflict it throws (human must resolve
- * in the milestone branch).
+ * ms/<id> into primary using the 3-tier strategy (ff-only → no-ff → spawn
+ * merger agent on conflict), tear down the milestone worktree + branch, then
+ * delete the lane + fleet rows.
  *
- * Lane worktrees are torn down by the daemon's tick as each epic merges
- * (lane → done); finish tears down the milestone worktree itself + drops the
- * bookkeeping rows.
+ * On tier 1/2 success: worktree + branch removed, rows deleted, returns
+ * {merged: true}. On tier 3 conflict: spawns a merger agent, sets fleet →
+ * 'merging', returns {merged: false, conflictPaneId}. The engine's tick loop
+ * (`hordr fleet check`) detects completion and finishes the teardown.
+ *
+ * Refuses if the milestone isn't complete or any epic is still open.
  */
 export function finishFleet(
   db: Database.Database,
   milestoneId: string,
-  opts: {cwd: string; primaryBranch: string; projectKey: string},
+  opts: {cwd: string; mainRepoCwd: string; primaryBranch: string; projectKey: string},
   deps: FinishFleetDeps,
 ): FinishFleetResult {
   const fleet = getFleet(db, opts.projectKey, milestoneId)
   if (!fleet) {
     throw new FleetError(`no fleet for ${milestoneId} (project ${opts.projectKey})`)
+  }
+
+  if (fleet.status === 'merging') {
+    throw new FleetError(
+      `fleet ${milestoneId} is already merging — merger agent running (pane=${fleet.paneId}). ` +
+        `Run 'hordr fleet check' to complete.`,
+    )
   }
 
   if (!isMilestoneComplete(milestoneId, {beanStatus: deps.beanStatus})) {
@@ -178,25 +199,66 @@ export function finishFleet(
     throw new FleetError(`not all epics under ${milestoneId} are completed`)
   }
 
-  const result = mergeMilestoneToPrimary(
-    {cwd: opts.cwd, milestoneId, primaryBranch: opts.primaryBranch},
-    {git: deps.git},
-  )
-  if (result.conflict) {
-    throw new FleetError(`merge of ${milestoneId} into ${opts.primaryBranch} conflicted — resolve manually`)
+  const outcome = attemptMerge({cwd: opts.cwd, source: milestoneId, target: opts.primaryBranch}, {git: deps.git})
+
+  if (outcome.status === 'conflict') {
+    // Tier 3: spawn merger agent. The worktree is left on the primary branch
+    // with the conflicted merge in progress.
+    const conflictedFiles = deps.getConflictedFiles(fleet.worktreePath)
+    const paneId = deps.spawnMerger({
+      conflictedFiles,
+      cwd: fleet.worktreePath,
+      mainRepoCwd: opts.mainRepoCwd,
+    })
+    setFleetPane(db, opts.projectKey, milestoneId, paneId)
+    updateFleetStatus(db, opts.projectKey, milestoneId, 'merging')
+    logger.info(
+      `fleet ${milestoneId}: ms→primary merge conflict — spawned merger agent (pane=${paneId}, ` +
+        `${conflictedFiles.length} conflicted file(s)). Run 'hordr fleet check' to complete.`,
+    )
+    return {branch: fleet.branch, conflictPaneId: paneId, merged: false}
   }
 
-  // Defensive commit: mop up any straggler .beans/ writes (milestone-level
-  // rollup, epic-status edits) so `git worktree remove` (no --force) doesn't
-  // refuse on dirty-modified (hordr-hmbq). Idempotent — no-op when clean.
+  // Tier 1/2 success — tear down.
+  finishFleetTeardown(db, fleet, opts, deps)
+  return {branch: fleet.branch, merged: true}
+}
+
+/**
+ * Post-merge fleet teardown: defensive beans commit, worktree removal, branch
+ * deletion, row cleanup. Shared by the immediate-success path (finishFleet)
+ * and the post-merger-resolution path (engine tick loop).
+ *
+ * Branch deletion uses `-d` (safe delete, NOT -D): refuses unmerged branches,
+ * which catches silent no-op merges. Run from mainRepoCwd because the ms
+ * worktree is already gone at this point.
+ */
+export function finishFleetTeardown(
+  db: Database.Database,
+  fleet: FleetRow,
+  opts: {mainRepoCwd: string},
+  deps: {beansDir: (worktreePath: string) => string; git: GitFn; removeWorktree: (worktreePath: string) => void},
+): void {
+  // Defensive commit: mop up any straggler .beans/ writes so `git worktree
+  // remove` (no --force) doesn't refuse on dirty-modified (hordr-hmbq).
   if (fleet.worktreePath) {
     commitBeanChanges({beansDir: deps.beansDir(fleet.worktreePath), cwd: fleet.worktreePath}, {git: deps.git})
     deps.removeWorktree(fleet.worktreePath)
   }
 
-  deleteLanes(db, opts.projectKey, milestoneId)
-  deleteFleet(db, opts.projectKey, milestoneId)
-  return {branch: fleet.branch, merged: true}
+  // Branch deletion: -d (safe delete). The merge already landed; orphaned
+  // refs are manual cleanup if this fails (e.g. worktree still holds the ref).
+  try {
+    deps.git(['branch', '-d', fleet.branch], {cwd: opts.mainRepoCwd})
+  } catch (error) {
+    logger.warn(
+      `fleet ${fleet.milestoneBeanId}: branch '${fleet.branch}' not deleted: ${(error as Error).message}. ` +
+        `Merge landed in ${opts.mainRepoCwd}; orphaned ref needs manual cleanup.`,
+    )
+  }
+
+  deleteLanes(db, fleet.projectKey, fleet.milestoneBeanId)
+  deleteFleet(db, fleet.projectKey, fleet.milestoneBeanId)
 }
 
 export interface AbortFleetDeps {

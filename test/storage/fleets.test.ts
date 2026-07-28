@@ -81,6 +81,7 @@ describe('storage/fleets', () => {
         branch: 'hordr-ms1',
         createdAt: NOW,
         milestoneBeanId: MS,
+        paneId: null,
         projectKey: PK,
         status: 'active',
         worktreePath: '/wt/ms1',
@@ -139,7 +140,7 @@ describe('storage/fleets', () => {
         projectKey: PK,
         status: 'active',
         workspaceId: null,
-      worktreePath: '/wt/epic-a',
+        worktreePath: '/wt/epic-a',
       })
       addLane(db, {
         branch: 'epic-b',
@@ -151,7 +152,7 @@ describe('storage/fleets', () => {
         projectKey: PK,
         status: 'pending',
         workspaceId: null,
-      worktreePath: '/wt/epic-b',
+        worktreePath: '/wt/epic-b',
       })
 
       const lanes = listLanes(db, PK, MS)

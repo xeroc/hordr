@@ -27,6 +27,7 @@ import type {FleetRow, LaneLoc, LaneRow} from '../storage/fleets.js'
 
 import {getBean, markBeanCompleted, resetBeanToTodo} from '../beans/client.js'
 import {resolveBeansDir} from '../beans/dir.js'
+import {finishFleetTeardown} from '../fleet/lifecycle.js'
 import {agentActiveInPane, createTab, paneExists} from '../herdr/pane.js'
 import {createWorktree, HerdrError, openWorktree, removeWorktreeByPath} from '../herdr/worktree.js'
 import {logger} from '../logger.js'
@@ -561,15 +562,52 @@ export function createFleetEngine(config: HordrConfig, opts?: {maxLanes?: number
     return {action: 'wait', taskId}
   }
 
-  /** One broker pass over all active fleets. */
+  /** One broker pass over all active + merging fleets. */
   const scanFleet = (db: Database.Database): TickResult => {
     let lanesCreated = 0
     let advanced = 0
 
-    for (const fleet of listFleets(db, {status: 'active'})) {
+    const fleets = [...listFleets(db, {status: 'active'}), ...listFleets(db, {status: 'merging'})]
+    for (const fleet of fleets) {
       const mainRepoCwd = getProjectPath(db, fleet.projectKey)
       if (!mainRepoCwd) {
         logger.warn(`fleet ${fleet.milestoneBeanId}: project ${fleet.projectKey} not in projects table — skipping`)
+        continue
+      }
+
+      // Fleet is merging — a merger agent is resolving ms→primary conflicts
+      // in the milestone worktree. Check if it's done (pane dead + merge
+      // committed). Mirrors the lane 'merging' pattern (engine.ts ~660).
+      if (fleet.status === 'merging') {
+        if (!existsSync(fleet.worktreePath)) {
+          logger.warn(
+            `fleet ${fleet.milestoneBeanId}: worktree gone during merge (${fleet.worktreePath}) → marking broken`,
+          )
+          updateFleetStatus(db, fleet.projectKey, fleet.milestoneBeanId, 'broken')
+          continue
+        }
+
+        if (fleet.paneId && agentActiveInPane(fleet.paneId)) {
+          logger.debug(`fleet ${fleet.milestoneBeanId}: merger agent still running (pane=${fleet.paneId})`)
+          continue
+        }
+
+        // Pane dead — check git state.
+        if (isMergeComplete(fleet.worktreePath, fleet.branch)) {
+          logger.info(`fleet ${fleet.milestoneBeanId}: merger resolved ms→primary conflicts — finishing`)
+          restoreWorktree(fleet.worktreePath, {git: getGitRunner()})
+          finishFleetTeardown(
+            db,
+            fleet,
+            {mainRepoCwd},
+            {beansDir: resolveBeansDir, git: getGitRunner(), removeWorktree: removeWorktreeByPath},
+          )
+          advanced++
+        } else {
+          logger.error(`fleet ${fleet.milestoneBeanId}: merger exited but merge not resolved — needs human`)
+          updateFleetStatus(db, fleet.projectKey, fleet.milestoneBeanId, 'conflict')
+        }
+
         continue
       }
 
