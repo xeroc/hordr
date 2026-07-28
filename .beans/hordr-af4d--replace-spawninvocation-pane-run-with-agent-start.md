@@ -1,15 +1,14 @@
 ---
 # hordr-af4d
 title: Replace spawnInvocation pane-run with agent-start + agent-prompt
-status: todo
+status: scrapped
 type: task
 priority: normal
 created_at: 2026-07-22T08:53:48Z
-updated_at: 2026-07-22T08:53:48Z
+updated_at: 2026-07-28T10:43:16Z
 parent: hordr-l6d9
 blocked_by:
     - hordr-gdqm
-assigned: implementer
 ---
 
 ## Requirement

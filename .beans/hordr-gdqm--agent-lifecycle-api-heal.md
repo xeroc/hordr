@@ -1,11 +1,11 @@
 ---
 # hordr-gdqm
 title: Agent lifecycle API + heal
-status: todo
+status: scrapped
 type: epic
 priority: high
 created_at: 2026-07-22T08:53:48Z
-updated_at: 2026-07-22T08:53:48Z
+updated_at: 2026-07-28T10:43:16Z
 parent: hordr-vouv
 ---
 

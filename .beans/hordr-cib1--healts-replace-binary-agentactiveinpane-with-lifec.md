@@ -1,15 +1,14 @@
 ---
 # hordr-cib1
 title: 'heal.ts: replace binary agentActiveInPane with lifecycle-aware probe'
-status: todo
+status: scrapped
 type: task
 priority: high
 created_at: 2026-07-22T08:53:48Z
-updated_at: 2026-07-22T08:53:48Z
+updated_at: 2026-07-28T10:43:16Z
 parent: hordr-gdqm
 blocked_by:
     - hordr-ngs8
-assigned: implementer
 ---
 
 ## Requirement
