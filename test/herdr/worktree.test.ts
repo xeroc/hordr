@@ -5,7 +5,6 @@ import {
   _resetGit,
   _resetShell,
   _setGitForTesting,
-  _setHerdrPresentForTesting,
   _setShellForTesting,
   branchFor,
   createWorktree,
@@ -94,13 +93,11 @@ describe('herdr/worktree', () => {
     gitResponder = null
     _setShellForTesting(mockShell)
     _setGitForTesting(mockGit)
-    _setHerdrPresentForTesting(true)
   })
 
   afterEach(() => {
     _resetShell()
     _resetGit()
-    _setHerdrPresentForTesting(true)
   })
 
   it('createWorktree returns {workspace_id, branch, path, root_pane_id} (AC #1)', () => {

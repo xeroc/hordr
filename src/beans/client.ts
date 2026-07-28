@@ -72,7 +72,6 @@ const defaultShell: ShellFn = (cmd, args, opts) =>
   }) as unknown as string
 
 let _shell: ShellFn = defaultShell
-let _beansPresent = true
 
 export function _setShellForTesting(fn: ShellFn): void {
   _shell = fn
@@ -80,22 +79,6 @@ export function _setShellForTesting(fn: ShellFn): void {
 
 export function _resetShell(): void {
   _shell = defaultShell
-}
-
-export function _setBeansPresentForTesting(present: boolean): void {
-  _beansPresent = present
-}
-
-function assertBeansOnPath(): void {
-  if (!_beansPresent) throw new BeansError('beans CLI not found on PATH')
-  try {
-    execFileSync('sh', ['-c', 'command -v beans'], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    })
-  } catch {
-    throw new BeansError('beans CLI not found on PATH')
-  }
 }
 
 function runBeans(args: string[], beanId: string, cwd?: string): string {
@@ -113,7 +96,6 @@ function runBeans(args: string[], beanId: string, cwd?: string): string {
  * Pass `opts.cwd` to read from a different checkout (e.g. a worktree).
  */
 export function getBean(beanId: string, opts?: {cwd?: string}): BeanRecord {
-  assertBeansOnPath()
   const raw = runBeans(['show', '--json', beanId], beanId, opts?.cwd)
   let data: unknown
   try {
@@ -142,7 +124,6 @@ export function getBody(beanId: string): string {
  * the rollup writes land with the member's work. Throws BeansError on failure.
  */
 export function markBeanCompleted(beanId: string, opts?: {cwd?: string}): void {
-  assertBeansOnPath()
   runBeans(['update', beanId, '-s', 'completed'], beanId, opts?.cwd)
 }
 
@@ -152,6 +133,5 @@ export function markBeanCompleted(beanId: string, opts?: {cwd?: string}): void {
  * or signalling — the task goes back to the ready queue for re-dispatch.
  */
 export function resetBeanToTodo(beanId: string, opts?: {cwd?: string}): void {
-  assertBeansOnPath()
   runBeans(['update', beanId, '-s', 'todo'], beanId, opts?.cwd)
 }

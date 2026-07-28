@@ -3,7 +3,6 @@ import {assert, expect} from 'chai'
 
 import {
   _resetShell as _resetBeansShell,
-  _setBeansPresentForTesting,
   _setShellForTesting as _setBeansShell,
   type ShellFn,
   type ShellOptions,
@@ -103,7 +102,6 @@ describe('harness/launcher', () => {
     beansResponder = null
     _setPaneShell(mockPane)
     _setBeansShell(mockBeans)
-    _setBeansPresentForTesting(true)
     _setDispatchShell(() => JSON.stringify({bean: {parent: null}}))
   })
 
@@ -112,7 +110,6 @@ describe('harness/launcher', () => {
     _resetWhich()
     _resetBeansShell()
     _resetDispatchShell()
-    _setBeansPresentForTesting(true)
   })
 
   // --- hordr-1501 ---

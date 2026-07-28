@@ -36,7 +36,6 @@ const defaultShell: ShellFn = (args, opts) => {
 }
 
 let _shell: ShellFn = defaultShell
-let _herdrPresent = true
 
 export function _setShellForTesting(fn: ShellFn): void {
   _shell = fn
@@ -44,10 +43,6 @@ export function _setShellForTesting(fn: ShellFn): void {
 
 export function _resetShell(): void {
   _shell = defaultShell
-}
-
-export function _setHerdrPresentForTesting(present: boolean): void {
-  _herdrPresent = present
 }
 
 // --- git seam (for the worktree-remove path; herdr is bypassed there) ---
@@ -65,18 +60,6 @@ export function _setGitForTesting(fn: GitShellFn): void {
 
 export function _resetGit(): void {
   _git = defaultGit
-}
-
-function assertHerdrOnPath(): void {
-  if (!_herdrPresent) throw new HerdrError('herdr CLI not found on PATH')
-  try {
-    execFileSync('sh', ['-c', `command -v ${HERDR_BIN}`], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    })
-  } catch {
-    throw new HerdrError('herdr CLI not found on PATH')
-  }
 }
 
 /** Run `herdr <args>`, parse the JSON envelope, throw HerdrError on `.error`. */
@@ -124,8 +107,6 @@ export function createWorktree(opts: WorktreeCreateOpts): WorktreeInfo {
   if (!opts.cwd && !opts.workspaceId) throw new HerdrError('cwd or workspaceId is required')
   if (opts.cwd && opts.workspaceId) throw new HerdrError('cwd and workspaceId are mutually exclusive')
 
-  assertHerdrOnPath()
-
   const args = ['worktree', 'create', '--json']
   if (opts.cwd) args.push('--cwd', opts.cwd)
   if (opts.workspaceId) args.push('--workspace', opts.workspaceId)
@@ -152,8 +133,6 @@ export function openWorktree(opts: WorktreeOpenOpts): WorktreeInfo {
   if (!opts.branch && !opts.path) throw new HerdrError('branch or path is required')
   if (!opts.cwd && !opts.workspaceId) throw new HerdrError('cwd or workspaceId is required')
   if (opts.cwd && opts.workspaceId) throw new HerdrError('cwd and workspaceId are mutually exclusive')
-
-  assertHerdrOnPath()
 
   const args = ['worktree', 'open', '--json']
   if (opts.cwd) args.push('--cwd', opts.cwd)
@@ -193,8 +172,6 @@ export interface WorktreeRemoveOpts {
 
 export function removeWorktree(opts: WorktreeRemoveOpts): void {
   if (!opts.workspaceId) throw new HerdrError('workspaceId is required')
-
-  assertHerdrOnPath()
 
   // --force is opt-in: by default git refuses a dirty worktree, which is the
   // defense-in-depth net (hordr-wd46). Only explicit callers (abort --force)
