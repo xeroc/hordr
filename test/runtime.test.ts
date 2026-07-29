@@ -10,7 +10,7 @@ import {
   HerdrError,
   type ShellFn,
 } from '../src/herdr/worktree.js'
-import {_resetGitRunner, _setGitRunnerForTesting, createDeps, type GitRunner} from '../src/runtime.js'
+import {_resetGitRunner, _setGitRunnerForTesting, createDeps, gitDeleteBranch, type GitRunner} from '../src/runtime.js'
 
 interface Call {
   args: string[]
@@ -268,5 +268,23 @@ describe('runtime / createDeps.createWorktree', () => {
 
     const deps = createDeps()
     expect(() => deps.createWorktree('hordr-999')).to.throw(/not fully merged/)
+  })
+
+  describe('gitDeleteBranch', () => {
+    it('runs git branch -d <branch> from cwd (NEVER -D)', () => {
+      gitDeleteBranch('hordr-1234', configDir)
+      expect(gitCalls).to.have.length(1)
+      expect(gitCalls[0]!.args).to.deep.equal(['branch', '-d', 'hordr-1234'])
+      expect(gitCalls[0]!.args).to.not.include('-D')
+      expect(gitCalls[0]!.cwd).to.equal(configDir)
+    })
+
+    it('propagates the git error when -d refuses (unmerged / checked-out)', () => {
+      gitResponder = () => {
+        throw new HerdrError('git branch -d hordr-1234 failed: error: not fully merged')
+      }
+
+      expect(() => gitDeleteBranch('hordr-1234', configDir)).to.throw(/not fully merged/)
+    })
   })
 })

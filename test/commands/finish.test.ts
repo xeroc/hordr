@@ -96,6 +96,7 @@ describe('commands/finish', () => {
   let gitCalls: Array<{args: string[]; cwd?: string}>
   let beanCalls: Array<{args: string[]; cwd?: string}>
   let beanStatus: string
+  let gitResponder: ((args: string[]) => void) | null
 
   const wtShell: ShellFn = (args) => {
     wtCalls.push(args)
@@ -106,6 +107,7 @@ describe('commands/finish', () => {
 
   const gitRunner: GitRunner = (args, opts) => {
     gitCalls.push({args, cwd: opts.cwd})
+    if (gitResponder) gitResponder(args)
   }
 
   beforeEach(() => {
@@ -117,6 +119,7 @@ describe('commands/finish', () => {
     gitCalls = []
     beanCalls = []
     beanStatus = 'completed'
+    gitResponder = null
     _setWtShell(wtShell)
     _setGitRunnerForTesting(gitRunner)
     _setBeansShell((_cmd: string, args: string[], opts: ShellOptions) => {
@@ -133,16 +136,18 @@ describe('commands/finish', () => {
     _resetBeansShell()
   })
 
-  it('happy path: checks-out primary, merges bean branch, removes worktree', async () => {
+  it('happy path: checks-out primary, merges bean branch, removes worktree, deletes branch (-d)', async () => {
     const res = await invoke(['hordr-1234'])
 
     expect(res.error, res.error?.message).to.be.undefined
     expect(res.stdout).to.match(/finished hordr-1234/)
 
-    // git: checkout develop, then merge hordr-1234
-    expect(gitCalls).to.have.length(2)
+    // git: checkout develop, merge hordr-1234, then safe-delete the branch
+    expect(gitCalls).to.have.length(3)
     expect(gitCalls[0]!.args).to.deep.equal(['checkout', 'develop'])
     expect(gitCalls[1]!.args).to.deep.equal(['merge', '--no-ff', 'hordr-1234'])
+    expect(gitCalls[2]!.args).to.deep.equal(['branch', '-d', 'hordr-1234'])
+    expect(gitCalls[2]!.cwd).to.equal(process.cwd())
 
     // worktree open (to find workspace) then remove
     const openCall = wtCalls.find((c) => c[1] === 'open')
@@ -165,13 +170,14 @@ describe('commands/finish', () => {
     expect(wtCalls.find((c) => c[1] === 'remove')).to.be.undefined
   })
 
-  it('--json emits bean, branch, merged, workspace', async () => {
+  it('--json emits bean, branch, merged, removed, workspace, branchDeleted', async () => {
     const res = await invoke(['hordr-1234', '--json'])
 
     expect(res.error, res.error?.message).to.be.undefined
     const parsed = JSON.parse(res.stdout.trim()) as {
       bean: string
       branch: string
+      branchDeleted: boolean
       merged: boolean
       removed: boolean
       workspace: string
@@ -179,6 +185,7 @@ describe('commands/finish', () => {
     expect(parsed).to.deep.equal({
       bean: 'hordr-1234',
       branch: 'hordr-1234',
+      branchDeleted: true,
       merged: true,
       removed: true,
       workspace: 'wP',
@@ -200,13 +207,32 @@ describe('commands/finish', () => {
     const res = await invoke(['hordr-1234'])
 
     expect(res.error, res.error?.message).to.be.undefined
-    expect(gitCalls).to.have.length(2)
+    expect(gitCalls).to.have.length(3)
+    expect(gitCalls[2]!.args).to.deep.equal(['branch', '-d', 'hordr-1234'])
     expect(res.stdout).to.match(/no worktree for hordr-1234/)
     expect(res.stdout).to.match(/finished hordr-1234/)
 
     // no worktree → bean read from main repo (cwd unset), not a worktree path
     const showCall = beanCalls.find((c) => c.args[0] === 'show')
     expect(showCall?.cwd).to.be.undefined
+  })
+
+  it('tolerates branch -d failure: warns, marks branchDeleted false, still finishes', async () => {
+    // Re-route git: checkout+merge succeed, but `branch -d` refuses (unmerged).
+    gitResponder = (args) => {
+      if (args[0] === 'branch' && args[1] === '-d') {
+        throw new Error("error: The branch 'hordr-1234' is not fully merged.")
+      }
+    }
+
+    const res = await invoke(['hordr-1234', '--json'])
+
+    expect(res.error, res.error?.message).to.be.undefined
+    expect(res.stderr).to.match(/branch 'hordr-1234' not deleted/)
+
+    const parsed = JSON.parse(res.stdout.trim()) as {branchDeleted: boolean; merged: boolean}
+    expect(parsed.merged).to.equal(true)
+    expect(parsed.branchDeleted).to.equal(false)
   })
 
   it('errors when bean id is missing', async () => {
