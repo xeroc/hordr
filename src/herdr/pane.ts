@@ -5,14 +5,10 @@
 
 import {execFileSync} from 'node:child_process'
 
-const HERDR_BIN = process.env.HERDR_BIN_PATH ?? 'herdr'
+export {HerdrError} from './worktree.js'
+import {HerdrError} from './worktree.js'
 
-export class HerdrError extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = 'HerdrError'
-  }
-}
+const HERDR_BIN = process.env.HERDR_BIN_PATH ?? 'herdr'
 
 // --- test seam ---
 export type ShellFn = (args: string[], opts?: {cwd?: string}) => string

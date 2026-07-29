@@ -3,7 +3,6 @@ import {expect} from 'chai'
 
 import {
   _resetShell,
-  _setBeansPresentForTesting,
   _setShellForTesting,
   BeansError,
   getBean,
@@ -50,12 +49,10 @@ describe('beans/client', () => {
     calls = []
     responder = null
     _setShellForTesting(mockShell)
-    _setBeansPresentForTesting(true)
   })
 
   afterEach(() => {
     _resetShell()
-    _setBeansPresentForTesting(true)
   })
 
   it('getBean returns a parsed bean record', () => {
@@ -79,10 +76,15 @@ describe('beans/client', () => {
     expect(getBody('hordr-1001')).to.equal(SAMPLE_BODY)
   })
 
-  it('fails loud with BeansError when beans is not on PATH', () => {
-    _setBeansPresentForTesting(false)
-    expect(() => getBean('hordr-1001')).to.throw(BeansError, /beans CLI not found on PATH/)
-    expect(calls).to.have.length(0)
+  it('fails loud with BeansError when the beans shell throws (e.g. binary missing)', () => {
+    // Mock _shell to throw — this is the path a missing binary takes (BEAN_BIN
+    // falls back to 'beans', execFileSync throws ENOENT, runBeans wraps it).
+    responder = () => {
+      throw Object.assign(new Error('spawn beans ENOENT'), {})
+    }
+
+    expect(() => getBean('hordr-1001')).to.throw(BeansError, /beans command failed for hordr-1001/)
+    expect(calls).to.have.length(1)
   })
 
   it('wraps a non-zero beans exit as BeansError naming the bean id and stderr snippet', () => {

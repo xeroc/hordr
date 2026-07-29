@@ -1,13 +1,12 @@
 ---
 # hordr-ngs8
 title: Create src/herdr/agent.ts wrapper (agent start/prompt/wait/read/send-keys/get)
-status: todo
+status: scrapped
 type: task
 priority: high
 created_at: 2026-07-22T08:53:48Z
-updated_at: 2026-07-22T08:53:48Z
+updated_at: 2026-07-28T10:43:16Z
 parent: hordr-gdqm
-assigned: implementer
 ---
 
 ## Requirement

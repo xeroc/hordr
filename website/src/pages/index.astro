@@ -1,0 +1,343 @@
+---
+import '../styles/starlight.css'
+
+const repo = 'https://github.com/herdr/hordr'
+const tagline =
+  'A herdr plugin that gives coding agents isolated git worktrees and panes, with beans as their briefs.'
+---
+
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>hordr — isolated worktrees & fleet dispatch for coding agents</title>
+    <meta name="description" content={tagline} />
+    <meta name="theme-color" content="#1a1b26" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="hordr" />
+    <meta property="og:title" content="hordr" />
+    <meta property="og:description" content={tagline} />
+    <meta name="twitter:card" content="summary" />
+    <script is:inline>
+      (function () {
+        var dark = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
+        document.documentElement.setAttribute('data-theme', dark)
+      })()
+    </script>
+    <style is:global>
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: var(--sl-font);
+        background: var(--sl-color-bg);
+        color: var(--sl-color-gray-1);
+        -webkit-font-smoothing: antialiased;
+        text-rendering: optimizeLegibility;
+      }
+
+      a {
+        color: var(--sl-color-accent);
+      }
+
+      .wrap {
+        max-width: 64rem;
+        margin: 0 auto;
+        padding: 0 1.5rem;
+      }
+
+      /* header */
+      .site-header {
+        border-bottom: 1px solid var(--sl-color-hairline);
+        position: sticky;
+        top: 0;
+        background: color-mix(in srgb, var(--sl-color-bg) 88%, transparent);
+        backdrop-filter: blur(8px);
+      }
+
+      .nav {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 0.9rem 0;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 0.55rem;
+        font-family: var(--sl-font-mono);
+        font-weight: 700;
+        font-size: 1.15rem;
+        letter-spacing: -0.04em;
+        color: var(--sl-color-white);
+        text-decoration: none;
+      }
+
+      .brand svg {
+        width: 26px;
+        height: 26px;
+        color: var(--sl-color-accent);
+      }
+
+      .nav-links {
+        display: flex;
+        align-items: center;
+        gap: 1.25rem;
+        font-size: 0.9rem;
+        font-weight: 600;
+      }
+
+      .nav-links a {
+        color: var(--sl-color-gray-2);
+        text-decoration: none;
+        transition: color 120ms ease;
+      }
+
+      .nav-links a:hover {
+        color: var(--sl-color-accent-high);
+      }
+
+      @media (max-width: 30rem) {
+        .nav-links .nav-hide-sm {
+          display: none;
+        }
+      }
+
+      /* hero */
+      .hero {
+        padding: 5.5rem 0 3.5rem;
+        text-align: left;
+      }
+
+      .eyebrow {
+        font-family: var(--sl-font-mono);
+        font-size: 0.8rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--sl-color-accent);
+        margin: 0 0 0.9rem;
+      }
+
+      .hero h1 {
+        font-family: var(--sl-font-mono);
+        font-weight: 400;
+        letter-spacing: -0.04em;
+        font-size: clamp(2.6rem, 9vw, 4.4rem);
+        line-height: 1;
+        margin: 0 0 1.1rem;
+        color: var(--sl-color-white);
+      }
+
+      .hero p {
+        font-size: clamp(1.05rem, 2.2vw, 1.3rem);
+        line-height: 1.5;
+        color: var(--sl-color-gray-2);
+        max-width: 40rem;
+        margin: 0 0 2rem;
+      }
+
+      .cta-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+      }
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.7rem 1.2rem;
+        border-radius: 6px;
+        font-weight: 600;
+        font-size: 0.95rem;
+        text-decoration: none;
+        border: 1px solid transparent;
+        transition:
+          background 120ms ease,
+          border-color 120ms ease;
+      }
+
+      .btn-primary {
+        background: var(--sl-color-accent);
+        color: var(--sl-color-black);
+      }
+
+      .btn-primary:hover {
+        background: var(--sl-color-accent-high);
+      }
+
+      .btn-ghost {
+        border-color: var(--sl-color-hairline-light);
+        color: var(--sl-color-gray-1);
+      }
+
+      .btn-ghost:hover {
+        border-color: var(--sl-color-accent);
+        color: var(--sl-color-accent-high);
+      }
+
+      /* snippet */
+      .snippet {
+        margin: 3rem 0 0;
+        border: 1px solid var(--sl-color-hairline);
+        border-radius: 6px;
+        overflow: hidden;
+        background: var(--sl-color-bg-nav);
+      }
+
+      .snippet pre {
+        margin: 0;
+        padding: 1.1rem 1.3rem;
+        font-family: var(--sl-font-mono);
+        font-size: 0.85rem;
+        line-height: 1.7;
+        overflow-x: auto;
+        color: var(--sl-color-gray-1);
+      }
+
+      .snippet .comment {
+        color: var(--sl-color-gray-4);
+      }
+
+      .snippet .prompt {
+        color: var(--sl-color-accent);
+      }
+
+      /* features */
+      .features {
+        padding: 3.5rem 0 5rem;
+        border-top: 1px solid var(--sl-color-hairline);
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+        gap: 1.25rem;
+      }
+
+      .card {
+        border: 1px solid var(--sl-color-hairline);
+        border-radius: 6px;
+        padding: 1.4rem;
+        background: linear-gradient(
+            180deg,
+            color-mix(in srgb, var(--sl-color-accent) 5%, transparent),
+            transparent 60%
+          ),
+          var(--sl-color-black);
+      }
+
+      .card h3 {
+        margin: 0 0 0.5rem;
+        font-family: var(--sl-font-mono);
+        font-weight: 400;
+        font-size: 1.05rem;
+        letter-spacing: -0.01em;
+        color: var(--sl-color-white);
+      }
+
+      .card p {
+        margin: 0;
+        font-size: 0.92rem;
+        line-height: 1.55;
+        color: var(--sl-color-gray-3);
+      }
+
+      /* footer */
+      .site-footer {
+        border-top: 1px solid var(--sl-color-hairline);
+        padding: 2rem 0;
+        font-size: 0.85rem;
+        color: var(--sl-color-gray-4);
+      }
+
+      .footer-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        flex-wrap: wrap;
+      }
+
+      .footer-row a {
+        color: var(--sl-color-gray-3);
+        text-decoration: none;
+      }
+
+      .footer-row a:hover {
+        color: var(--sl-color-accent-high);
+      }
+    </style>
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="wrap nav">
+        <a class="brand" href="/" aria-label="hordr home">
+          <svg viewBox="0 0 32 32" aria-hidden="true">
+            <rect width="32" height="32" rx="6" fill="currentColor" fill-opacity="0.08"></rect>
+            <g fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M6 21 L10 14 L14 21"></path>
+              <path d="M13 21 L17 14 L21 21"></path>
+              <path d="M20 21 L24 14 L28 21" opacity="0.45"></path>
+            </g>
+          </svg>
+          <span>hordr</span>
+        </a>
+        <nav class="nav-links" aria-label="Primary">
+          <a class="nav-hide-sm" href="/docs/">Docs</a>
+          <a class="nav-hide-sm" href="/docs/quick-start/">Quick start</a>
+          <a href="/docs/install/">Install</a>
+          <a href={repo}>GitHub</a>
+        </nav>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero wrap">
+        <p class="eyebrow">a herdr plugin</p>
+        <h1>hordr</h1>
+        <p>{tagline}</p>
+        <div class="cta-row">
+          <a class="btn btn-primary" href="/docs/quick-start/">Quick start</a>
+          <a class="btn btn-ghost" href="/docs/">Read the docs</a>
+        </div>
+        <div class="snippet">
+          <pre><code><span class="prompt">$</span> hordr run hordr-0001
+<span class="comment"># → started hordr-0001 in hordr-0001 (role: implementer, pane: wX:pNEW)</span>
+
+<span class="comment"># one bean, one worktree, one agent — fire and forget.</span></code></pre>
+        </div>
+      </section>
+
+      <section class="features wrap">
+        <div class="grid">
+          <div class="card">
+            <h3>Single-bean</h3>
+            <p>One bean, one isolated worktree, one agent. Fire-and-forget — the agent commits, you review.</p>
+          </div>
+          <div class="card">
+            <h3>Fleet</h3>
+            <p>A team of agents on a milestone in parallel. Each epic gets its own worktree; <code>hordr fleet check</code> advances them.</p>
+          </div>
+          <div class="card">
+            <h3>Beans</h3>
+            <p>Work contracts as briefs: milestone → epic → task. The engine dispatches the unblocked, rolls up status, merges.</p>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap footer-row">
+        <span>hordr — a herdr plugin</span>
+        <span><a href={repo}>GitHub</a> · <a href="/docs/">Docs</a></span>
+      </div>
+    </footer>
+  </body>
+</html>

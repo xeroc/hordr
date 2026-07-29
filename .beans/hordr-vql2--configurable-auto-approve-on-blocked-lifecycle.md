@@ -1,17 +1,16 @@
 ---
 # hordr-vql2
 title: Configurable auto-approve on blocked lifecycle
-status: todo
+status: scrapped
 type: task
 priority: normal
 created_at: 2026-07-22T08:53:48Z
-updated_at: 2026-07-22T08:53:48Z
+updated_at: 2026-07-28T10:43:16Z
 parent: hordr-zpxz
 blocked_by:
     - hordr-gdqm
     - hordr-rzpy
     - hordr-rzfe
-assigned: implementer
 ---
 
 ## Requirement

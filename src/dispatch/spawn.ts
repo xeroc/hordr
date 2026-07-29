@@ -1,4 +1,4 @@
-import {buildHarnessCommand} from '../harness/launcher.js'
+import { buildHarnessCommand } from '../harness/launcher.js'
 /**
  * Ephemeral invocation spawn (ADR-0009).
  *
@@ -7,7 +7,7 @@ import {buildHarnessCommand} from '../harness/launcher.js'
  * harness in the fleet's pane. One invocation = one task = one commit.
  * The pane is reused across sequential invocations (ADR-0009 pane reuse).
  */
-import {runInPane} from '../herdr/pane.js'
+import { runInPane } from '../herdr/pane.js'
 
 /** A single ancestor bean rendered as context in the prompt. */
 export interface AncestorContext {
@@ -19,9 +19,9 @@ export interface AncestorContext {
 
 /** Machine-verified dependency state at dispatch time. */
 export interface DependencyStatus {
-  blockers: Array<{id: string; status: string; title: string}>
-  parentBlockers: Array<{id: string; status: string; title: string}>
-  siblings: Array<{id: string; status: string; title: string; type: string}>
+  blockers: Array<{ id: string; status: string; title: string }>
+  parentBlockers: Array<{ id: string; status: string; title: string }>
+  siblings: Array<{ id: string; status: string; title: string; type: string }>
 }
 
 const RESOLVED_STATUSES = new Set(['completed', 'scrapped'])
@@ -86,15 +86,15 @@ export function buildInvocationPrompt(opts: {
   const milestoneSection =
     milestones.length > 0
       ? `\n---\n\n# Context \u2014 Milestone (read only: for context only, do not act on this)\n\n${milestones
-          .map((a) => `## ${a.type}: ${a.title} (${a.id})\n\n${a.body}`)
-          .join('\n\n')}\n`
+        .map((a) => `## ${a.type}: ${a.title} (${a.id})\n\n${a.body}`)
+        .join('\n\n')}\n`
       : ''
 
   const ancestorSection =
     others.length > 0
       ? `\n---\n\n# Context \u2014 Ancestors (read only: for context only, do not act on these)\n\n${others
-          .map((a) => `## ${a.type}: ${a.title} (${a.id})\n\n${a.body}`)
-          .join('\n\n')}\n`
+        .map((a) => `## ${a.type}: ${a.title} (${a.id})\n\n${a.body}`)
+        .join('\n\n')}\n`
       : ''
 
   const depSection = opts.dependencies ? renderDependencyStatus(opts.dependencies) : ''
@@ -128,14 +128,12 @@ requires a clean worktree to proceed past completion. Honour both layers:
 5. Never leave the bean marked \`completed\` in the working tree uncommitted. If you
    must stop mid-work, the bean stays \`in-progress\`.
 
-If you cannot proceed (blocked by unmet dependencies): \`hordr blocked ${opts.beanId}\` then stop.
-
 \`hordr done\` returns JSON with a \`next\` field. If \`next\` is present, it contains
 the id, role, and prompt for the next bean in this lane. Adopt the new persona
 and work the next bean immediately — same session, same context. If \`next\` is
 null, stop. Do not work on any other bean.`
 }
 
-export function spawnInvocation(opts: {harness: string; paneId: string; prompt: string}): void {
+export function spawnInvocation(opts: { harness: string; paneId: string; prompt: string }): void {
   runInPane(opts.paneId, buildHarnessCommand(opts.harness, opts.prompt))
 }

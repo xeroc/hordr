@@ -1,11 +1,11 @@
 ---
 # hordr-vouv
 title: hordr agent lifecycle integration
-status: todo
+status: scrapped
 type: milestone
 priority: high
 created_at: 2026-07-22T08:53:48Z
-updated_at: 2026-07-22T08:53:48Z
+updated_at: 2026-07-28T10:43:16Z
 ---
 
 Integrate herdr's new agent automation API into hordr's dispatch core. Hordr currently uses herdr as a dumb terminal multiplexer — `pane run` to fire raw shell commands, `pane list` to binary-check if an agent field exists. The new herdr agent primitives (`agent start`, `agent prompt`, `agent wait --until`, `agent read`, `agent send-keys`) give hordr first-class agent lifecycle control: named tracked agents, lifecycle states (working/blocked/done/idle/unknown), output reading, and UI interaction.

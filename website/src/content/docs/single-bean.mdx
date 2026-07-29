@@ -1,0 +1,57 @@
+---
+title: Single-bean mode
+description: One bean, one worktree, one agent — fire-and-forget.
+---
+
+The simplest mode. One task, isolated, merged, cleaned up. No fleet, no
+parallelism, no long-running daemon.
+
+## The loop
+
+```bash
+# 1. Create a task
+beans create "Cache token lookups" -t task -d "Memoize the resolver."
+
+# 2. Run an agent on it
+hordr run hordr-0001
+#    → isolated worktree on branch hordr-0001, agent in its own pane
+
+# 3. The agent works, commits, marks the bean completed, runs /done
+
+# 4. Finish — merge + cleanup
+hordr finish hordr-0001
+```
+
+## What `hordr run` does
+
+1. Resolves the bean's `assigned:` role → persona + harness.
+2. Creates (or reuses) a worktree on `hordr-<id>`, branched from primary.
+3. Opens a herdr pane and launches the agent with the bean body as its brief.
+4. Returns. The agent runs autonomously in the pane.
+
+You are free to watch the pane, ignore it, or close it — the worktree persists.
+
+## The done gate
+
+When the agent finishes, it marks the bean `completed` and runs `/done`. Hordr's
+done-checks validate the result (status, commit, files). If anything is off, the
+lane stalls in a recoverable state (`uncommitted`, `blocked`) rather than
+silently producing a bad merge.
+
+## What `hordr finish` does
+
+1. Asserts the bean is `completed` (read from the worktree, not stale main).
+2. Merges `hordr-<id>` into the primary branch (`--no-ff`).
+3. Removes the worktree.
+4. **Safe-deletes the branch** — `git branch -d`, never `-D`. `-d` refuses
+   unmerged branches, so a silent no-op merge can't slip through.
+
+If the worktree is already gone (a re-run), `finish` still merges and deletes
+the branch. Branch deletion is tolerant: on failure it warns and continues — the
+merge already landed; an orphaned ref is manual cleanup.
+
+## When to use it
+
+- One-off tasks and chores.
+- Anything you'd otherwise do in a throwaway branch by hand.
+- The first stop before reaching for a [fleet](/docs/fleet/).

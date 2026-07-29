@@ -11,6 +11,3 @@ tsconfig.tsbuildinfo
 
 yarn.lock
 package-lock.json
-
-/cafleet
-/tributary-bean.yaml

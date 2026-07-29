@@ -1,15 +1,14 @@
 ---
 # hordr-ohgl
 title: 'fleet status: show agent lifecycle state per lane'
-status: todo
+status: scrapped
 type: task
 priority: normal
 created_at: 2026-07-22T08:53:48Z
-updated_at: 2026-07-22T08:53:48Z
+updated_at: 2026-07-28T10:43:16Z
 parent: hordr-l6d9
 blocked_by:
     - hordr-af4d
-assigned: implementer
 ---
 
 ## Requirement

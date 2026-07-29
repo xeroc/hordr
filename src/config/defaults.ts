@@ -1,12 +1,11 @@
 /**
- * Reasonable default agents so hordr works out-of-the-box without a hordr:
- * block in .beans.yml. User-configured agents always take precedence; these
- * fill in the gaps.
+ * Reasonable default agents so hordr works out-of-the-box in .beans.yml.
+ * User-configured agents always take precedence; these fill in the gaps.
  *
  * The personas are minimal fleet-shaped instructions: one task, commit,
  * hordr done, stop. See docs/fleet-guide.md for fuller alternatives.
  */
-import type {AgentDef} from './schema.js'
+import type { AgentDef } from './schema.js'
 
 /**
  * Shared anti-redundancy preamble. Prevents the two most common
@@ -15,8 +14,7 @@ import type {AgentDef} from './schema.js'
  * agent is already primed via AGENTS.md.
  */
 const NO_REDUNDANCY = `Your bean body, ancestor context, and dependency status are embedded below \u2014 do NOT re-read them via \`beans show\`.
-You are already primed \u2014 do NOT run \`beans prime\` or \`hordr prime\`.
-If blocked by unmet dependencies (check the Dependency Status block): run \`hordr blocked <id>\` to release the lane, then stop.`
+You are already primed \u2014 do NOT run \`beans prime\` or \`hordr prime\`.`
 
 export const DEFAULT_AGENTS: Record<string, AgentDef> = {
   implementer: {

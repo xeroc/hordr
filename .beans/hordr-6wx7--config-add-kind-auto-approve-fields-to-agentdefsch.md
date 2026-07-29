@@ -1,13 +1,12 @@
 ---
 # hordr-6wx7
 title: 'Config: add kind + auto_approve fields to AgentDefSchema'
-status: todo
+status: scrapped
 type: task
 priority: high
 created_at: 2026-07-22T08:53:48Z
-updated_at: 2026-07-22T08:53:48Z
+updated_at: 2026-07-28T10:43:16Z
 parent: hordr-gdqm
-assigned: implementer
 ---
 
 ## Requirement

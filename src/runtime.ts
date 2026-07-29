@@ -56,6 +56,17 @@ export function gitMergeBranch(primary: string, branch: string, cwd: string): vo
   _gitRunner(['merge', '--no-ff', branch], {cwd})
 }
 
+/**
+ * Delete `branch` with the safe `-d` (NEVER `-D`): git refuses branches that
+ * are not fully merged or still checked out in a worktree — the safety net we
+ * rely on. Run from a repo/worktree that is NOT on `branch`. Throws HerdrError
+ * on non-zero git exit. Used by `hordr finish` to clean the merged bean ref,
+ * mirroring the fleet teardown (`finishLaneTeardown` / `finishFleetTeardown`).
+ */
+export function gitDeleteBranch(branch: string, cwd: string): void {
+  _gitRunner(['branch', '-d', branch], {cwd})
+}
+
 /** Map herdr's snake_case WorktreeInfo to hordr's camelCase deps contract. */
 function worktreeToInfo(wt: WorktreeInfo): {branch: string; path?: string; workspaceId: string} {
   return {branch: wt.branch, path: wt.path, workspaceId: wt.workspace_id}

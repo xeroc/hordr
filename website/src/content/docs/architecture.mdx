@@ -1,0 +1,104 @@
+---
+title: Architecture
+description: How hordr is wired — dispatch, rollup, merge, cleanup, and storage.
+---
+
+Hordr is a TypeScript oclif CLI. Dispatch logic is pure functions with injected
+dependencies; tests mock the seams, the command classes wire the real I/O.
+
+## Three pillars
+
+```
+                         ┌─────────┐
+                         │  Beans  │   work contracts: milestone → epic → task
+                         └────┬────┘
+                              │
+                    ┌─────────┴──────────┐
+                    │       Hordr        │
+                    │  run / finish /    │
+                    │  fleet / done      │
+                    └─────────┬──────────┘
+                              │
+          ┌───────────────────┼───────────────────┐
+          │                   │                   │
+     ┌────┴────┐       ┌──────┴──────┐      ┌─────┴──────┐
+     │  Herdr  │       │   Harness   │      │   Engine   │
+     │ (panes, │       │ (opencode,  │      │ (fleet     │
+     │  wtrees)│       │  claude…)   │      │  check:    │
+     └─────────┘       └─────────────┘      │  dispatch, │
+                                            │  rollup,   │
+                                            │  merge)    │
+                                            └────────────┘
+```
+
+## Project layout
+
+```
+src/
+├── commands/      oclif command classes (run, finish, done, cleanup, prime, fleet/*)
+├── beans/         beans CLI client (getBean, markBeanCompleted, …) + dir.ts
+├── config/        Zod schema, loader, zero-config defaults
+├── dispatch/      the fleet engine — pure functions with injected deps
+│   ├── engine.ts  createFleetEngine: scanFleet + advanceLane + continueTask
+│   ├── dispatch.ts, role.ts, spawn.ts, loop.ts, continue.ts, done.ts
+│   ├── heal.ts, rollup.ts, commit-beans.ts, lane-create.ts, pane-heal.ts
+│   ├── scan.ts, merge.ts   (3-tier: ff-only → no-ff → leave for merger agent)
+├── fleet/         lifecycle.ts: createFleet, finishFleet, abortFleet, resetLane
+├── harness/       buildPrompt, resolveHarness, launchAgent, shellQuote
+├── herdr/         pane + worktree wrappers (shells out to herdr CLI)
+├── storage/       SQLite: schema + pragmas; fleet/lane/project rows; lock mutex
+└── runtime.ts     HordrDeps + gitMergeBranch + GitRunner test seam
+```
+
+## The engine owns dispatch
+
+`engine.ts` is the single production dispatch path (`createFleetEngine`, wired by
+`fleet create`, `fleet check`, and `done`). One pass (`scanFleet`):
+
+1. **Scan** lanes; lazily create worktrees for newly-unblocked epics.
+2. **Dispatch** the next ready task in each free lane (subtree ∩ ready, priority
+   sort).
+3. **Await** in-flight agents; on `/done`, roll up the ancestry.
+4. **Merge** a completed epic into the milestone integration branch, then tear
+   down its lane.
+5. **Finish** the fleet when the milestone completes.
+
+## Rollup
+
+Status flows **up** automatically. A parent is `completed` only when all
+descendants are. Rollup writes (`.beans/` status changes) are committed as a
+separate `chore(beans): rollup status changes` commit via `commitBeanChanges`
+(idempotent — a no-op when nothing is staged). **The engine owns rollup, not the
+agent.**
+
+## Merge (3-tier, ADR-0014)
+
+Epic → milestone integration branch:
+
+1. `git merge --ff-only` — fast-forward, no merge commit.
+2. `git merge --no-ff` — merge commit. May conflict.
+3. **Conflict** — left in-progress; hordr spawns a **merger agent** to resolve,
+   then resumes. `restoreWorktree` unwinds after resolution.
+
+## Cleanup after merge
+
+On any successful merge, hordr tears down:
+
+- the **worktree** (`git worktree remove`, no `--force`), and
+- the **branch** (`git branch -d` — safe delete, **never `-D`**).
+
+`-d` refuses unmerged or still-checked-out branches — the safety net that
+catches silent no-op merges. Deletion is tolerant: a failure (orphaned ref) is
+logged, not fatal, because the merge already landed.
+
+## Storage & concurrency
+
+State lives in **SQLite** (fleet, lane, project rows). A PID-locked mutex
+serializes `fleet check` so cron-triggered and manual runs can't double-dispatch.
+Project identity is keyed by the git-common-dir, stable across worktrees.
+
+## ADRs
+
+Architecture decisions are recorded under `docs/adr/`. Active milestones may
+supersede the deployed code — always check `beans list --json --ready` for
+in-flight work before assuming the docs reflect reality.

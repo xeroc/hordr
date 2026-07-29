@@ -4,15 +4,13 @@ import {mkdtempSync, rmSync, writeFileSync} from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import {_setBeansPresentForTesting} from '../src/beans/client.js'
 import {
   _resetShell as _resetWtShell,
-  _setHerdrPresentForTesting,
   _setShellForTesting as _setWtShell,
   HerdrError,
   type ShellFn,
 } from '../src/herdr/worktree.js'
-import {_resetGitRunner, _setGitRunnerForTesting, createDeps, type GitRunner} from '../src/runtime.js'
+import {_resetGitRunner, _setGitRunnerForTesting, createDeps, gitDeleteBranch, type GitRunner} from '../src/runtime.js'
 
 interface Call {
   args: string[]
@@ -68,8 +66,6 @@ describe('runtime / createDeps.createWorktree', () => {
     gitResponder = null
     _setWtShell(mockShell)
     _setGitRunnerForTesting(mockGit)
-    _setHerdrPresentForTesting(true)
-    _setBeansPresentForTesting(true)
   })
 
   afterEach(() => {
@@ -77,8 +73,6 @@ describe('runtime / createDeps.createWorktree', () => {
     rmSync(configDir, {force: true, recursive: true})
     _resetWtShell()
     _resetGitRunner()
-    _setHerdrPresentForTesting(true)
-    _setBeansPresentForTesting(true)
   })
 
   it('passes --base develop (from config) by default', () => {
@@ -269,12 +263,28 @@ describe('runtime / createDeps.createWorktree', () => {
 
     gitResponder = () => {
       // Simulate the wrapped HerdrError that defaultGitRunner produces.
-      throw new HerdrError(
-        "git branch -d hordr-999 failed: error: The branch 'hordr-999' is not fully merged.",
-      )
+      throw new HerdrError("git branch -d hordr-999 failed: error: The branch 'hordr-999' is not fully merged.")
     }
 
     const deps = createDeps()
     expect(() => deps.createWorktree('hordr-999')).to.throw(/not fully merged/)
+  })
+
+  describe('gitDeleteBranch', () => {
+    it('runs git branch -d <branch> from cwd (NEVER -D)', () => {
+      gitDeleteBranch('hordr-1234', configDir)
+      expect(gitCalls).to.have.length(1)
+      expect(gitCalls[0]!.args).to.deep.equal(['branch', '-d', 'hordr-1234'])
+      expect(gitCalls[0]!.args).to.not.include('-D')
+      expect(gitCalls[0]!.cwd).to.equal(configDir)
+    })
+
+    it('propagates the git error when -d refuses (unmerged / checked-out)', () => {
+      gitResponder = () => {
+        throw new HerdrError('git branch -d hordr-1234 failed: error: not fully merged')
+      }
+
+      expect(() => gitDeleteBranch('hordr-1234', configDir)).to.throw(/not fully merged/)
+    })
   })
 })

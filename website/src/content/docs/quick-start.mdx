@@ -1,0 +1,45 @@
+---
+title: Quick start
+description: Create a bean, hand it to an agent, and get a committed worktree back.
+---
+
+From zero to a committed, reviewable worktree in five commands.
+
+## 1. Create a task bean
+
+```bash
+beans create "Add input validation" -t task \
+  -d "Validate all inputs at trust boundaries."
+# → hordr-0001
+```
+
+## 2. Hand it to an agent
+
+```bash
+hordr run hordr-0001
+# → started hordr-0001 in hordr-0001 (role: implementer, pane: wX:pNEW)
+```
+
+The agent gets an isolated git worktree on branch `hordr-0001`, a pane, and the
+bean body as its brief. It works, commits, and stops.
+
+## 3. Watch / review
+
+The agent runs in its own pane — switch to it in herdr, or just leave it. When
+it marks the bean `completed` and runs `/done`, hordr checks the result.
+
+## 4. Finish
+
+```bash
+hordr finish hordr-0001
+# → finished hordr-0001: merged hordr-0001 into develop, removed worktree …, deleted branch hordr-0001
+```
+
+`finish` asserts the bean is `completed`, merges its branch into your primary
+branch, removes the worktree, and **safe-deletes the branch** (`-d`, never `-D`).
+[Single-bean mode →](/docs/single-bean/)
+
+## That's it
+
+One bean, one worktree, one agent, one merged commit. For a whole milestone in
+parallel, see [Fleet mode](/docs/fleet/).

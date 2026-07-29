@@ -1,0 +1,83 @@
+---
+const {siteTitle, siteTitleHref} = Astro.locals.starlightRoute
+const docsHref = '/docs/'
+---
+
+<div class="title-row sl-flex">
+  <a href={siteTitleHref} class="site-title sl-flex">
+    <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+      <rect width="32" height="32" rx="6" fill="currentColor" fill-opacity="0.08"></rect>
+      <g fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M6 21 L10 14 L14 21"></path>
+        <path d="M13 21 L17 14 L21 21"></path>
+        <path d="M20 21 L24 14 L28 21" opacity="0.45"></path>
+      </g>
+    </svg>
+    <span translate="no">{siteTitle}</span>
+  </a>
+  <nav class="title-nav" aria-label="Primary">
+    <a href={docsHref}>Docs</a>
+    <a href="https://github.com/herdr/hordr">GitHub</a>
+  </nav>
+</div>
+
+<style>
+  @layer starlight.core {
+    .title-row {
+      align-items: center;
+      gap: 1rem;
+      min-width: 0;
+    }
+
+    .site-title {
+      align-items: center;
+      gap: 0.55rem;
+      font-family: var(--sl-font-mono);
+      font-size: var(--sl-text-h4);
+      font-weight: 700;
+      letter-spacing: -0.04em;
+      color: var(--sl-color-white);
+      text-decoration: none;
+      white-space: nowrap;
+      min-width: 0;
+      transition: color 120ms ease;
+    }
+
+    .brand-mark {
+      width: 26px;
+      height: 26px;
+      flex: 0 0 auto;
+      color: var(--sl-color-accent);
+    }
+
+    span:not(.brand-mark) {
+      overflow: hidden;
+    }
+
+    .title-nav {
+      display: flex;
+      align-items: baseline;
+      gap: 0.75rem;
+      font-size: var(--sl-text-sm);
+      font-weight: 600;
+      line-height: 1;
+    }
+
+    .title-nav a {
+      color: var(--sl-color-white);
+      text-decoration: none;
+      transition: color 120ms ease;
+    }
+
+    .site-title:hover,
+    .title-nav a:hover {
+      color: var(--sl-color-accent-high);
+    }
+
+    @media (max-width: 35rem) {
+      .title-nav {
+        display: none;
+      }
+    }
+  }
+</style>

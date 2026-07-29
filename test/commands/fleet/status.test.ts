@@ -73,6 +73,20 @@ function seedRows(dbFile: string): void {
   }
 }
 
+const MS2 = 'hordr-ms2'
+
+/** Seed a second fleet under the same project, no lanes, created later. */
+function seedSecondFleet(dbFile: string): void {
+  const db = openFleetDb(dbFile)
+  try {
+    db.prepare(
+      'INSERT INTO fleets (project_key, milestone_bean_id, worktree_path, branch, status, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+    ).run(PK, MS2, '/repo2', `ms/${MS2}`, 'merging', '2026-01-02T00:00:00Z')
+  } finally {
+    db.close()
+  }
+}
+
 describe('commands/fleet/status', () => {
   let configDir: string
   let dbFile: string
@@ -189,5 +203,49 @@ describe('commands/fleet/status', () => {
     expect(res.error, res.error?.message).to.be.undefined
     const parsed = JSON.parse(res.stdout.trim()) as {drafts: Array<{id: string; title: string}>}
     expect(parsed.drafts).to.deep.equal([{id: 'hordr-d1', title: 'Draft 1'}])
+  })
+
+  describe('no milestone given (list all fleets)', () => {
+    it('lists every fleet for the project (human)', async () => {
+      seedRows(dbFile)
+      seedSecondFleet(dbFile)
+      const res = await invoke([])
+
+      expect(res.error, res.error?.message).to.be.undefined
+      expect(res.stdout).to.match(new RegExp(`fleet ${MS} — active`))
+      expect(res.stdout).to.match(new RegExp(`fleet ${MS2} — merging`))
+      expect(res.stdout).to.match(/epic-a: active → task-1 \[w1:p1\]/)
+    })
+
+    it('notes when there are no fleets at all', async () => {
+      // project row only, no fleets
+      const db = openFleetDb(dbFile)
+      try {
+        db.prepare(
+          'INSERT INTO projects (project_key, config_path, beans_path, registered_at) VALUES (?, ?, ?, ?)',
+        ).run(PK, '/c', '/b', '2026-01-01T00:00:00Z')
+      } finally {
+        db.close()
+      }
+
+      const res = await invoke([])
+      expect(res.error, res.error?.message).to.be.undefined
+      expect(res.stdout).to.match(/no fleets/)
+    })
+
+    it('--json emits an array of per-fleet objects', async () => {
+      seedRows(dbFile)
+      seedSecondFleet(dbFile)
+      const res = await invoke(['--json'])
+
+      expect(res.error, res.error?.message).to.be.undefined
+      const parsed = JSON.parse(res.stdout.trim()) as Array<{lanes: unknown[]; milestone: string; status: string;}>
+      expect(parsed).to.have.length(2)
+      const ids = parsed.map((f) => f.milestone)
+      expect(ids).to.have.members([MS, MS2])
+      const ms1 = parsed.find((f) => f.milestone === MS)!
+      expect(ms1.status).to.equal('active')
+      expect(ms1.lanes).to.have.length(1)
+    })
   })
 })
