@@ -19,7 +19,7 @@ export default defineConfig({
         SiteTitle: './src/components/SiteTitle.astro',
       },
       customCss: ['./src/styles/starlight.css'],
-      editLink: { baseUrl: 'https://github.com/herdr/hordr/edit/main/website/' },
+      editLink: { baseUrl: 'https://github.com/xeroc/hordr/edit/main/website/' },
       lastUpdated: true,
       disable404Route: true,
       sidebar: [

@@ -1,6 +1,6 @@
 # hordr website
 
-Lean landing page and documentation site for [hordr](https://github.com/herdr/hordr),
+Lean landing page and documentation site for [hordr](https://github.com/xeroc/hordr),
 the herdr plugin that gives coding agents isolated git worktrees and fleet
 dispatch. Built with **Astro** and **Starlight**, themed in Tokyo Night.
 
@@ -196,7 +196,7 @@ All site behavior lives in [`astro.config.mjs`](./astro.config.mjs):
 
 ```js
 const site = process.env.HORDR_SITE ?? 'https://hordr.dev'
-const repo  = 'https://github.com/herdr/hordr'
+const repo  = 'https://github.com/xeroc/hordr'
 
 starlight({
   title: 'hordr',
@@ -205,7 +205,7 @@ starlight({
   social: [{icon: 'github', label: 'GitHub', href: repo}],
   components: { Header, SiteTitle },      // overrides
   customCss: ['./src/styles/starlight.css'],
-  editLink: {baseUrl: 'https://github.com/herdr/hordr/edit/main/website/'},
+  editLink: {baseUrl: 'https://github.com/xeroc/hordr/edit/main/website/'},
   sidebar: [ /* Start here · Guides · Reference */ ],
 })
 ```
