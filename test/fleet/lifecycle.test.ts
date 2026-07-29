@@ -227,6 +227,7 @@ describe('fleet/lifecycle', () => {
     let epicStatuses: Array<{id: string; status: string}>
     let mergeConflicts: boolean
     let removedWorktrees: string[]
+    let removedWorktreeCwds: Array<string | undefined>
     let spawnedMergers: Array<{conflictedFiles: string[]; cwd: string; mainRepoCwd: string}>
 
     beforeEach(() => {
@@ -250,6 +251,7 @@ describe('fleet/lifecycle', () => {
       ]
       mergeConflicts = false
       removedWorktrees = []
+      removedWorktreeCwds = []
       spawnedMergers = []
     })
 
@@ -279,8 +281,9 @@ describe('fleet/lifecycle', () => {
           if (args[0] === 'merge' && mergeConflicts) throw new Error('merge conflict')
           gitCalls.push({args, cwd: opts.cwd})
         },
-        removeWorktree(worktreePath: string): void {
+        removeWorktree(worktreePath: string, opts?: {cwd?: string}): void {
           removedWorktrees.push(worktreePath)
+          removedWorktreeCwds.push(opts?.cwd)
         },
         spawnMerger(opts: {conflictedFiles: string[]; cwd: string; mainRepoCwd: string}): string {
           spawnedMergers.push(opts)
@@ -319,6 +322,12 @@ describe('fleet/lifecycle', () => {
 
       expect(removedWorktrees).to.deep.equal(['/repo'])
       expect(getFleet(db, PK, MS)).to.be.undefined
+    })
+
+    it('passes mainRepoCwd to removeWorktree so git worktree remove finds a repo', () => {
+      finishFleet(db, MS, {cwd: '/repo', mainRepoCwd: '/main', primaryBranch: PRIMARY, projectKey: PK}, deps())
+
+      expect(removedWorktreeCwds).to.deep.equal(['/main'])
     })
 
     it('refuses when the milestone bean is not completed', () => {

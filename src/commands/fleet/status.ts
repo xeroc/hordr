@@ -1,10 +1,8 @@
 import {Args, Command, Flags} from '@oclif/core'
 
 import {listDrafts} from '../../dispatch/dispatch.js'
-import {describeFleet} from '../../fleet/lifecycle.js'
 import {openFleetDb} from '../../storage/db.js'
-import {type FleetRow, type LaneRow, listFleets, listLanes} from '../../storage/fleets.js'
-import {resolveProjectKeyOrMock} from '../../storage/project.js'
+import {type FleetRow, getFleetByMilestone, type LaneRow, listFleets, listLanes} from '../../storage/fleets.js'
 
 /**
  * hordr fleet status [milestone-id]
@@ -12,11 +10,12 @@ import {resolveProjectKeyOrMock} from '../../storage/project.js'
  * The human's observation surface: fleet state + every lane (one per epic)
  * with its status, current task, pane, and branch. JSON mode for machines.
  *
- * With no milestone id: lists every fleet for the current project.
+ * With a milestone id: shows that fleet (found by milestone id, any cwd).
+ * With no milestone id: lists every fleet across ALL projects.
  */
 export default class FleetStatus extends Command {
   static args = {milestone: Args.string({description: 'Milestone bean id; omit to list all fleets'})}
-  static description = 'Show fleet state and per-lane status (all fleets when no milestone given).'
+  static description = 'Show fleet state and per-lane status (all fleets across all projects when no milestone given).'
   static examples = ['<%= config.bin %> fleet status hordr-ab12', '<%= config.bin %> fleet status']
   static flags = {
     json: Flags.boolean({default: false, description: 'Emit machine-parseable JSON'}),
@@ -24,23 +23,27 @@ export default class FleetStatus extends Command {
 
   async run(): Promise<void> {
     const {args, flags} = await this.parse(FleetStatus)
-    const projectKey = resolveProjectKeyOrMock()
 
     const db = openFleetDb()
     try {
       if (args.milestone) {
-        const snapshot = describeFleet(db, projectKey, args.milestone)
-        const drafts = listDrafts(args.milestone, {cwd: snapshot.fleet.worktreePath})
-        this.emitFleet(snapshot.fleet, snapshot.lanes, drafts, flags.json)
+        const fleet = getFleetByMilestone(db, args.milestone)
+        if (!fleet) {
+          this.error(`no fleet for ${args.milestone}`)
+        }
+
+        const lanes = listLanes(db, fleet.projectKey, fleet.milestoneBeanId)
+        const drafts = this.safeDrafts(args.milestone, fleet.worktreePath)
+        this.emitFleet(fleet, lanes, drafts, flags.json)
         return
       }
 
-      const fleets = listFleets(db, {projectKey})
+      const fleets = listFleets(db)
       if (fleets.length === 0) {
         if (flags.json) {
           this.log('[]')
         } else {
-          this.log(`no fleets for project ${projectKey}`)
+          this.log('no fleets')
         }
 
         return
@@ -48,16 +51,16 @@ export default class FleetStatus extends Command {
 
       if (flags.json) {
         const perFleet = fleets.map((f) => {
-          const drafts = listDrafts(f.milestoneBeanId, {cwd: f.worktreePath})
-          return this.fleetJson(f, listLanes(db, projectKey, f.milestoneBeanId), drafts)
+          const drafts = this.safeDrafts(f.milestoneBeanId, f.worktreePath)
+          return this.fleetJson(f, listLanes(db, f.projectKey, f.milestoneBeanId), drafts)
         })
         this.log(JSON.stringify(perFleet))
         return
       }
 
       for (const f of fleets) {
-        const lanes = listLanes(db, projectKey, f.milestoneBeanId)
-        const drafts = listDrafts(f.milestoneBeanId, {cwd: f.worktreePath})
+        const lanes = listLanes(db, f.projectKey, f.milestoneBeanId)
+        const drafts = this.safeDrafts(f.milestoneBeanId, f.worktreePath)
         this.emitFleet(f, lanes, drafts, false)
       }
     } finally {
@@ -76,7 +79,7 @@ export default class FleetStatus extends Command {
       return
     }
 
-    this.log(`fleet ${fleet.milestoneBeanId} — ${fleet.status} (branch ${fleet.branch})`)
+    this.log(`fleet ${fleet.milestoneBeanId} — ${fleet.status} (branch ${fleet.branch}) [${fleet.projectKey}]`)
     if (lanes.length === 0) {
       this.log('  no lanes yet (daemon creates them as epics unblock)')
     } else {
@@ -110,6 +113,20 @@ export default class FleetStatus extends Command {
       milestone: fleet.milestoneBeanId,
       projectKey: fleet.projectKey,
       status: fleet.status,
+    }
+  }
+
+  /**
+   * List drafts, tolerating a missing worktree or binary. `execFileSync` with
+   * a non-existent cwd throws ENOENT (misleadingly naming the binary, not the
+   * cwd). When the worktree is gone (old fleet, torn down, different host)
+   * there are no drafts to list — return [].
+   */
+  private safeDrafts(milestoneId: string, worktreePath: string): Array<{id: string; title: string}> {
+    try {
+      return listDrafts(milestoneId, {cwd: worktreePath})
+    } catch {
+      return []
     }
   }
 }

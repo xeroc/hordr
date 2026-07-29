@@ -9,6 +9,7 @@ import {
   deleteLanes,
   ensureProject,
   getFleet,
+  getFleetByMilestone,
   getProjectPath,
   listLanes,
   registerFleet,
@@ -83,6 +84,7 @@ describe('storage/fleets', () => {
         milestoneBeanId: MS,
         paneId: null,
         projectKey: PK,
+        projectRoot: '',
         status: 'active',
         worktreePath: '/wt/ms1',
       })
@@ -90,6 +92,31 @@ describe('storage/fleets', () => {
 
     it('getFleet returns undefined when no row', () => {
       expect(getFleet(db, PK, 'nope')).to.be.undefined
+    })
+
+    it('getFleetByMilestone finds fleet by milestone id alone (cross-project)', () => {
+      // second project with its own fleet
+      ensureProject(db, {beansPath: '/b2', companyPath: null, configPath: '/c2', projectKey: 'pk2'})
+      registerFleet(db, {
+        branch: 'hordr-ms2',
+        createdAt: NOW,
+        milestoneBeanId: 'hordr-ms2',
+        projectKey: 'pk2',
+        projectRoot: '/repo2',
+        status: 'active',
+        worktreePath: '/wt-ms2',
+      })
+      seedFleet(db) // pk1 / hordr-ms1
+
+      const found = getFleetByMilestone(db, MS)
+      expect(found).to.exist
+      expect(found!.milestoneBeanId).to.equal(MS)
+      expect(found!.projectKey).to.equal(PK)
+
+      const other = getFleetByMilestone(db, 'hordr-ms2')
+      expect(other!.projectKey).to.equal('pk2')
+
+      expect(getFleetByMilestone(db, 'nope')).to.be.undefined
     })
 
     it('registerFleet rejects duplicate (composite PK)', () => {

@@ -216,7 +216,7 @@ describe('commands/fleet/finish', () => {
     try {
       const row = db.prepare('SELECT status, pane_id FROM fleets WHERE milestone_bean_id = ?').get(MS) as
         | undefined
-        | {pane_id: null | string; status: string;}
+        | {pane_id: null | string; status: string}
       expect(row).to.exist
       expect(row!.status).to.equal('merging')
       expect(row!.pane_id).to.exist
@@ -229,6 +229,31 @@ describe('commands/fleet/finish', () => {
     const res = await invoke([MS])
     expect(res.error).to.be.instanceOf(Error)
     expect(res.error!.message).to.match(/no fleet for/)
+  })
+
+  it('uses fleet.projectRoot as mainRepoCwd — cwd-independent (hordr-i6ed)', async () => {
+    // seed fleet with a specific project_root
+    const db = openFleetDb(dbFile)
+    try {
+      db.prepare('INSERT INTO projects (project_key, config_path, beans_path, registered_at) VALUES (?, ?, ?, ?)').run(
+        PK,
+        '/c',
+        '/b',
+        '2026-01-01T00:00:00Z',
+      )
+      db.prepare(
+        'INSERT INTO fleets (project_key, milestone_bean_id, worktree_path, project_root, branch, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      ).run(PK, MS, '/repo', '/custom/main-repo', `ms/${MS}`, 'active', '2026-01-01T00:00:00Z')
+    } finally {
+      db.close()
+    }
+
+    const res = await invoke([MS])
+    expect(res.error, res.error?.message).to.be.undefined
+    // branch -d runs from mainRepoCwd, which must be the stored projectRoot
+    const branchDelete = gitCalls.find((c) => c.args[0] === 'branch' && c.args[1] === '-d')
+    expect(branchDelete, 'must run git branch -d').to.exist
+    expect(branchDelete!.cwd).to.equal('/custom/main-repo')
   })
 
   it('errors when milestone id is missing', async () => {

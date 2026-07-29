@@ -104,6 +104,7 @@ export async function createFleet(
     createdAt: new Date().toISOString(),
     milestoneBeanId: milestoneId,
     projectKey: opts.project.projectKey,
+    projectRoot: opts.cwd,
     status: 'active',
     worktreePath: msWt.path,
   })
@@ -143,9 +144,10 @@ export interface FinishFleetDeps {
    * Remove the milestone worktree by path via `git worktree remove` (no
    * --force). Tolerant of an already-gone worktree. Called only after the
    * milestone + all epics are confirmed completed and the ms→primary merge
-   * has landed.
+   * has landed. opts.cwd is set to mainRepoCwd so git discovers the repo
+   * even when hordr runs from a non-git directory (hordr-ppsp).
    */
-  removeWorktree: (worktreePath: string) => void
+  removeWorktree: (worktreePath: string, opts?: {cwd?: string}) => void
   /**
    * Spawn a merger agent in the ms worktree to resolve ms→primary conflicts.
    * Returns the pane ID for liveness tracking. Called only on tier-3 conflict.
@@ -237,13 +239,17 @@ export function finishFleetTeardown(
   db: Database.Database,
   fleet: FleetRow,
   opts: {mainRepoCwd: string},
-  deps: {beansDir: (worktreePath: string) => string; git: GitFn; removeWorktree: (worktreePath: string) => void},
+  deps: {
+    beansDir: (worktreePath: string) => string
+    git: GitFn
+    removeWorktree: (worktreePath: string, opts?: {cwd?: string}) => void
+  },
 ): void {
   // Defensive commit: mop up any straggler .beans/ writes so `git worktree
   // remove` (no --force) doesn't refuse on dirty-modified (hordr-hmbq).
   if (fleet.worktreePath) {
     commitBeanChanges({beansDir: deps.beansDir(fleet.worktreePath), cwd: fleet.worktreePath}, {git: deps.git})
-    deps.removeWorktree(fleet.worktreePath)
+    deps.removeWorktree(fleet.worktreePath, {cwd: opts.mainRepoCwd})
   }
 
   // Branch deletion: -d (safe delete). The merge already landed; orphaned

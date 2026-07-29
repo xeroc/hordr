@@ -7,11 +7,13 @@
  */
 import {execFileSync} from 'node:child_process'
 
+import {BEANS_BIN} from '../beans/bin.js'
+
 // --- test seam ---
 export type ShellFn = (args: string[], opts?: {cwd?: string}) => string
 
 const defaultShell: ShellFn = (args, opts) =>
-  execFileSync('beans', args, {
+  execFileSync(BEANS_BIN, args, {
     cwd: opts?.cwd,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],

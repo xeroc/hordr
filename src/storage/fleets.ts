@@ -41,6 +41,8 @@ export interface FleetRow {
   /** Merger agent pane ID when fleet status is 'merging' (ms→primary conflict). */
   paneId?: null | string
   projectKey: string
+  /** Main repo working directory — cwd to run git/beans against (hordr-i6ed). '' when unset. */
+  projectRoot?: string
   status: string
   worktreePath: string
 }
@@ -51,6 +53,7 @@ interface FleetDbRow {
   milestone_bean_id: string
   pane_id: null | string
   project_key: string
+  project_root: null | string
   status: string
   worktree_path: string
 }
@@ -62,6 +65,7 @@ function toFleetRow(r: FleetDbRow): FleetRow {
     milestoneBeanId: r.milestone_bean_id,
     paneId: r.pane_id ?? null,
     projectKey: r.project_key,
+    projectRoot: r.project_root ?? '',
     status: r.status,
     worktreePath: r.worktree_path,
   }
@@ -69,14 +73,35 @@ function toFleetRow(r: FleetDbRow): FleetRow {
 
 export function registerFleet(db: Database.Database, row: FleetRow): void {
   db.prepare(
-    'INSERT INTO fleets (project_key, milestone_bean_id, worktree_path, branch, status, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-  ).run(row.projectKey, row.milestoneBeanId, row.worktreePath, row.branch, row.status, row.createdAt)
+    'INSERT INTO fleets (project_key, milestone_bean_id, worktree_path, project_root, branch, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+  ).run(
+    row.projectKey,
+    row.milestoneBeanId,
+    row.worktreePath,
+    row.projectRoot ?? '',
+    row.branch,
+    row.status,
+    row.createdAt,
+  )
 }
 
 export function getFleet(db: Database.Database, projectKey: string, milestoneId: string): FleetRow | undefined {
   const r = db
     .prepare('SELECT * FROM fleets WHERE project_key = ? AND milestone_bean_id = ?')
     .get(projectKey, milestoneId) as FleetDbRow | undefined
+  return r ? toFleetRow(r) : undefined
+}
+
+/**
+ * Look up a fleet by milestone id alone — searches across ALL projects so
+ * fleet commands (finish/abort/reset/status) work from any cwd (hordr-i6ed).
+ * Bean ids are project-prefixed (hordr-*, Beacon-*) so collisions are
+ * practically impossible; returns the first match if somehow duplicated.
+ */
+export function getFleetByMilestone(db: Database.Database, milestoneId: string): FleetRow | undefined {
+  const r = db.prepare('SELECT * FROM fleets WHERE milestone_bean_id = ? ORDER BY created_at').get(milestoneId) as
+    | FleetDbRow
+    | undefined
   return r ? toFleetRow(r) : undefined
 }
 

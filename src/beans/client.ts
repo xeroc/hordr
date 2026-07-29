@@ -8,16 +8,7 @@
 import {execFileSync} from 'node:child_process'
 import {z} from 'zod'
 
-const BEAN_BIN = (() => {
-  try {
-    return execFileSync('sh', ['-c', 'command -v beans'], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim()
-  } catch {
-    return 'beans' // fallback — assertBeansOnPath() will surface the error
-  }
-})()
+import {BEANS_BIN} from './bin.js'
 
 const RAW_BEAN_SCHEMA = z
   .object({
@@ -83,11 +74,11 @@ export function _resetShell(): void {
 
 function runBeans(args: string[], beanId: string, cwd?: string): string {
   try {
-    return _shell(BEAN_BIN, args, {cwd, encoding: 'utf8'})
+    return _shell(BEANS_BIN, args, {cwd, encoding: 'utf8'})
   } catch (error) {
     const e = error as {message?: string; stderr?: string}
     const snippet = (e.stderr ?? e.message ?? '').slice(0, 200)
-    throw new BeansError(`beans command failed for ${beanId}: ${BEAN_BIN} ${args.join(' ')}\n${snippet}`)
+    throw new BeansError(`beans command failed for ${beanId}: ${BEANS_BIN} ${args.join(' ')}\n${snippet}`)
   }
 }
 
