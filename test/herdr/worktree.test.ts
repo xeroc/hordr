@@ -228,6 +228,12 @@ describe('herdr/worktree', () => {
       expect(gitCalls[0].args).to.not.include('--force')
     })
 
+    it('forwards cwd to git so worktree remove works from non-git process cwd', () => {
+      removeWorktreeByPath('/wt/epic-a', {cwd: '/repo/main'})
+      expect(gitCalls).to.have.length(1)
+      expect(gitCalls[0].cwd).to.equal('/repo/main')
+    })
+
     it('does NOT roundtrip through herdr (no shell calls)', () => {
       removeWorktreeByPath('/wt/epic-a')
       expect(calls).to.have.length(0)

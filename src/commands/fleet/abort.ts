@@ -4,7 +4,7 @@ import {abortFleet} from '../../fleet/lifecycle.js'
 import {HerdrError, openWorktree, removeWorktree} from '../../herdr/worktree.js'
 import {getGitRunner} from '../../runtime.js'
 import {openFleetDb} from '../../storage/db.js'
-import {resolveProjectKeyOrMock} from '../../storage/project.js'
+import {getFleetByMilestone} from '../../storage/fleets.js'
 
 /**
  * hordr fleet abort <milestone-id> [--force]
@@ -12,6 +12,8 @@ import {resolveProjectKeyOrMock} from '../../storage/project.js'
  * Stop the fleet: delete all lane + fleet rows so the daemon's tick stops
  * dispatching. Worktrees are kept by default (work preserved). --force also
  * removes every lane worktree and deletes the ms/<id> branch. Beans are kept.
+ * Cwd-independent: fleet found by milestone id, stored projectRoot is the git
+ * cwd (hordr-i6ed).
  */
 export default class FleetAbort extends Command {
   static args = {milestone: Args.string({description: 'Milestone bean id', required: true})}
@@ -25,18 +27,21 @@ export default class FleetAbort extends Command {
   async run(): Promise<void> {
     const {args, flags} = await this.parse(FleetAbort)
     const milestoneId = args.milestone
-    const cwd = process.cwd()
-    const projectKey = resolveProjectKeyOrMock({cwd})
 
     const db = openFleetDb()
     try {
+      const fleet = getFleetByMilestone(db, milestoneId)
+      if (!fleet) {
+        this.error(`no fleet for ${milestoneId}`)
+      }
+
       const result = abortFleet(
         db,
         milestoneId,
-        {cwd, force: flags.force, projectKey},
+        {cwd: fleet.projectRoot || process.cwd(), force: flags.force, projectKey: fleet.projectKey},
         {
           git: getGitRunner(),
-          removeWorktree: (branch) => removeWorktreeByBranch(branch, cwd),
+          removeWorktree: (branch) => removeWorktreeByBranch(branch, fleet.projectRoot || process.cwd()),
         },
       )
 

@@ -5,8 +5,7 @@ import {resetLane} from '../../fleet/lifecycle.js'
 import {createTab, paneExists} from '../../herdr/pane.js'
 import {createWorktree, openWorktree} from '../../herdr/worktree.js'
 import {openFleetDb} from '../../storage/db.js'
-import {getFleet, listLanes} from '../../storage/fleets.js'
-import {resolveProjectKeyOrMock} from '../../storage/project.js'
+import {getFleetByMilestone, listLanes} from '../../storage/fleets.js'
 
 /**
  * hordr fleet reset <milestone-id> [--lane <epic-id>] [--force]
@@ -14,7 +13,7 @@ import {resolveProjectKeyOrMock} from '../../storage/project.js'
  * Reset a lane (or all conflict/uncommitted lanes) back to active. Ensures
  * the worktree and pane exist — recreates either if gone. Clears the current
  * task so the daemon's next tick dispatches fresh. The daemon picks up the
- * active lane on its next tick.
+ * active lane on its next tick. Cwd-independent (hordr-i6ed).
  */
 export default class FleetReset extends Command {
   static args = {milestone: Args.string({description: 'Milestone bean id', required: true})}
@@ -36,17 +35,15 @@ export default class FleetReset extends Command {
   async run(): Promise<void> {
     const {args, flags} = await this.parse(FleetReset)
     const milestoneId = args.milestone
-    const cwd = process.cwd()
-    const projectKey = resolveProjectKeyOrMock({cwd})
 
     const db = openFleetDb()
     try {
-      const fleet = getFleet(db, projectKey, milestoneId)
+      const fleet = getFleetByMilestone(db, milestoneId)
       if (!fleet) {
         this.error(`no fleet for ${milestoneId}`)
       }
 
-      const lanes = listLanes(db, projectKey, milestoneId)
+      const lanes = listLanes(db, fleet.projectKey, milestoneId)
       const stuckStatuses = flags.force ? ['conflict', 'uncommitted'] : ['conflict']
       const toReset = flags.lane
         ? lanes.filter((l) => l.epicBeanId === flags.lane)

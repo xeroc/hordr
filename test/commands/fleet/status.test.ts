@@ -193,6 +193,16 @@ describe('commands/fleet/status', () => {
     expect(res.error!.message).to.match(/no fleet for/)
   })
 
+  it('finds fleet by milestone id even from a different project cwd (hordr-i6ed)', async () => {
+    seedRows(dbFile)
+    // simulate being in a DIFFERENT project — resolver returns wrong key
+    _setProjectKeyResolverForTesting(() => 'pk-some-other-project')
+    const res = await invoke([MS])
+
+    expect(res.error, res.error?.message).to.be.undefined
+    expect(res.stdout).to.match(new RegExp(`fleet ${MS} — active`))
+  })
+
   it('lists drafts-awaiting-review (human)', async () => {
     seedRows(dbFile)
     _setDispatchShell(() =>
@@ -311,6 +321,21 @@ describe('commands/fleet/status', () => {
       expect(res.error, res.error?.message).to.be.undefined
       expect(res.stdout).to.match(/no fleets/)
       expect(res.stdout).not.to.match(/for project/)
+    })
+
+    it('does not crash when a fleet worktree is gone (ENOENT on beans)', async () => {
+      seedRows(dbFile)
+      seedSecondFleet(dbFile)
+      // dispatch shell throws — simulates beans ENOENT on a missing worktree
+      _setDispatchShell(() => {
+        throw new Error('spawnSync beans ENOENT')
+      })
+      const res = await invoke([])
+
+      expect(res.error, res.error?.message).to.be.undefined
+      // both fleets still shown; drafts silently empty
+      expect(res.stdout).to.match(new RegExp(`fleet ${MS} — active`))
+      expect(res.stdout).to.match(new RegExp(`fleet ${MS2} — merging`))
     })
   })
 })

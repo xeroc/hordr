@@ -57,6 +57,15 @@ export function openFleetDb(dbPath?: string): Database.Database {
     db.exec('ALTER TABLE fleets ADD COLUMN pane_id TEXT')
   }
 
+  // Migrate older DBs: add project_root column to fleets if missing
+  // (hordr-i6ed — fleet commands became cwd-independent). Pre-existing rows
+  // get NULL; they are healed on next `fleet create` for their milestone.
+  try {
+    db.prepare('SELECT project_root FROM fleets LIMIT 0').all()
+  } catch {
+    db.exec("ALTER TABLE fleets ADD COLUMN project_root TEXT NOT NULL DEFAULT ''")
+  }
+
   return db
 }
 
@@ -78,6 +87,7 @@ CREATE TABLE IF NOT EXISTS fleets (
   project_key       TEXT NOT NULL REFERENCES projects(project_key),
   milestone_bean_id TEXT NOT NULL,
   worktree_path     TEXT NOT NULL,
+  project_root      TEXT NOT NULL DEFAULT '',
   branch            TEXT NOT NULL,
   status            TEXT NOT NULL,
   pane_id           TEXT,

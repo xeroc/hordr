@@ -190,6 +190,12 @@ export function removeWorktree(opts: WorktreeRemoveOpts): void {
  * merge already landed and the caller's gates (bean completed + clean dir)
  * have already run. Tolerant of an already-gone worktree.
  *
+ * `opts.cwd` MUST be set to a directory inside a git repository (the main
+ * repo, the ms worktree, or any sibling worktree). `git worktree remove`
+ * discovers the repo from cwd; without it the command runs from
+ * process.cwd(), which fails with "not a git repository" when hordr runs
+ * from cron or a non-git directory (hordr-ppsp).
+ *
  * Replaces the old branch-based helper that roundtripped through
  * `herdr worktree open` to resolve a workspace_id: that path resolved the
  * main repo via `git rev-parse --git-common-dir`, which returns the relative
@@ -197,11 +203,11 @@ export function removeWorktree(opts: WorktreeRemoveOpts): void {
  * `linked_worktree_source`. We already hold the worktree path, so a direct
  * `git worktree remove <path>` sidesteps the whole class of errors.
  */
-export function removeWorktreeByPath(worktreePath: string): void {
+export function removeWorktreeByPath(worktreePath: string, opts?: {cwd?: string}): void {
   if (!worktreePath) throw new HerdrError('worktreePath is required')
 
   try {
-    _git(['worktree', 'remove', worktreePath])
+    _git(['worktree', 'remove', worktreePath], {cwd: opts?.cwd})
   } catch (error) {
     const err = error as {message?: string; stderr?: {toString(): string}}
     const stderr = err.stderr?.toString() ?? err.message ?? ''

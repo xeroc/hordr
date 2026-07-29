@@ -4,13 +4,12 @@ import {getBean} from '../../beans/client.js'
 import {resolveBeansDir} from '../../beans/dir.js'
 import {loadConfig} from '../../config/loader.js'
 import {fetchChildStatuses} from '../../dispatch/dispatch.js'
-import {getConflictedFiles,spawnMerger} from '../../dispatch/merger.js'
+import {getConflictedFiles, spawnMerger} from '../../dispatch/merger.js'
 import {finishFleet} from '../../fleet/lifecycle.js'
 import {removeWorktreeByPath} from '../../herdr/worktree.js'
 import {getGitRunner} from '../../runtime.js'
 import {openFleetDb} from '../../storage/db.js'
-import {getFleet} from '../../storage/fleets.js'
-import {resolveProjectKeyOrMock} from '../../storage/project.js'
+import {getFleetByMilestone} from '../../storage/fleets.js'
 
 /**
  * hordr fleet finish <milestone-id>
@@ -18,7 +17,9 @@ import {resolveProjectKeyOrMock} from '../../storage/project.js'
  * Assert the milestone + all epics are completed, merge the milestone branch
  * into primary (--no-ff), then drop the lane + fleet rows. Refuses if
  * incomplete. Reads bean status from the fleet's ms worktree — NOT the main
- * repo (which is on develop and has stale status).
+ * repo (which is on develop and has stale status). Cwd-independent: the fleet
+ * is found by milestone id, and its stored projectRoot is used for git ops
+ * against the main repo (hordr-i6ed).
  */
 export default class FleetFinish extends Command {
   static args = {milestone: Args.string({description: 'Milestone bean id', required: true})}
@@ -35,14 +36,11 @@ export default class FleetFinish extends Command {
 
     const config = loadConfig()
     const primary = flags.base ?? config.primary_branch
-    const cwd = process.cwd()
-    const projectKey = resolveProjectKeyOrMock({cwd})
 
     const db = openFleetDb()
     try {
-      // Read bean status from the fleet's ms worktree, not process.cwd().
-      // The ms worktree is on the milestone branch where completed epics are visible.
-      const fleet = getFleet(db, projectKey, milestoneId)
+      // Look up fleet by milestone id — works from any cwd (hordr-i6ed).
+      const fleet = getFleetByMilestone(db, milestoneId)
       if (!fleet) {
         this.error(`no fleet for ${milestoneId}`)
       }
@@ -52,14 +50,19 @@ export default class FleetFinish extends Command {
       const result = finishFleet(
         db,
         milestoneId,
-        {cwd: msCwd, mainRepoCwd: cwd, primaryBranch: primary, projectKey},
+        {
+          cwd: msCwd,
+          mainRepoCwd: fleet.projectRoot || process.cwd(),
+          primaryBranch: primary,
+          projectKey: fleet.projectKey,
+        },
         {
           beansDir: resolveBeansDir,
           beanStatus: (id) => getBean(id, {cwd: msCwd}).status as string | undefined,
           fetchEpicStatuses: (id) => fetchChildStatuses(id, {cwd: msCwd}),
           getConflictedFiles,
           git: getGitRunner(),
-          removeWorktree: (worktreePath) => removeWorktreeByPath(worktreePath),
+          removeWorktree: (worktreePath, opts) => removeWorktreeByPath(worktreePath, opts),
           spawnMerger: (opts) =>
             spawnMerger({
               config,

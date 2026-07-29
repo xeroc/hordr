@@ -326,7 +326,7 @@ function finishLaneTeardown(db: Database.Database, fleet: FleetRow, lane: LaneRo
   // `git worktree remove` (no --force) is safe — git's own dirty refusal is
   // the final net (hordr-wd46).
   try {
-    removeWorktreeByPath(lane.worktreePath)
+    removeWorktreeByPath(lane.worktreePath, {cwd: fleet.worktreePath})
   } catch (error) {
     logger.warn(`lane ${lane.epicBeanId}: worktree removal failed: ${(error as Error).message}`)
   }
