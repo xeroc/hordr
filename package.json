@@ -7,7 +7,7 @@
   "bin": {
     "hordr": "./bin/run.js"
   },
-  "bugs": "https://github.com/herdr/hordr/issues",
+  "bugs": "https://github.com/xeroc/hordr/issues",
   "dependencies": {
     "@oclif/core": "^4",
     "@oclif/plugin-help": "^6",
@@ -43,7 +43,7 @@
     "./dist",
     "./oclif.manifest.json"
   ],
-  "homepage": "https://github.com/herdr/hordr",
+  "homepage": "https://github.com/xeroc/hordr",
   "keywords": [
     "oclif",
     "herdr",
@@ -62,7 +62,7 @@
     "topicSeparator": " ",
     "topics": {}
   },
-  "repository": "herdr/hordr",
+  "repository": "xeroc/hordr",
   "scripts": {
     "build": "shx rm -rf dist && tsc -b",
     "lint": "eslint",
