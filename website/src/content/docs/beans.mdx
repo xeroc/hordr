@@ -1,0 +1,94 @@
+---
+title: Beans & planning
+description: How to decompose a milestone into epics and tasks, and wire dependencies.
+---
+
+Beans are the work contracts hordr dispatches. Good structure makes the engine's
+job — and yours — trivial.
+
+## The hierarchy
+
+```
+milestone            ← one per release / main topic; gets the fleet
+├─ epic              ← thematic container; gets a parallel worktree (lane)
+│  ├─ feature        ← optional intermediate level
+│  │  └─ task        ← one task ≈ one commit
+│  └─ task           ← tasks can sit directly under epics
+```
+
+Levels map 1:1 to types. **Never skip a level** (no `task` directly under a
+`milestone`). Epics and milestones are containers — they hold children, they are
+not executed.
+
+## Epic vs feature vs task
+
+- **Epic** — groups work by theme, gets its own parallel worktree.
+- **Feature** — an optional intermediate grouping within an epic.
+- **Task** — the executable unit; one task produces one commit.
+
+## Assign every task
+
+Every task carries an `assigned:` role naming who works it. Defaults:
+
+| Role          | Harness    | Does                                  |
+| ------------- | ---------- | ------------------------------------- |
+| `implementer` | `opencode` | Implements: reads, writes, commits    |
+| `tester`      | `opencode` | Tests: writes tests, runs them        |
+| `reviewer`    | `opencode` | Reviews: checks the diff, approves    |
+
+```markdown
+---
+title: Implement the frobnicator
+type: task
+status: todo
+assigned: implementer
+---
+```
+
+Missing `assigned:` defaults to `implementer` (with a warning). An unresolvable
+role blocks the task.
+
+## Pipelines within an epic
+
+Use `--blocked-by` to chain tasks:
+
+```bash
+beans create "Implement X" -t task --parent hordr-EPIC --assigned implementer
+# → hordr-0001
+beans create "Test X"      -t task --parent hordr-EPIC --assigned tester     --blocked-by hordr-0001
+beans create "Review X"    -t task --parent hordr-EPIC --assigned reviewer   --blocked-by hordr-0002
+```
+
+The engine dispatches only unblocked tasks (`beans list --ready`). When `0001`
+completes, `0002` becomes ready, then `0003` — a natural implement → test →
+review pipeline.
+
+## Cross-epic dependencies
+
+```bash
+beans create "Profile" -t epic --parent hordr-MS --blocked-by hordr-AUTH-EPIC
+```
+
+A blocked epic gets no worktree until its blocker merges. When it unblocks, its
+worktree branches from the milestone integration branch, which now contains the
+blocker's code.
+
+## Status & rollup
+
+Status flows **up** automatically via the engine's rollup — a parent is
+`completed` only when all descendants are. **The engine owns rollup, not the
+agent.** You do not walk the tree or propagate status by hand.
+
+```
+todo → in-progress → completed
+```
+
+Draft beans (`-s draft`) are never auto-dispatched — mid-work discoveries land
+in draft for you to review and flip to `todo`.
+
+## Hygiene
+
+- **Check before creating** — `beans list --json` to avoid duplicates.
+- **Rewrite, don't scrap** — append a `## REWRITTEN SCOPE (date)` section to
+  beans that change scope, preserving accumulated context.
+- **Design decisions → milestone body**; **acceptance criteria → task body**.

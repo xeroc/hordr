@@ -6,4 +6,8 @@ import {fileURLToPath} from 'node:url'
 
 const gitignorePath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '.gitignore')
 
-export default [includeIgnoreFile(gitignorePath), ...oclif, prettier]
+// website/ is a standalone Astro/Starlight package with its own toolchain —
+// never lint it with the CLI's oclif config.
+const ignores = ['website/']
+
+export default [includeIgnoreFile(gitignorePath), {ignores}, ...oclif, prettier]

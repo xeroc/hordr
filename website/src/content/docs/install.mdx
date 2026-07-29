@@ -1,0 +1,48 @@
+---
+title: Install
+description: Install hordr and its prerequisites, then link it as a herdr plugin.
+---
+
+Hordr is a herdr plugin distributed as an npm package. You need **herdr**,
+**Node / Bun**, and **beans** on your machine first.
+
+## Prerequisites
+
+- [**herdr**](https://github.com/ogulcancelik/herdr) — the terminal runtime
+  hordr plugs into. Install it per its docs.
+- **Node 18+** or **Bun** — hordr is a TypeScript CLI.
+- **beans** — the issue tracker that holds the work contracts (`beans` CLI).
+
+## Install
+
+Clone and build, then link hordr into herdr:
+
+```bash
+git clone https://github.com/herdr/hordr.git
+cd hordr
+bun install
+bun run build
+herdr plugin link .
+```
+
+`herdr plugin link .` registers the local checkout so `hordr …` is available as
+a herdr subcommand. Re-run `bun run build` after changing the TypeScript source.
+
+## Verify
+
+```bash
+hordr --version
+hordr --help
+```
+
+You should see the command list (`run`, `finish`, `done`, `cleanup`, `prime`,
+`fleet …`).
+
+## Zero-config
+
+Hordr works out of the box. A `.beans.yml` with just a `beans:` block is
+enough — no `hordr:` section required. The defaults cover `implementer`,
+`tester`, and `reviewer` roles, all on the `opencode` harness.
+
+See [Configuration](/docs/configuration/) to customize roles, harnesses, and
+personas.

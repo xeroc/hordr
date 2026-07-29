@@ -1,0 +1,77 @@
+---
+title: Configuration
+description: Configure primary branch, roles, harnesses, and personas in .beans.yml.
+---
+
+Hordr is zero-config: a `.beans.yml` with just a `beans:` block is enough.
+Defaults cover `implementer`, `tester`, `reviewer`, and `merger` roles, all on
+the `opencode` harness. Add a `hordr:` section only to override.
+
+## Minimal
+
+```yaml
+# .beans.yml
+beans:
+  # …beans settings…
+```
+
+That's it. `primary_branch` defaults to `develop`.
+
+## Full shape
+
+```yaml
+hordr:
+  primary_branch: develop
+  agents:
+    implementer:
+      harness: opencode
+      persona: |
+        You implement ONE task bean assigned to you.
+        …
+    tester:
+      harness: opencode
+    reviewer:
+      harness: claude        # any harness hordr can launch
+```
+
+### Fields
+
+| Field            | Default     | Notes                                                     |
+| ---------------- | ----------- | --------------------------------------------------------- |
+| `primary_branch` | `develop`   | The branch `hordr finish` merges into.                    |
+| `agents`         | *(map)*     | Role name → `{harness, persona?}`. Merged over defaults.  |
+| `company`        | *(unset)*   | Path to an Agent Companies package (AGENTS.md, skills).   |
+
+### Roles
+
+A role is any key under `agents`. Each maps to:
+
+- **`harness`** — the agent binary to launch (`opencode`, `claude`, …). What
+  hordr can resolve and shell out to.
+- **`persona`** — the prompt identity. **Optional** when a *company context* is
+  active (then the persona comes from the company's `AGENTS.md`).
+
+User-configured agents **take precedence** over the built-in defaults; defaults
+fill the gaps. So you can override one role and inherit the rest.
+
+## Built-in defaults
+
+The defaults are minimal, fleet-shaped instructions: *do one task, verify,
+commit code + bean together, signal done, stop.* They also tell the agent not to
+re-read the bean (it's embedded in the prompt) and not to re-run
+`beans prime` / `hordr prime` (it's already primed via `AGENTS.md`).
+
+See `src/config/defaults.ts` for the exact text — copy and adapt the persona for
+a role to customize its behavior.
+
+## Company context (optional)
+
+For larger setups, point `company` at an Agent Companies package root holding
+`COMPANY.md`, agent `AGENTS.md` files, and skills. With a company active, role
+personas resolve from the company manifest instead of inline `persona:` strings.
+
+```yaml
+hordr:
+  company:
+    path: ./AGENTS
+```

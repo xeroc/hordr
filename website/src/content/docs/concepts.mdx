@@ -1,0 +1,63 @@
+---
+title: Concepts
+description: The mental model — beans, worktrees, lanes, roles, and the engine.
+---
+
+Hordr is small once five concepts click.
+
+## Beans
+
+A **bean** is a unit of work with a type, a status, and a body. Beans form a
+hierarchy that maps 1:1 to levels:
+
+```
+milestone  →  epic  →  feature  →  task
+```
+
+- **milestone** — a release or theme. Gets the fleet.
+- **epic** — a thematic container. Gets its own parallel worktree (a *lane*).
+- **feature** — an optional intermediate grouping within an epic.
+- **task** — the executable unit. One task ≈ one commit.
+
+Never skip a level (no `task` directly under a `milestone`). Parents hold
+children; they are **not** executed themselves.
+
+## Worktrees & branches
+
+Every executable bean gets an **isolated git worktree** on a branch named after
+the bean (`hordr-<id>`). The agent works there, never on your primary branch.
+Merges are explicit and gated — see [Architecture](/docs/architecture/).
+
+## Roles
+
+Every task carries an `assigned:` role. The role resolves to a **persona**
+(the prompt identity) and a **harness** (the agent binary). Defaults:
+
+| Role          | Harness    | Job                                  |
+| ------------- | ---------- | ------------------------------------ |
+| `implementer` | `opencode` | Reads the bean, writes code, commits |
+| `tester`      | `opencode` | Writes and runs tests                |
+| `reviewer`    | `opencode` | Reviews the diff, approves or blocks |
+
+Chain tasks with `--blocked-by` to build an implement → test → review pipeline.
+
+## The engine
+
+The **engine** owns everything the agent should *not* think about:
+
+- **dispatch** — picks the unblocked, ready task for a lane.
+- **rollup** — a parent is `completed` only when all descendants are.
+- **merge** — epic → milestone integration branch → primary (3-tier).
+- **cleanup** — worktree removal + safe branch delete after a merge.
+
+Agents just work the bean in front of them and call `/done`.
+
+## Status flow
+
+```
+todo → in-progress → completed
+                ↘ blocked / uncommitted / merging (recoverable)
+```
+
+Status flows **up** via rollup — the engine writes it, not the agent. Draft
+beans are never auto-dispatched; flip them to `todo` to make them ready.

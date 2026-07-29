@@ -1,0 +1,79 @@
+---
+title: Commands
+description: Every hordr command — single-bean, fleet, and lifecycle.
+---
+
+Two surfaces: **single-bean** (`run`, `finish`, `done`, `cleanup`, `prime`) and
+**fleet** (`fleet create | check | status | finish | reset | abort`).
+
+## Single-bean
+
+### `hordr run <bean-id>`
+
+Hand a bean to an agent. Creates (or reuses) an isolated worktree on
+`hordr-<id>`, opens a pane, launches the agent with the bean body as its brief.
+Returns immediately — the agent runs autonomously.
+
+### `hordr done <bean-id>`
+
+The agent's **completion signal**. Validates the bean is `completed`, the work
+is committed, and the worktree is clean, then frees the slot. In fleet mode this
+triggers rollup and the next dispatch.
+
+### `hordr finish <bean-id>`
+
+Assert `completed`, merge `hordr-<id>` into the primary branch (`--no-ff`),
+remove the worktree, and **safe-delete the branch** (`git branch -d`, never
+`-D`). Tolerant of an already-gone worktree and of branch-delete failure. Use
+`--json` for machine output (`merged`, `removed`, `branchDeleted`).
+
+### `hordr cleanup`
+
+Remove an abandoned worktree whose agent is gone. Removes the worktree; the
+branch is left for you to delete by hand with `git branch -d`.
+
+### `hordr prime`
+
+Print the project's current context — active beans, in-flight work, config — so
+an agent can orient itself at the start of a session.
+
+## Fleet
+
+### `hordr fleet create <milestone-id>`
+
+Create the milestone worktree and a lane (worktree + pane + branch) for each
+epic. Cross-epic dependencies get no lane until their blocker merges.
+
+### `hordr fleet check`
+
+The broker: one pass over every active lane. Dispatch the ready, await the
+in-flight, roll up status on `/done`, merge completed epics, tear down lanes,
+and finish the fleet when the milestone is done. **Idempotent** — safe to run on
+a timer or by hand. There is no long-running daemon.
+
+### `hordr fleet status`
+
+Show every lane: its epic, current task, status (`active`, `merging`,
+`blocked`, `uncommitted`, `done`), and pane.
+
+### `hordr fleet finish [<milestone-id>]`
+
+Merge the milestone integration branch into primary and tear down the fleet
+(lanes + worktrees + the `ms/<id>` branch, all via safe delete). Usually runs
+automatically when the milestone completes; this forces it.
+
+### `hordr fleet reset <epic-id>`
+
+Re-queue a lane that parked in a recoverable state (`uncommitted`, `blocked`).
+Clears its current task so the next `check` dispatches fresh.
+
+### `hordr fleet abort [<milestone-id>]`
+
+Tear a fleet down. By default worktrees are **kept** (work preserved for
+inspection); `--force` also removes lane worktrees and deletes the `ms/<id>`
+branch. **Beans are always kept for retry.**
+
+## Flags & output
+
+Most commands take `--json` for machine-readable output. Run `hordr <command>
+--help` for the full flag list.

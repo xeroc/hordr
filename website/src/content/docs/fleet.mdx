@@ -1,0 +1,78 @@
+---
+title: Fleet mode
+description: A team of agents on a milestone in parallel — each epic in its own worktree.
+---
+
+A fleet runs a whole **milestone** in parallel. Each epic becomes a **lane**
+(its own worktree + pane + branch). A short-lived command — `hordr fleet check`
+— advances every lane one step: dispatch, await, rollup, merge. There is no
+long-running daemon.
+
+## Plan the milestone
+
+Decompose into epics and tasks. Each epic is a parallel lane; tasks within an
+epic are serialized.
+
+```bash
+# the milestone
+beans create "Ship onboarding" -t milestone
+# → hordr-MS
+
+# epics (each becomes a lane)
+beans create "Auth"        -t epic --parent hordr-MS
+beans create "Profile"     -t epic --parent hordr-MS --blocked-by hordr-AUTH-EPIC
+
+# tasks inside an epic, chained into a pipeline
+beans create "Implement X" -t task --parent hordr-AUTH-EPIC --assigned implementer
+beans create "Test X"      -t task --parent hordr-AUTH-EPIC --assigned tester     --blocked-by hordr-IMPL
+beans create "Review X"    -t task --parent hordr-AUTH-EPIC --assigned reviewer   --blocked-by hordr-TEST
+```
+
+Always set `assigned:` on tasks. Missing `assigned:` defaults to `implementer`
+with a warning; an unresolvable role blocks the task.
+
+## Create and advance
+
+```bash
+hordr fleet create hordr-MS      # creates the milestone worktree + lanes
+hordr fleet check                # one broker pass over every lane (run repeatedly)
+hordr fleet status               # see where each lane is
+```
+
+`fleet check` is idempotent and safe to run on a timer or by hand. Each pass:
+
+1. **Scans** lanes, creates worktrees lazily for newly-unblocked epics.
+2. **Dispatches** the next ready task in each free lane.
+3. **Awaits** in-flight agents; on `/done` it rolls up status.
+4. **Merges** a completed epic into the milestone integration branch, then tears
+   down its lane (worktree remove + `git branch -d`).
+5. When every epic is done, **finishes the fleet**: merges the integration
+   branch into primary and tears it down too.
+
+## Cross-epic dependencies
+
+A `--blocked-by` epic gets **no worktree** until its blocker merges. When it
+unblocks, its worktree branches from the milestone integration branch — which
+now contains the blocker's code. Lazy creation *is* dependency resolution.
+
+## The 3-tier merge
+
+Epic → integration branch merges use three tiers (ADR-0014):
+
+1. `git merge --ff-only` — clean fast-forward.
+2. `git merge --no-ff` — merge commit.
+3. **Conflict** — left in-progress; hordr spawns a merger agent to resolve, then
+   resumes.
+
+## Recoverable states
+
+A lane that hits trouble doesn't die — it parks:
+
+- `merging` — merger agent resolving a conflict.
+- `uncommitted` — dirty worktree at teardown; recover the work, then `reset`.
+- `blocked` — waiting on a dependency or a crashed agent.
+
+Use `hordr fleet reset <epic>` to re-queue a lane, and `hordr fleet abort` to
+tear a fleet down (beans are always kept for retry).
+
+[Beans & planning →](/docs/beans/) · [Commands →](/docs/commands/)
