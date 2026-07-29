@@ -80,11 +80,22 @@ export function getFleet(db: Database.Database, projectKey: string, milestoneId:
   return r ? toFleetRow(r) : undefined
 }
 
-/** All fleets, optionally filtered by status (e.g. 'active'). Ordered oldest-first. */
-export function listFleets(db: Database.Database, opts?: {status?: string}): FleetRow[] {
-  const rows = opts?.status
-    ? (db.prepare('SELECT * FROM fleets WHERE status = ? ORDER BY created_at').all(opts.status) as FleetDbRow[])
-    : (db.prepare('SELECT * FROM fleets ORDER BY created_at').all() as FleetDbRow[])
+/** All fleets, optionally filtered by project and/or status (e.g. 'active'). Ordered oldest-first. */
+export function listFleets(db: Database.Database, opts?: {projectKey?: string; status?: string}): FleetRow[] {
+  const where: string[] = []
+  const params: unknown[] = []
+  if (opts?.status) {
+    where.push('status = ?')
+    params.push(opts.status)
+  }
+
+  if (opts?.projectKey) {
+    where.push('project_key = ?')
+    params.push(opts.projectKey)
+  }
+
+  const clause = where.length > 0 ? `WHERE ${where.join(' AND ')}` : ''
+  const rows = db.prepare(`SELECT * FROM fleets ${clause} ORDER BY created_at`).all(...params) as FleetDbRow[]
   return rows.map((r) => toFleetRow(r))
 }
 
