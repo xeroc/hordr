@@ -16,7 +16,7 @@ import {resolveProjectKeyOrMock} from '../../storage/project.js'
  */
 export default class FleetStatus extends Command {
   static args = {milestone: Args.string({description: 'Milestone bean id; omit to list all fleets'})}
-  static description = 'Show fleet state and per-lane status (all fleets when no milestone given).'
+  static description = 'Show fleet state and per-lane status (all fleets across all projects when no milestone given).'
   static examples = ['<%= config.bin %> fleet status hordr-ab12', '<%= config.bin %> fleet status']
   static flags = {
     json: Flags.boolean({default: false, description: 'Emit machine-parseable JSON'}),
@@ -35,12 +35,12 @@ export default class FleetStatus extends Command {
         return
       }
 
-      const fleets = listFleets(db, {projectKey})
+      const fleets = listFleets(db)
       if (fleets.length === 0) {
         if (flags.json) {
           this.log('[]')
         } else {
-          this.log(`no fleets for project ${projectKey}`)
+          this.log('no fleets')
         }
 
         return
@@ -49,14 +49,14 @@ export default class FleetStatus extends Command {
       if (flags.json) {
         const perFleet = fleets.map((f) => {
           const drafts = listDrafts(f.milestoneBeanId, {cwd: f.worktreePath})
-          return this.fleetJson(f, listLanes(db, projectKey, f.milestoneBeanId), drafts)
+          return this.fleetJson(f, listLanes(db, f.projectKey, f.milestoneBeanId), drafts)
         })
         this.log(JSON.stringify(perFleet))
         return
       }
 
       for (const f of fleets) {
-        const lanes = listLanes(db, projectKey, f.milestoneBeanId)
+        const lanes = listLanes(db, f.projectKey, f.milestoneBeanId)
         const drafts = listDrafts(f.milestoneBeanId, {cwd: f.worktreePath})
         this.emitFleet(f, lanes, drafts, false)
       }
@@ -76,7 +76,7 @@ export default class FleetStatus extends Command {
       return
     }
 
-    this.log(`fleet ${fleet.milestoneBeanId} — ${fleet.status} (branch ${fleet.branch})`)
+    this.log(`fleet ${fleet.milestoneBeanId} — ${fleet.status} (branch ${fleet.branch}) [${fleet.projectKey}]`)
     if (lanes.length === 0) {
       this.log('  no lanes yet (daemon creates them as epics unblock)')
     } else {

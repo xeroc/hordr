@@ -74,6 +74,7 @@ function seedRows(dbFile: string): void {
 }
 
 const MS2 = 'hordr-ms2'
+const PK2 = 'pk-other'
 
 /** Seed a second fleet under the same project, no lanes, created later. */
 function seedSecondFleet(dbFile: string): void {
@@ -82,6 +83,28 @@ function seedSecondFleet(dbFile: string): void {
     db.prepare(
       'INSERT INTO fleets (project_key, milestone_bean_id, worktree_path, branch, status, created_at) VALUES (?, ?, ?, ?, ?, ?)',
     ).run(PK, MS2, '/repo2', `ms/${MS2}`, 'merging', '2026-01-02T00:00:00Z')
+  } finally {
+    db.close()
+  }
+}
+
+/** Seed a fleet + lane under a *different* project (PK2), created latest. */
+function seedOtherProject(dbFile: string): void {
+  const db = openFleetDb(dbFile)
+  try {
+    db.prepare('INSERT INTO projects (project_key, config_path, beans_path, registered_at) VALUES (?, ?, ?, ?)').run(
+      PK2,
+      '/c2',
+      '/b2',
+      '2026-01-01T00:00:00Z',
+    )
+    db.prepare(
+      'INSERT INTO fleets (project_key, milestone_bean_id, worktree_path, branch, status, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+    ).run(PK2, 'hordr-ms3', '/repo3', 'ms/hordr-ms3', 'active', '2026-01-03T00:00:00Z')
+    db.prepare(
+      `INSERT INTO lanes (project_key, fleet_milestone_bean_id, epic_bean_id, worktree_path, branch, pane_id, status, current_task_bean_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(PK2, 'hordr-ms3', 'epic-b', '/wt/epic-b', 'ms/x/epic-b', 'w2:p2', 'active', 'task-2', '2026-01-03T00:00:00Z')
   } finally {
     db.close()
   }
@@ -217,8 +240,24 @@ describe('commands/fleet/status', () => {
       expect(res.stdout).to.match(/epic-a: active → task-1 \[w1:p1\]/)
     })
 
+    it('lists fleets across ALL projects (human)', async () => {
+      seedRows(dbFile)
+      seedOtherProject(dbFile)
+      const res = await invoke([])
+
+      expect(res.error, res.error?.message).to.be.undefined
+      expect(res.stdout).to.match(new RegExp(`fleet ${MS} — active`))
+      expect(res.stdout).to.match(/fleet hordr-ms3 — active/)
+      // each fleet line shows its project key
+      expect(res.stdout).to.match(new RegExp(`\\[${PK}\\]`))
+      expect(res.stdout).to.match(new RegExp(`\\[${PK2}\\]`))
+      // lanes resolve per-project (not the cwd projectKey)
+      expect(res.stdout).to.match(/epic-a: active → task-1 \[w1:p1\]/)
+      expect(res.stdout).to.match(/epic-b: active → task-2 \[w2:p2\]/)
+    })
+
     it('notes when there are no fleets at all', async () => {
-      // project row only, no fleets
+      // project row exists but has no fleets — still reports globally
       const db = openFleetDb(dbFile)
       try {
         db.prepare(
@@ -239,13 +278,39 @@ describe('commands/fleet/status', () => {
       const res = await invoke(['--json'])
 
       expect(res.error, res.error?.message).to.be.undefined
-      const parsed = JSON.parse(res.stdout.trim()) as Array<{lanes: unknown[]; milestone: string; status: string;}>
+      const parsed = JSON.parse(res.stdout.trim()) as Array<{lanes: unknown[]; milestone: string; status: string}>
       expect(parsed).to.have.length(2)
       const ids = parsed.map((f) => f.milestone)
       expect(ids).to.have.members([MS, MS2])
       const ms1 = parsed.find((f) => f.milestone === MS)!
       expect(ms1.status).to.equal('active')
       expect(ms1.lanes).to.have.length(1)
+    })
+
+    it('--json lists fleets across ALL projects with per-project lanes', async () => {
+      seedRows(dbFile)
+      seedOtherProject(dbFile)
+      const res = await invoke(['--json'])
+
+      expect(res.error, res.error?.message).to.be.undefined
+      const parsed = JSON.parse(res.stdout.trim()) as Array<{
+        lanes: Array<{epic: string}>
+        milestone: string
+        projectKey: string
+      }>
+      expect(parsed).to.have.length(2)
+      const keys = parsed.map((f) => f.projectKey)
+      expect(keys).to.have.members([PK, PK2])
+      const other = parsed.find((f) => f.projectKey === PK2)!
+      expect(other.lanes).to.have.length(1)
+      expect(other.lanes[0].epic).to.equal('epic-b')
+    })
+
+    it('reports no fleets globally when none exist', async () => {
+      const res = await invoke([])
+      expect(res.error, res.error?.message).to.be.undefined
+      expect(res.stdout).to.match(/no fleets/)
+      expect(res.stdout).not.to.match(/for project/)
     })
   })
 })
