@@ -1,3 +1,5 @@
+import './table.js'
+
 import {createCliRenderer} from '@opentui/core'
 import {createRoot} from '@opentui/react'
 import {createElement as h} from 'react'

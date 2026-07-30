@@ -134,3 +134,21 @@ export function agentActiveInPane(paneId: string): boolean {
   if (!pane) return false
   return pane.agent !== undefined
 }
+
+/**
+ * Return every pane id that currently has an agent session registered. One
+ * herdr roundtrip for the whole set — callers check membership instead of
+ * invoking {@link agentActiveInPane} per pane (which re-fetches the list
+ * each time). Used by the TUI to flag lanes with an agent actively working.
+ */
+export function activePaneIds(): Set<string> {
+  const panes = fetchPanes()
+  const active = new Set<string>()
+  if (panes) {
+    for (const pane of panes) {
+      if (pane.pane_id && pane.agent !== undefined) active.add(pane.pane_id)
+    }
+  }
+
+  return active
+}

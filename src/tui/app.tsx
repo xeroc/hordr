@@ -4,11 +4,12 @@ import {useState} from 'react'
 import {ActionMenu, MENU} from './action-menu.js'
 import {type ActionResult, type FleetAction, fleetActionArgs, globalCheckArgs, runHordr} from './actions.js'
 import {Confirm} from './confirm.js'
+import {FleetDetail} from './fleet-detail.js'
 import {FleetList} from './fleet-list.js'
 import {Toast} from './toast.js'
 import {useFleets} from './use-fleets.js'
 
-type Mode = 'confirm' | 'list' | 'menu'
+type Mode = 'confirm' | 'detail' | 'list' | 'menu'
 
 const BIN = 'hordr'
 const DESTRUCTIVE: ReadonlySet<FleetAction> = new Set(['abort', 'finish'])
@@ -21,13 +22,16 @@ const DESTRUCTIVE: ReadonlySet<FleetAction> = new Set(['abort', 'finish'])
  */
 export function App() {
   const renderer = useRenderer()
-  const {items, refresh} = useFleets()
+  const {fleets, lanesByMilestone, refresh} = useFleets()
   const [mode, setMode] = useState<Mode>('list')
   const [cursor, setCursor] = useState(0)
   const [menuCursor, setMenuCursor] = useState(0)
   const [milestone, setMilestone] = useState('')
+  const [fleetTitle, setFleetTitle] = useState('')
   const [pending, setPending] = useState<FleetAction | null>(null)
   const [toast, setToast] = useState<ActionResult | null>(null)
+
+  const lanes = milestone ? (lanesByMilestone.get(milestone) ?? []) : []
 
   const runAction = (action: FleetAction, ms: string, force = false) => {
     setToast(runHordr(BIN, fleetActionArgs(action, ms, {force})))
@@ -40,8 +44,13 @@ export function App() {
       setMode('confirm')
     } else {
       runAction(action, milestone)
-      setMode('list')
+      setMode('detail')
     }
+  }
+
+  const openMenu = () => {
+    setMenuCursor(0)
+    setMode('menu')
   }
 
   useKeyboard((key) => {
@@ -63,6 +72,31 @@ export function App() {
           case 'y': {
             if (pending) runAction(pending, milestone)
             setPending(null)
+            setMode('detail')
+            break
+          }
+
+          default: {
+            break
+          }
+        }
+
+        break
+      }
+
+      case 'detail': {
+        switch (key.name) {
+          case 'a': {
+            openMenu()
+            break
+          }
+
+          case 'escape': {
+            setMode('list')
+            break
+          }
+
+          case 'q': {
             setMode('list')
             break
           }
@@ -77,6 +111,17 @@ export function App() {
 
       case 'list': {
         switch (key.name) {
+          case 'a': {
+            const fleet = fleets[cursor]
+            if (fleet) {
+              setMilestone(fleet.milestone)
+              setFleetTitle(fleet.title)
+              openMenu()
+            }
+
+            break
+          }
+
           case 'c': {
             setToast(runHordr(BIN, globalCheckArgs()))
             refresh()
@@ -84,7 +129,7 @@ export function App() {
           }
 
           case 'down': {
-            setCursor((c) => Math.min(items.length - 1, c + 1))
+            setCursor((c) => Math.min(fleets.length - 1, c + 1))
             break
           }
 
@@ -94,7 +139,7 @@ export function App() {
           }
 
           case 'j': {
-            setCursor((c) => Math.min(items.length - 1, c + 1))
+            setCursor((c) => Math.min(fleets.length - 1, c + 1))
             break
           }
 
@@ -109,11 +154,11 @@ export function App() {
           }
 
           case 'return': {
-            const ms = items[cursor]?.milestone
-            if (ms) {
-              setMilestone(ms)
-              setMenuCursor(0)
-              setMode('menu')
+            const fleet = fleets[cursor]
+            if (fleet) {
+              setMilestone(fleet.milestone)
+              setFleetTitle(fleet.title)
+              setMode('detail')
             }
 
             break
@@ -182,20 +227,24 @@ export function App() {
 
   const footer =
     mode === 'list'
-      ? '↑/↓ (or j/k) select · enter open · c check · q quit'
-      : mode === 'menu'
-        ? '↑/↓ select · enter or s/r/f/a · esc back'
-        : 'y confirm · n / esc cancel'
+      ? '↑/↓ (or j/k) select · enter view · a actions · c check · q quit'
+      : mode === 'detail'
+        ? 'a actions · esc back'
+        : mode === 'menu'
+          ? '↑/↓ select · enter or s/r/f/a · esc back'
+          : 'y confirm · n / esc cancel'
 
   return (
     <box style={{flexDirection: 'column', padding: 1}}>
       <text fg="#FFFF00">hordr — fleet manager</text>
       {mode === 'confirm' ? (
         <Confirm message={`Confirm ${pending} on ${milestone}?`} />
+      ) : mode === 'detail' ? (
+        <FleetDetail lanes={lanes} milestone={milestone} title={fleetTitle} />
       ) : mode === 'menu' ? (
         <ActionMenu cursor={menuCursor} milestone={milestone} />
       ) : (
-        <FleetList cursor={cursor} items={items} />
+        <FleetList cursor={cursor} items={fleets} />
       )}
       {toast ? <Toast result={toast} /> : null}
       <text fg="#888">{footer}</text>
