@@ -1,6 +1,7 @@
 /* eslint-disable camelcase -- HordrConfig fields mirror the snake_case config */
 import Database from 'better-sqlite3'
 import {expect} from 'chai'
+import {execFileSync} from 'node:child_process'
 import {mkdirSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
@@ -14,6 +15,14 @@ import {
 } from '../../src/beans/client.js'
 import {_resetShell, _setShellForTesting, type ShellFn} from '../../src/dispatch/dispatch.js'
 import {createFleetEngine, type FleetEngine} from '../../src/dispatch/engine.js'
+import {
+  _resetGit as _resetWtGit,
+  _resetShell as _resetWtShell,
+  _setGitForTesting as _setWtGitForTesting,
+  _setShellForTesting as _setWtShellForTesting,
+  type GitShellFn as WtGitShellFn,
+  type ShellFn as WtShellFn,
+} from '../../src/herdr/worktree.js'
 import {_resetGitRunner, _setGitRunnerForTesting, type GitRunner} from '../../src/runtime.js'
 import {applySchema, openDb} from '../../src/storage/db.js'
 import {addLane, ensureProject, getFleet, listLanes, registerFleet} from '../../src/storage/fleets.js'
@@ -651,6 +660,109 @@ describe('dispatch/engine', () => {
       // gate did NOT short-circuit to idle the way it does at capacity.
       const engine = createFleetEngine(config, {maxLanes: 5})
       expect(() => engine.advanceLane(db, fleet, idleLane)).to.throw()
+    })
+  })
+
+  describe('finishLaneTeardown: close herdr workspace after epic→ms merge', () => {
+    let db: Database.Database
+    let laneWt: string
+    let wtShellCalls: string[][]
+
+    beforeEach(() => {
+      db = openDb(':memory:')
+      applySchema(db)
+      ensureProject(db, {beansPath: '/b', companyPath: null, configPath: '/c', projectKey: 'pk1'})
+      const msWt = join(tmpdir(), `hordr-close-ms-${process.pid}-${Date.now()}`)
+      laneWt = join(tmpdir(), `hordr-close-lane-${process.pid}-${Date.now()}`)
+      mkdirSync(msWt, {recursive: true})
+      mkdirSync(laneWt, {recursive: true})
+      // dirtyNonBeansPaths shells out to real `git status` directly (no seam),
+      // so the lane worktree must be a real, clean git repo to clear the
+      // teardown gate (hordr-wd46).
+      execFileSync('git', ['init', '-q', laneWt])
+
+      registerFleet(db, {
+        branch: 'ms/ms1',
+        createdAt: '2026-07-29T00:00:00Z',
+        milestoneBeanId: 'ms1',
+        projectKey: 'pk1',
+        status: 'active',
+        worktreePath: msWt,
+      })
+      addLane(db, {
+        branch: 'epic-a',
+        createdAt: '2026-07-29T00:00:00Z',
+        currentTaskBeanId: null,
+        epicBeanId: 'epic-a',
+        fleetMilestoneBeanId: 'ms1',
+        paneId: 'p1',
+        projectKey: 'pk1',
+        status: 'active',
+        workspaceId: 'ws-close',
+        worktreePath: laneWt,
+      })
+      wtShellCalls = []
+
+      // beans shell: epic-a is completed (→ mergeEpicLane fires); ms1 stays
+      // active so milestone auto-completion doesn't fork into extra teardown.
+      _setBeansShell(((cmd: string, args: string[]) => {
+        if (cmd === 'update') return JSON.stringify({ok: true})
+        const id = args[2]
+        const isMs = id === 'ms1'
+        return JSON.stringify({
+          body: '',
+          created_at: '',
+          etag: 'e1',
+          id,
+          path: 'p',
+          priority: 'normal',
+          slug: id,
+          status: isMs ? 'active' : 'completed',
+          title: id,
+          type: isMs ? 'milestone' : 'epic',
+          updated_at: '',
+        })
+      }) as unknown as BeansShellFn)
+
+      // dispatch shell: no ready work (idle lane) + epic subtree completed.
+      _setShellForTesting(((args: string[]) => {
+        if (args[0] === 'list') return JSON.stringify([])
+        if (args[0] === 'query') return JSON.stringify({bean: {children: [{id: 'epic-a', status: 'completed'}]}})
+        throw new Error(`unexpected dispatch call: ${args.join(' ')}`)
+      }) as ShellFn)
+
+      // runtime git: attemptMerge (stash/checkout/merge/restore) + branch -d
+      // + commitBeans — all succeed silently.
+      _setGitRunnerForTesting((() => {}) as GitRunner)
+      // worktree git: removeWorktreeByPath — no-op under the seam.
+      _setWtGitForTesting((() => {}) as WtGitShellFn)
+      // worktree shell: closeWorkspace — capture the call, return success.
+      _setWtShellForTesting(((args: string[]) => {
+        wtShellCalls.push(args)
+        return JSON.stringify({id: 'cli:workspace:close', result: {type: 'workspace_closed', workspace_id: 'ws-close'}})
+      }) as WtShellFn)
+    })
+
+    afterEach(() => {
+      _resetShell()
+      _resetBeansShell()
+      _resetGitRunner()
+      _resetWtGit()
+      _resetWtShell()
+      db.close()
+    })
+
+    it('closes the lane herdr workspace (its tabs/panes) once the worktree+branch are removed', () => {
+      const engine = createFleetEngine(config)
+      engine.scanFleet(db)
+
+      const closeCall = wtShellCalls.find((a) => a[0] === 'workspace' && a[1] === 'close')
+      expect(closeCall, 'teardown must close the lane herdr workspace').to.not.equal(undefined)
+      expect(closeCall).to.include('ws-close')
+
+      // Teardown completed (not blocked on dirty worktree) → lane is done.
+      const lane = listLanes(db, 'pk1', 'ms1').find((l) => l.epicBeanId === 'epic-a')!
+      expect(lane.status).to.equal('done')
     })
   })
 })

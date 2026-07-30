@@ -219,6 +219,27 @@ export function removeWorktreeByPath(worktreePath: string, opts?: {cwd?: string}
 }
 
 /**
+ * Close a herdr workspace, removing all of its tabs and panes. Complements
+ * {@link removeWorktreeByPath}: the worktree is torn down via raw git (herdr
+ * isn't notified), so a lane's agent + merger tabs would otherwise linger as
+ * orphaned terminal tabs. Best-effort: tolerates an already-gone workspace
+ * (`workspace_not_found`) — a re-run after teardown must not fail.
+ */
+export function closeWorkspace(workspaceId: string): void {
+  if (!workspaceId) throw new HerdrError('workspaceId is required')
+
+  try {
+    runHerdr(['workspace', 'close', workspaceId])
+  } catch (error) {
+    const e = error as {message?: string; stderr?: {toString(): string}; stdout?: {toString(): string}}
+    const detail = `${e.message ?? ''} ${e.stderr?.toString() ?? ''} ${e.stdout?.toString() ?? ''}`
+    // Already gone (re-run, or herdr cleaned it up first) — tolerate.
+    if (/workspace_not_found/.test(detail)) return
+    throw error
+  }
+}
+
+/**
  * Compute the worktree branch name for a bean: the bean id itself.
  * Consistent with fleet lane naming (`laneBranchName` → epic id).
  * Example: branchFor("hordr-1234") => "hordr-1234"

@@ -29,7 +29,7 @@ import {getBean, markBeanCompleted, resetBeanToTodo} from '../beans/client.js'
 import {resolveBeansDir} from '../beans/dir.js'
 import {finishFleetTeardown} from '../fleet/lifecycle.js'
 import {agentActiveInPane, createTab, paneExists} from '../herdr/pane.js'
-import {createWorktree, HerdrError, openWorktree, removeWorktreeByPath} from '../herdr/worktree.js'
+import {closeWorkspace, createWorktree, HerdrError, openWorktree, removeWorktreeByPath} from '../herdr/worktree.js'
 import {logger} from '../logger.js'
 import {getGitRunner} from '../runtime.js'
 import {
@@ -343,6 +343,19 @@ function finishLaneTeardown(db: Database.Database, fleet: FleetRow, lane: LaneRo
       `lane ${lane.epicBeanId}: branch '${lane.branch}' not deleted: ${(error as Error).message}. ` +
         `Merge landed in ${fleet.branch}; orphaned ref needs manual cleanup.`,
     )
+  }
+
+  // Close the lane's herdr workspace — removes its agent + merger tabs/panes.
+  // The worktree was torn down via raw git above (herdr wasn't notified), so
+  // its tabs/panes would otherwise linger as orphaned terminal tabs.
+  // Best-effort: closeWorkspace tolerates an already-gone workspace; any other
+  // herdr failure is logged, not fatal — the merge already landed.
+  if (lane.workspaceId) {
+    try {
+      closeWorkspace(lane.workspaceId)
+    } catch (error) {
+      logger.warn(`lane ${lane.epicBeanId}: workspace close failed: ${(error as Error).message}`)
+    }
   }
 
   setLaneCurrentTask(db, loc, null)

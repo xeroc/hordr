@@ -7,6 +7,7 @@ import {
   _setGitForTesting,
   _setShellForTesting,
   branchFor,
+  closeWorkspace,
   createWorktree,
   type GitShellFn,
   HerdrError,
@@ -63,6 +64,10 @@ const CREATE_JSON = JSON.stringify({
 const REMOVE_JSON = JSON.stringify({
   id: 'cli:worktree:remove',
   result: {forced: false, path: '/x', type: 'worktree_removed', workspace_id: 'wP'},
+})
+const CLOSE_JSON = JSON.stringify({
+  id: 'cli:workspace:close',
+  result: {type: 'workspace_closed', workspace_id: 'wP'},
 })
 
 const OPEN_JSON = JSON.stringify({
@@ -261,6 +266,38 @@ describe('herdr/worktree', () => {
       }
 
       expect(() => removeWorktreeByPath('/wt/dirty')).to.throw(HerdrError, /modified or untracked files/)
+    })
+  })
+
+  describe('closeWorkspace', () => {
+    it('runs `herdr workspace close <id>`', () => {
+      responder = () => CLOSE_JSON
+      closeWorkspace('wP')
+      expect(calls[0].args).to.deep.equal(['workspace', 'close', 'wP'])
+    })
+
+    it('tolerates an already-gone workspace (workspace_not_found) — no throw', () => {
+      responder = () => {
+        const e = new Error('Command failed: herdr workspace close wP')
+        ;(e as Error & {stderr: string}).stderr =
+          '{"error":{"code":"workspace_not_found","message":"workspace wP not found"}}'
+        throw e
+      }
+
+      expect(() => closeWorkspace('wP')).to.not.throw()
+    })
+
+    it('re-throws unexpected herdr errors', () => {
+      responder = () => {
+        throw new Error('herdr workspace close blew up')
+      }
+
+      expect(() => closeWorkspace('wP')).to.throw(/blew up/)
+    })
+
+    it('throws HerdrError on empty workspaceId', () => {
+      responder = () => CLOSE_JSON
+      expect(() => closeWorkspace('')).to.throw(HerdrError, /workspaceId is required/)
     })
   })
 })
