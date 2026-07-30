@@ -45,19 +45,21 @@ export function App() {
   const selectedNode = visible[treeCursor]
   const selectedId = selectedNode?.bean.id
 
-  // Fetch the selected bean's full record (body etc.) on demand.
+  // Fetch the selected bean's full record (body etc.) on demand — from the
+  // worktree it lives in (status is per-worktree; the main repo is stale).
+  const detailCwd = selectedNode?.worktreePath ?? projectRoot
   useEffect(() => {
-    if (mode !== 'tree' || !selectedId || !projectRoot) {
+    if (mode !== 'tree' || !selectedId || !detailCwd) {
       setDetail(null)
       return
     }
 
     try {
-      setDetail(getBean(selectedId, {cwd: projectRoot}))
+      setDetail(getBean(selectedId, {cwd: detailCwd}))
     } catch {
       setDetail(null)
     }
-  }, [mode, selectedId, projectRoot])
+  }, [mode, selectedId, detailCwd])
 
   const runAction = (action: FleetAction, ms: string, force = false) => {
     setToast(runHordr(BIN, fleetActionArgs(action, ms, {force})))

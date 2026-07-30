@@ -2,7 +2,7 @@
  * Pure bean-tree construction for the TUI. No OpenTUI, no I/O — mocha-tested.
  * The tree is built from the flat `beans list --json` output (which carries
  * `parent` + `type`), then fleet lanes are attached to epic nodes so every
- * descendant knows the lane (workspace/pane) it runs in.
+ * descendant knows the lane (workspace/pane) and worktree it runs in.
  */
 
 /** Minimal bean fields the TUI uses, projected from `beans list --json`. */
@@ -22,6 +22,8 @@ export interface LaneInfo {
   laneStatus: string
   paneId?: string
   workspaceId?: string
+  /** Filesystem path of this lane's worktree — the cwd to read its beans from. */
+  worktreePath: string
 }
 
 export interface TreeNode {
@@ -32,6 +34,8 @@ export interface TreeNode {
   isCurrentTask: boolean
   /** Nearest ancestor epic's lane (set on epics too), or undefined. */
   lane?: LaneInfo
+  /** Worktree to read this bean from (milestone→ms wt, others→lane wt). */
+  worktreePath: string
 }
 
 const CHILD_TYPES = new Set(['epic', 'feature', 'milestone'])
@@ -65,6 +69,7 @@ export function buildBeanTree(beans: readonly BeanSummary[], milestoneId: string
     children: (byParent.get(bean.id) ?? []).map((child) => build(child, depth + 1)),
     depth,
     isCurrentTask: false,
+    worktreePath: '',
   })
 
   return build(rootBean, 0)
@@ -72,17 +77,26 @@ export function buildBeanTree(beans: readonly BeanSummary[], milestoneId: string
 
 /**
  * Attach fleet lanes to epic nodes (and propagate to descendants as their
- * effective lane). Marks the lane's current task. Mutates the tree in place.
+ * effective lane + worktree). The milestone root reads from `msWorktree`;
+ * each epic and its descendants read from that epic's lane worktree. Marks the
+ * lane's current task. Mutates the tree in place. Bean status is per-worktree
+ * (the main repo is stale until merge), so callers must read each bean from
+ * its `worktreePath`.
  */
-export function attachLanes(root: TreeNode, laneByEpic: ReadonlyMap<string, LaneInfo>): void {
-  const walk = (node: TreeNode, inherited?: LaneInfo | undefined) => {
-    const lane = node.bean.type === 'epic' ? laneByEpic.get(node.bean.id) : inherited
-    node.lane = lane
-    node.isCurrentTask = Boolean(lane && lane.currentTask === node.bean.id)
-    for (const child of node.children) walk(child, lane)
+export function attachLanes(
+  root: TreeNode,
+  laneByEpic: ReadonlyMap<string, LaneInfo>,
+  msWorktree: string,
+): void {
+  const walk = (node: TreeNode, inheritedWt: string, inherited?: LaneInfo | undefined) => {
+    const lane = node.bean.type === 'epic' ? laneByEpic.get(node.bean.id) : undefined
+    node.lane = lane ?? inherited
+    node.worktreePath = lane?.worktreePath ?? inheritedWt
+    node.isCurrentTask = Boolean(node.lane && node.lane.currentTask === node.bean.id)
+    for (const child of node.children) walk(child, node.worktreePath, node.lane)
   }
 
-  walk(root)
+  walk(root, msWorktree)
 }
 
 /**

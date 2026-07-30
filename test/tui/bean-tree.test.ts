@@ -43,15 +43,24 @@ describe('tui/bean-tree', () => {
     expect(buildBeanTree(BEANS, 'nope')).to.equal(null)
   })
 
-  it('attachLanes tags the epic and propagates the lane to descendants', () => {
+  it('attachLanes tags the epic, propagates lane + worktree to descendants', () => {
     const root = buildBeanTree(BEANS, 'ms')!
-    attachLanes(root, new Map([['epic', {agentActive: true, currentTask: 'task-a', laneStatus: 'active', workspaceId: 'ws-1'}]]))
+    attachLanes(
+      root,
+      new Map([
+        ['epic', {agentActive: true, currentTask: 'task-a', laneStatus: 'active', workspaceId: 'ws-1', worktreePath: '/lane-wt'}],
+      ]),
+      '/ms-wt',
+    )
 
     const epic = root.children[0]!
     expect(epic.lane?.workspaceId).to.equal('ws-1')
+    expect(epic.worktreePath).to.equal('/lane-wt') // epic reads from its lane worktree
+    expect(root.worktreePath).to.equal('/ms-wt') // milestone reads from the ms worktree
     const feat = epic.children[0]!
     const taskA = feat.children[0]!
     expect(taskA.lane?.workspaceId).to.equal('ws-1') // inherited from epic
+    expect(taskA.worktreePath).to.equal('/lane-wt') // task lives on its epic's worktree
     expect(taskA.isCurrentTask).to.equal(true) // lane.currentTask === task-a
     expect(epic.children[1]!.isCurrentTask).to.equal(false) // task-b not current
     expect(root.lane).to.equal(undefined) // milestone has no lane
