@@ -84,7 +84,7 @@ export function continueLane(taskId: string, deps: ContinueDeps): ContinueResult
   const dependencies = deps.fetchDependencyStatus(nextId)
   const prompt = buildInvocationPrompt({
     ancestors,
-    beanBody: bean.body,
+    beanBody: bean.body ?? '',
     beanId: nextId,
     dependencies,
     persona: nextRole.persona,

@@ -12,7 +12,7 @@ import {BEANS_BIN} from './bin.js'
 
 const RAW_BEAN_SCHEMA = z
   .object({
-    body: z.string(),
+    body: z.string().optional(),
     created_at: z.string(),
     etag: z.string(),
     id: z.string(),
@@ -28,7 +28,7 @@ const RAW_BEAN_SCHEMA = z
 
 export interface BeanRecord {
   [key: string]: unknown
-  body: string
+  body?: string
   created_at: string
   etag: string
   id: string
@@ -104,9 +104,12 @@ export function getBean(beanId: string, opts?: {cwd?: string}): BeanRecord {
   return loose.data
 }
 
-/** Convenience: just the body (used by the agent prompt). */
+/**
+ * Convenience: just the body (used by the agent prompt). Returns "" for
+ * body-less container beans (epic/milestone) — those have nothing to execute.
+ */
 export function getBody(beanId: string): string {
-  return getBean(beanId).body
+  return getBean(beanId).body ?? ''
 }
 
 /**
