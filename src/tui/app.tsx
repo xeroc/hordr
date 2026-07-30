@@ -1,37 +1,63 @@
 import {useKeyboard, useRenderer} from '@opentui/react'
-import {useState} from 'react'
+import {useEffect, useState} from 'react'
 
+import {type BeanRecord, getBean} from '../beans/client.js'
 import {ActionMenu, MENU} from './action-menu.js'
 import {type ActionResult, type FleetAction, fleetActionArgs, globalCheckArgs, runHordr} from './actions.js'
+import {BeanDetail} from './bean-detail.js'
+import {BeanTree} from './bean-tree-view.js'
+import {defaultExpanded, flattenTree, isContainer} from './bean-tree.js'
 import {Confirm} from './confirm.js'
-import {FleetDetail} from './fleet-detail.js'
 import {FleetList} from './fleet-list.js'
 import {Toast} from './toast.js'
 import {useFleets} from './use-fleets.js'
 
-type Mode = 'confirm' | 'detail' | 'list' | 'menu'
+type Mode = 'confirm' | 'list' | 'menu' | 'tree'
 
 const BIN = 'hordr'
 const DESTRUCTIVE: ReadonlySet<FleetAction> = new Set(['abort', 'finish'])
 
 /**
- * Fleet-manager TUI root. Owns all state + keyboard routing; child components
- * are pure views. Observer-only — it never advances fleets itself; `c` shells
- * out to one `hordr fleet check`, and per-fleet actions shell out to the
- * matching `hordr fleet <cmd>` so the tested command paths do the real work.
+ * Fleet-manager TUI root. The fleet list opens into a recursive bean tree
+ * (milestone → epic → feature → task, every level) with a rich detail panel,
+ * expand/collapse nav, and per-task actions — notably `o` to jump herdr into
+ * the lane workspace running the bean's agent. Observer-only: `c` runs one
+ * `hordr fleet check`; fleet actions shell out to the tested `hordr fleet` path.
  */
 export function App() {
   const renderer = useRenderer()
-  const {fleets, lanesByMilestone, refresh} = useFleets()
+  const {fleets, refresh, treesByMilestone} = useFleets()
   const [mode, setMode] = useState<Mode>('list')
   const [cursor, setCursor] = useState(0)
+  const [treeCursor, setTreeCursor] = useState(0)
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [menuCursor, setMenuCursor] = useState(0)
   const [milestone, setMilestone] = useState('')
   const [fleetTitle, setFleetTitle] = useState('')
+  const [projectRoot, setProjectRoot] = useState('')
+  const [returnMode, setReturnMode] = useState<Mode>('list')
   const [pending, setPending] = useState<FleetAction | null>(null)
   const [toast, setToast] = useState<ActionResult | null>(null)
+  const [detail, setDetail] = useState<BeanRecord | null>(null)
 
-  const lanes = milestone ? (lanesByMilestone.get(milestone) ?? []) : []
+  const tree = milestone ? (treesByMilestone.get(milestone) ?? null) : null
+  const visible = tree ? flattenTree(tree, expanded) : []
+  const selectedNode = visible[treeCursor]
+  const selectedId = selectedNode?.bean.id
+
+  // Fetch the selected bean's full record (body etc.) on demand.
+  useEffect(() => {
+    if (mode !== 'tree' || !selectedId || !projectRoot) {
+      setDetail(null)
+      return
+    }
+
+    try {
+      setDetail(getBean(selectedId, {cwd: projectRoot}))
+    } catch {
+      setDetail(null)
+    }
+  }, [mode, selectedId, projectRoot])
 
   const runAction = (action: FleetAction, ms: string, force = false) => {
     setToast(runHordr(BIN, fleetActionArgs(action, ms, {force})))
@@ -44,13 +70,25 @@ export function App() {
       setMode('confirm')
     } else {
       runAction(action, milestone)
-      setMode('detail')
+      setMode(returnMode)
     }
   }
 
-  const openMenu = () => {
+  const openMenu = (from: Mode) => {
+    setReturnMode(from)
     setMenuCursor(0)
     setMode('menu')
+  }
+
+  const jumpToPane = () => {
+    const workspaceId = selectedNode?.lane?.workspaceId
+    if (!workspaceId) {
+      setToast({ok: false, stderr: 'no herdr workspace for this bean', stdout: ''})
+      return
+    }
+
+    runHordr('herdr', ['workspace', 'focus', workspaceId])
+    renderer.destroy() // leave the TUI; user lands in the lane's workspace
   }
 
   useKeyboard((key) => {
@@ -72,32 +110,7 @@ export function App() {
           case 'y': {
             if (pending) runAction(pending, milestone)
             setPending(null)
-            setMode('detail')
-            break
-          }
-
-          default: {
-            break
-          }
-        }
-
-        break
-      }
-
-      case 'detail': {
-        switch (key.name) {
-          case 'a': {
-            openMenu()
-            break
-          }
-
-          case 'escape': {
-            setMode('list')
-            break
-          }
-
-          case 'q': {
-            setMode('list')
+            setMode(returnMode)
             break
           }
 
@@ -115,8 +128,7 @@ export function App() {
             const fleet = fleets[cursor]
             if (fleet) {
               setMilestone(fleet.milestone)
-              setFleetTitle(fleet.title)
-              openMenu()
+              openMenu('list')
             }
 
             break
@@ -158,7 +170,10 @@ export function App() {
             if (fleet) {
               setMilestone(fleet.milestone)
               setFleetTitle(fleet.title)
-              setMode('detail')
+              setProjectRoot(fleet.projectRoot)
+              setTreeCursor(0)
+              setExpanded(treesByMilestone.get(fleet.milestone) ? defaultExpanded(treesByMilestone.get(fleet.milestone)!) : new Set())
+              setMode('tree')
             }
 
             break
@@ -185,7 +200,7 @@ export function App() {
           }
 
           case 'escape': {
-            setMode('list')
+            setMode(returnMode)
             break
           }
 
@@ -200,7 +215,7 @@ export function App() {
           }
 
           case 'q': {
-            setMode('list')
+            setMode(returnMode)
             break
           }
 
@@ -219,6 +234,104 @@ export function App() {
         break
       }
 
+      case 'tree': {
+        switch (key.name) {
+          case 'a': {
+            openMenu('tree')
+            break
+          }
+
+          case 'c': {
+            setToast(runHordr(BIN, globalCheckArgs()))
+            refresh()
+            break
+          }
+
+          case 'down': {
+            setTreeCursor((c) => Math.min(visible.length - 1, c + 1))
+            break
+          }
+
+          case 'escape': {
+            setMode('list')
+            break
+          }
+
+          case 'j': {
+            setTreeCursor((c) => Math.min(visible.length - 1, c + 1))
+            break
+          }
+
+          case 'k': {
+            setTreeCursor((c) => Math.max(0, c - 1))
+            break
+          }
+
+          case 'left': {
+            if (selectedNode && isContainer(selectedNode) && expanded.has(selectedNode.bean.id)) {
+              setExpanded((prev) => {
+                const next = new Set(prev)
+                next.delete(selectedNode.bean.id)
+                return next
+              })
+            }
+
+            break
+          }
+
+          case 'o': {
+            jumpToPane()
+            break
+          }
+
+          case 'q': {
+            setMode('list')
+            break
+          }
+
+          case 'return': {
+            if (selectedNode && isContainer(selectedNode)) {
+              setExpanded((prev) => {
+                const next = new Set(prev)
+                if (next.has(selectedNode.bean.id)) {
+                  next.delete(selectedNode.bean.id)
+                } else {
+                  next.add(selectedNode.bean.id)
+                }
+
+                return next
+              })
+            }
+
+            break
+          }
+
+          case 'right': {
+            if (selectedNode && isContainer(selectedNode)) {
+              setExpanded((prev) => {
+                if (prev.has(selectedNode.bean.id)) return prev
+                const next = new Set(prev)
+                next.add(selectedNode.bean.id)
+                return next
+              })
+            }
+
+            break
+          }
+
+          case 'up': {
+            setTreeCursor((c) => Math.max(0, c - 1))
+            break
+          }
+
+          default: {
+            break
+          }
+        }
+
+        break
+      }
+
       default: {
         break
       }
@@ -227,9 +340,9 @@ export function App() {
 
   const footer =
     mode === 'list'
-      ? '↑/↓ (or j/k) select · enter view · a actions · c check · q quit'
-      : mode === 'detail'
-        ? 'a actions · esc back'
+      ? '↑/↓ select · enter view tree · a actions · c check · q quit'
+      : mode === 'tree'
+        ? '↑/↓ nav · →/← expand/collapse · enter toggle · o open pane · a actions · esc back'
         : mode === 'menu'
           ? '↑/↓ select · enter or s/r/f/a · esc back'
           : 'y confirm · n / esc cancel'
@@ -239,8 +352,12 @@ export function App() {
       <text fg="#FFFF00">hordr — fleet manager</text>
       {mode === 'confirm' ? (
         <Confirm message={`Confirm ${pending} on ${milestone}?`} />
-      ) : mode === 'detail' ? (
-        <FleetDetail lanes={lanes} milestone={milestone} title={fleetTitle} />
+      ) : mode === 'tree' ? (
+        <box style={{flexDirection: 'column'}}>
+          <text fg="#888">{`${fleetTitle} (${milestone})`}</text>
+          <BeanTree cursor={treeCursor} expanded={expanded} tree={tree} />
+          <BeanDetail bean={detail} node={selectedNode} />
+        </box>
       ) : mode === 'menu' ? (
         <ActionMenu cursor={menuCursor} milestone={milestone} />
       ) : (

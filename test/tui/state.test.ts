@@ -2,13 +2,14 @@ import {expect} from 'chai'
 
 import type {FleetRow, LaneRow} from '../../src/storage/fleets.js'
 
-import {moveCursor, statusRank, toFleetList, toLaneList} from '../../src/tui/state.js'
+import {moveCursor, statusRank, toFleetList} from '../../src/tui/state.js'
 
 const fleet = (over: Partial<FleetRow> = {}): FleetRow => ({
   branch: 'ms/x',
   createdAt: '',
   milestoneBeanId: 'ms-1',
   projectKey: 'pk',
+  projectRoot: '/repo',
   status: 'active',
   worktreePath: '/wt',
   ...over,
@@ -29,7 +30,7 @@ const lane = (over: Partial<LaneRow> = {}): LaneRow => ({
 })
 
 describe('tui/state', () => {
-  it('toFleetList maps fleets with per-fleet lane counts', () => {
+  it('toFleetList maps fleets with per-fleet lane counts + project root', () => {
     const fleets = [fleet({milestoneBeanId: 'ms-1'}), fleet({milestoneBeanId: 'ms-2'})]
     const lanes = [
       lane({fleetMilestoneBeanId: 'ms-1'}),
@@ -40,6 +41,7 @@ describe('tui/state', () => {
     const items = toFleetList(fleets, lanes)
     expect(items.map((i) => i.milestone)).to.deep.equal(['ms-1', 'ms-2'])
     expect(items[0]!.laneCount).to.equal(2)
+    expect(items[0]!.projectRoot).to.equal('/repo')
     expect(items[1]!.laneCount).to.equal(1)
   })
 
@@ -66,24 +68,6 @@ describe('tui/state', () => {
     expect(statusRank('active')).to.be.below(statusRank('merging'))
     expect(statusRank('merging')).to.be.below(statusRank('broken'))
     expect(statusRank('broken')).to.be.below(statusRank('done'))
-  })
-
-  it('toLaneList injects epic titles + agent-active from the active pane set', () => {
-    const lanes = [
-      lane({epicBeanId: 'e-1', paneId: 'p1'}),
-      lane({currentTaskBeanId: 't-9', epicBeanId: 'e-2', paneId: 'p2', status: 'merging'}),
-    ]
-    const items = toLaneList(
-      lanes,
-      (id) => (id === 'e-1' ? 'Auth epic' : undefined),
-      new Set(['p1']),
-    )
-    expect(items.map((i) => i.epic)).to.deep.equal(['e-1', 'e-2']) // active before merging
-    expect(items[0]!.title).to.equal('Auth epic')
-    expect(items[0]!.agentActive).to.equal(true)
-    expect(items[1]!.title).to.equal('e-2') // fallback to id
-    expect(items[1]!.agentActive).to.equal(false)
-    expect(items[1]!.currentTask).to.equal('t-9')
   })
 
   it('moveCursor clamps within bounds and returns -1 for an empty list', () => {

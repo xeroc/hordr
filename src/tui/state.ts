@@ -15,19 +15,10 @@ export interface FleetListItem {
   milestone: string
   paneId?: string
   projectKey: string
+  /** Main repo path — cwd for beans reads (titles, detail). '' when unset. */
+  projectRoot: string
   status: string
   /** Bean title (falls back to the milestone id when no title is known). */
-  title: string
-}
-
-export interface LaneItem {
-  /** True when an agent session is registered in this lane's pane right now. */
-  agentActive: boolean
-  branch: string
-  currentTask: null | string
-  epic: string
-  paneId?: string
-  status: string
   title: string
 }
 
@@ -94,35 +85,13 @@ export function toFleetList(
       milestone: f.milestoneBeanId,
       paneId: f.paneId ?? undefined,
       projectKey: f.projectKey,
+      projectRoot: f.projectRoot ?? '',
       status: f.status,
       title: titleFor?.(f.milestoneBeanId) ?? f.milestoneBeanId,
     }))
     .sort(
       (a, b) => statusRank(a.status) - statusRank(b.status) || a.milestone.localeCompare(b.milestone),
     )
-}
-
-/**
- * Build the per-fleet lane (epic) view model. `titleFor` injects epic titles;
- * `activePanes` carries the set of pane ids with a live agent so each lane
- * shows whether an agent is actively working in it. Sorted by status rank.
- */
-export function toLaneList(
-  lanes: readonly LaneRow[],
-  titleFor?: TitleFor,
-  activePanes?: ReadonlySet<string>,
-): LaneItem[] {
-  return lanes
-    .map((l) => ({
-      agentActive: l.paneId ? (activePanes?.has(l.paneId) ?? false) : false,
-      branch: l.branch,
-      currentTask: l.currentTaskBeanId,
-      epic: l.epicBeanId,
-      paneId: l.paneId ?? undefined,
-      status: l.status,
-      title: titleFor?.(l.epicBeanId) ?? l.epicBeanId,
-    }))
-    .sort((a, b) => statusRank(a.status) - statusRank(b.status) || a.epic.localeCompare(b.epic))
 }
 
 /**
