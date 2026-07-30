@@ -11,7 +11,10 @@
   "dependencies": {
     "@oclif/core": "^4",
     "@oclif/plugin-help": "^6",
+    "@opentui/core": "^0.4.5",
+    "@opentui/react": "^0.4.5",
     "better-sqlite3": "^12.11.1",
+    "react": "^19.2.8",
     "winston": "^3.19.0",
     "yaml": "^2",
     "zod": "^3"
@@ -21,10 +24,11 @@
     "@oclif/prettier-config": "^0.2.1",
     "@oclif/test": "^4",
     "@types/better-sqlite3": "^7.6.13",
-    "@types/winston": "^2.4.4",
     "@types/chai": "^4",
     "@types/mocha": "^10",
     "@types/node": "^18",
+    "@types/react": "^19.2.17",
+    "@types/winston": "^2.4.4",
     "chai": "^4",
     "eslint": "^9",
     "eslint-config-oclif": "^6",
@@ -64,7 +68,7 @@
   },
   "repository": "xeroc/hordr",
   "scripts": {
-    "build": "shx rm -rf dist && tsc -b",
+    "build": "shx rm -rf dist && tsc -b && bun build src/tui/boot.ts --target=node --outfile=dist/tui/boot.js --external @opentui/core --external better-sqlite3",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "postpack": "npx shx rm -f oclif.manifest.json",
