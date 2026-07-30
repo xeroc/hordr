@@ -44,7 +44,7 @@ export function dispatchNext(ctx: LaneContext, config: HordrConfig, deps: Dispat
   const ancestors = deps.fetchAncestorChain(next.id)
   const dependencies = deps.fetchDependencyStatus(next.id)
   const {harness, persona, role} = resolveRole(bean, config)
-  const prompt = buildInvocationPrompt({ancestors, beanBody: bean.body, beanId: next.id, dependencies, persona, role})
+  const prompt = buildInvocationPrompt({ancestors, beanBody: bean.body ?? '', beanId: next.id, dependencies, persona, role})
   deps.spawn(harness, prompt)
 
   return {beanId: next.id, dispatched: true, role}

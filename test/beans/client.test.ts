@@ -34,6 +34,21 @@ const SAMPLE_BEAN = {
   updated_at: '2026-06-26T00:00:00Z',
 }
 const SAMPLE_BEAN_JSON = JSON.stringify(SAMPLE_BEAN)
+// A container bean (epic/milestone) whose body is empty: beans omits the key
+// entirely. Such a bean has children but nothing to execute — it must parse.
+const BODYLESS_BEAN = {
+  created_at: '2026-06-26T00:00:00Z',
+  etag: 'def456',
+  id: 'tributary-30yg',
+  path: 'tributary-30yg--container.md',
+  priority: 'normal',
+  slug: 'container',
+  status: 'active',
+  title: 'Container epic',
+  type: 'epic',
+  updated_at: '2026-06-26T00:00:00Z',
+}
+const BODYLESS_BEAN_JSON = JSON.stringify(BODYLESS_BEAN)
 
 let calls: Call[] = []
 let responder: ((c: Call) => string) | null = null
@@ -74,6 +89,22 @@ describe('beans/client', () => {
   it('getBody returns the body string unchanged', () => {
     responder = () => SAMPLE_BEAN_JSON
     expect(getBody('hordr-1001')).to.equal(SAMPLE_BODY)
+  })
+
+  it('getBean parses a body-less container bean (epic/milestone) without throwing', () => {
+    // Reproduces hordr wedging: a lane whose epic bean has no body failed
+    // `beans show` validation (`body: Required`) on every tick, stalling the lane.
+    responder = () => BODYLESS_BEAN_JSON
+    const bean = getBean('tributary-30yg')
+    expect(bean.id).to.equal('tributary-30yg')
+    expect(bean.status).to.equal('active')
+    expect(bean.type).to.equal('epic')
+    expect(bean.body).to.equal(undefined)
+  })
+
+  it('getBody returns "" for a body-less bean instead of throwing (degradation, not crash)', () => {
+    responder = () => BODYLESS_BEAN_JSON
+    expect(getBody('tributary-30yg')).to.equal('')
   })
 
   it('fails loud with BeansError when the beans shell throws (e.g. binary missing)', () => {
