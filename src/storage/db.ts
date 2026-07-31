@@ -15,9 +15,12 @@ import path from 'node:path'
 
 /**
  * PRAGMAs applied on every connection. foreign_keys enforces FK constraints;
- *  busy_timeout lets SQLite retry for 5s before returning SQLITE_BUSY.
+ * busy_timeout lets SQLite retry for 5s before returning SQLITE_BUSY; WAL mode
+ * lets readers and writers coexist (a long-lived TUI read connection no longer
+ * blocks `hordr fleet check` writes — the source of "database is locked").
+ * WAL persists on the file, so setting it idempotently flips the DB once.
  */
-const PRAGMAS = ['foreign_keys=ON', 'busy_timeout=5000'] as const
+const PRAGMAS = ['journal_mode=WAL', 'foreign_keys=ON', 'busy_timeout=5000'] as const
 
 /** Open a database at the given path (file or ":memory:"), apply PRAGMAs. */
 export function openDb(dbPath: string): Database.Database {
