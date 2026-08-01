@@ -5,6 +5,7 @@ import {expect} from 'chai'
 import type {BeanRecord} from '../../src/beans/client.js'
 
 import {abortFleet, createFleet, describeFleet, finishFleet, FleetError, resetLane} from '../../src/fleet/lifecycle.js'
+import {_resetShell as _resetPaneShell, _setShellForTesting as _setPaneShellForTesting} from '../../src/herdr/pane.js'
 import {applySchema, openDb} from '../../src/storage/db.js'
 import {addLane, ensureProject, type FleetRow, getFleet, listLanes, registerFleet} from '../../src/storage/fleets.js'
 
@@ -253,10 +254,13 @@ describe('fleet/lifecycle', () => {
       removedWorktrees = []
       removedWorktreeCwds = []
       spawnedMergers = []
+      // finishFleetTeardown toasts via herdr — silence it (no real client in tests).
+      _setPaneShellForTesting(() => '')
     })
 
     afterEach(() => {
       db.close()
+      _resetPaneShell()
     })
 
     function deps() {

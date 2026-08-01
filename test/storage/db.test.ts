@@ -18,10 +18,11 @@ describe('storage/db', () => {
   })
 
   describe('openDb', () => {
-    it('opens a database file and sets foreign_keys + busy_timeout pragmas', () => {
+    it('opens a database file and sets WAL + foreign_keys + busy_timeout pragmas', () => {
       const dbPath = path.join(dir, 'test.db')
       const db = openDb(dbPath)
       try {
+        expect(db.pragma('journal_mode', {simple: true})).to.equal('wal')
         expect(db.pragma('foreign_keys', {simple: true})).to.equal(1)
         expect(db.pragma('busy_timeout', {simple: true})).to.equal(5000)
       } finally {

@@ -15,6 +15,7 @@ import {
 } from '../../src/beans/client.js'
 import {_resetShell, _setShellForTesting, type ShellFn} from '../../src/dispatch/dispatch.js'
 import {createFleetEngine, type FleetEngine} from '../../src/dispatch/engine.js'
+import {_resetShell as _resetPaneShell, _setShellForTesting as _setPaneShellForTesting} from '../../src/herdr/pane.js'
 import {
   _resetGit as _resetWtGit,
   _resetShell as _resetWtShell,
@@ -666,6 +667,7 @@ describe('dispatch/engine', () => {
   describe('finishLaneTeardown: close herdr workspace after epic→ms merge', () => {
     let db: Database.Database
     let laneWt: string
+    let paneShellCalls: string[][]
     let wtShellCalls: string[][]
 
     beforeEach(() => {
@@ -702,6 +704,12 @@ describe('dispatch/engine', () => {
         worktreePath: laneWt,
       })
       wtShellCalls = []
+      paneShellCalls = []
+      // pane shell: notify — capture the toast call, return a no-op result.
+      _setPaneShellForTesting((args: string[]) => {
+        paneShellCalls.push(args)
+        return ''
+      })
 
       // beans shell: epic-a is completed (→ mergeEpicLane fires); ms1 stays
       // active so milestone auto-completion doesn't fork into extra teardown.
@@ -749,6 +757,7 @@ describe('dispatch/engine', () => {
       _resetGitRunner()
       _resetWtGit()
       _resetWtShell()
+      _resetPaneShell()
       db.close()
     })
 
@@ -759,6 +768,11 @@ describe('dispatch/engine', () => {
       const closeCall = wtShellCalls.find((a) => a[0] === 'workspace' && a[1] === 'close')
       expect(closeCall, 'teardown must close the lane herdr workspace').to.not.equal(undefined)
       expect(closeCall).to.include('ws-close')
+
+      // Toast: the merged lane (epic-a → ms1) was announced.
+      const notifyCall = paneShellCalls.find((a) => a[0] === 'notification' && a[1] === 'show')
+      expect(notifyCall, 'teardown must toast the merge').to.not.equal(undefined)
+      expect(notifyCall).to.include('epic-a merged')
 
       // Teardown completed (not blocked on dirty worktree) → lane is done.
       const lane = listLanes(db, 'pk1', 'ms1').find((l) => l.epicBeanId === 'epic-a')!

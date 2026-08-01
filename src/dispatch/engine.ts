@@ -28,7 +28,7 @@ import type {FleetRow, LaneLoc, LaneRow} from '../storage/fleets.js'
 import {getBean, markBeanCompleted, resetBeanToTodo} from '../beans/client.js'
 import {resolveBeansDir} from '../beans/dir.js'
 import {finishFleetTeardown} from '../fleet/lifecycle.js'
-import {agentActiveInPane, createTab, paneExists} from '../herdr/pane.js'
+import {agentActiveInPane, createTab, notify, paneExists} from '../herdr/pane.js'
 import {closeWorkspace, createWorktree, HerdrError, openWorktree, removeWorktreeByPath} from '../herdr/worktree.js'
 import {logger} from '../logger.js'
 import {getGitRunner} from '../runtime.js'
@@ -357,6 +357,9 @@ function finishLaneTeardown(db: Database.Database, fleet: FleetRow, lane: LaneRo
       logger.warn(`lane ${lane.epicBeanId}: workspace close failed: ${(error as Error).message}`)
     }
   }
+
+  // Toast: this lane's worktree (epic) just merged up into the milestone.
+  notify({body: `epic merged into ${fleet.milestoneBeanId} (${fleet.branch})`, sound: 'done', title: `${lane.epicBeanId} merged`})
 
   setLaneCurrentTask(db, loc, null)
   updateLaneStatus(db, loc, 'done')

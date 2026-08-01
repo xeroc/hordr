@@ -7,6 +7,7 @@ import {
   agentActiveInPane,
   createTab,
   HerdrError,
+  notify,
   paneExists,
   paneLabel,
   runInPane,
@@ -126,6 +127,36 @@ describe('herdr/pane', () => {
         ])
       expect(agentActiveInPane('w1:p1')).to.be.false
       expect(agentActiveInPane('w1:p2')).to.be.true
+    })
+  })
+
+  describe('notify', () => {
+    it('builds `notification show` with body + sound', () => {
+      responder = () => '{"result":{"shown":true}}'
+      notify({body: 'into ms-1', sound: 'done', title: 'epic-1 merged'})
+      expect(calls[0]).to.deep.equal([
+        'notification',
+        'show',
+        'epic-1 merged',
+        '--body',
+        'into ms-1',
+        '--sound',
+        'done',
+      ])
+    })
+
+    it('omits --body and --sound when not given', () => {
+      responder = () => '{}'
+      notify({title: 'hi'})
+      expect(calls[0]).to.deep.equal(['notification', 'show', 'hi'])
+    })
+
+    it('swallows herdr errors (best-effort, never throws)', () => {
+      responder = () => {
+        throw new Error('no foreground client')
+      }
+
+      expect(() => notify({title: 'x'})).to.not.throw()
     })
   })
 })

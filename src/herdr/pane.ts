@@ -134,3 +134,40 @@ export function agentActiveInPane(paneId: string): boolean {
   if (!pane) return false
   return pane.agent !== undefined
 }
+
+/**
+ * Return every pane id that currently has an agent session registered. One
+ * herdr roundtrip for the whole set — callers check membership instead of
+ * invoking {@link agentActiveInPane} per pane (which re-fetches the list
+ * each time). Used by the TUI to flag lanes with an agent actively working.
+ */
+export function activePaneIds(): Set<string> {
+  const panes = fetchPanes()
+  const active = new Set<string>()
+  if (panes) {
+    for (const pane of panes) {
+      if (pane.pane_id && pane.agent !== undefined) active.add(pane.pane_id)
+    }
+  }
+
+  return active
+}
+
+export type NotifySound = 'done' | 'none' | 'request'
+
+/**
+ * Fire a herdr toast notification via `herdr notification show`. Best-effort:
+ * swallows errors so a missing herdr client, no foreground session, or a
+ * rate-limit never breaks the caller (e.g. a merge teardown). herdr sanitizes
+ * and trims the title (80) and body (240). `sound` plays only if shown.
+ */
+export function notify(opts: {body?: string; sound?: NotifySound; title: string}): void {
+  const args = ['notification', 'show', opts.title]
+  if (opts.body) args.push('--body', opts.body)
+  if (opts.sound && opts.sound !== 'none') args.push('--sound', opts.sound)
+  try {
+    _shell(args)
+  } catch {
+    // herdr absent / no foreground client / rate-limited — non-fatal.
+  }
+}
