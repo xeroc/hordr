@@ -14,6 +14,7 @@ import type {BeanRecord} from '../beans/client.js'
 import {commitBeanChanges} from '../dispatch/commit-beans.js'
 import {attemptMerge, type GitFn} from '../dispatch/merge.js'
 import {areAllEpicsCompleted, isMilestoneComplete} from '../dispatch/rollup.js'
+import {notify} from '../herdr/pane.js'
 import {logger} from '../logger.js'
 import {
   deleteFleet,
@@ -265,6 +266,9 @@ export function finishFleetTeardown(
 
   deleteLanes(db, fleet.projectKey, fleet.milestoneBeanId)
   deleteFleet(db, fleet.projectKey, fleet.milestoneBeanId)
+
+  // Toast: the whole fleet (milestone) just merged up into primary.
+  notify({body: 'milestone merged into primary', sound: 'done', title: `${fleet.milestoneBeanId} merged`})
 }
 
 export interface AbortFleetDeps {
