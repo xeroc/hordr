@@ -406,6 +406,13 @@ function mergeEpicLane(
     return {action: 'blocked', taskId}
   }
 
+  if (outcome.status === 'aborted') {
+    // Pre-merge failure (e.g. checkout refused) — not a conflict. Log and leave
+    // the lane for retry; never fall through to teardown (the merge didn't land).
+    logger.error(`lane ${lane.epicBeanId}: merge aborted — ${outcome.message}`)
+    return {action: 'blocked', taskId}
+  }
+
   // Merge succeeded (tier 1 or 2) — teardown the lane.
   return finishLaneTeardown(db, fleet, lane, taskId)
 }

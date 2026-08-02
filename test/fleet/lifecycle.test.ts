@@ -438,6 +438,23 @@ describe('fleet/lifecycle', () => {
       ).to.be.false
       expect(removedWorktrees).to.deep.equal(['/repo'])
     })
+
+    it('throws (no phantom merger) when the primary checkout is refused — aborted, not a 0-file conflict', () => {
+      // Reproduces the ms→primary bug: checkout of primary in the ms worktree
+      // was refused (checked out in the main repo) and surfaced as a conflict
+      // with 0 conflicted files → a useless merger agent. Now it aborts hard.
+      const abortedDeps = deps()
+      const realGit = abortedDeps.git
+      abortedDeps.git = (args, opts) => {
+        if (args[0] === 'checkout') throw new Error("'develop' is already checked out at '/main'")
+        realGit(args, opts)
+      }
+
+      expect(() =>
+        finishFleet(db, MS, {cwd: '/repo', mainRepoCwd: '/main', primaryBranch: PRIMARY, projectKey: PK}, abortedDeps),
+      ).to.throw(FleetError, /merge aborted/)
+      expect(spawnedMergers, 'no phantom merger agent').to.have.length(0)
+    })
   })
 
   describe('abortFleet', () => {

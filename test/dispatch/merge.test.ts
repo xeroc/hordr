@@ -74,7 +74,9 @@ describe('dispatch/merge', () => {
       expect(stashPop).to.exist
     })
 
-    it('returns conflict when checkout target fails', () => {
+    it('returns aborted (NOT conflict) when checkout target fails', () => {
+      // A checkout refusal is a pre-merge failure, not a tier-3 conflict —
+      // reporting it as conflict spawned phantom merger agents (0 conflicted files).
       // eslint-disable-next-line unicorn/consistent-function-scoping -- test-local mock
       const git: GitFn = (args) => {
         if (args[0] === 'checkout' && args[1] === 'bad-branch') throw new Error('no such branch')
@@ -82,8 +84,8 @@ describe('dispatch/merge', () => {
 
       const result = attemptMerge({cwd: '/repo', source: 'x', target: 'bad-branch'}, {git})
 
-      expect(result.status).to.equal('conflict')
-      expect(result.status === 'conflict' && result.message).to.match(/checkout.*failed/)
+      expect(result.status).to.equal('aborted')
+      expect(result.status === 'aborted' && result.message).to.match(/checkout.*failed/)
     })
   })
 })

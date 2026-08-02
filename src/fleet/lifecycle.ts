@@ -202,15 +202,25 @@ export function finishFleet(
     throw new FleetError(`not all epics under ${milestoneId} are completed`)
   }
 
-  const outcome = attemptMerge({cwd: opts.cwd, source: milestoneId, target: opts.primaryBranch}, {git: deps.git})
+  // The ms→primary merge runs in the MAIN repo (primary is checked out there),
+  // not the ms worktree. Checking primary out in the ms worktree is refused by
+  // git, which previously surfaced as a phantom "0 conflicted files" conflict.
+  const outcome = attemptMerge(
+    {cwd: opts.mainRepoCwd, source: milestoneId, target: opts.primaryBranch},
+    {git: deps.git},
+  )
+
+  if (outcome.status === 'aborted') {
+    throw new FleetError(`ms→primary merge aborted: ${outcome.message}`)
+  }
 
   if (outcome.status === 'conflict') {
     // Tier 3: spawn merger agent. The worktree is left on the primary branch
     // with the conflicted merge in progress.
-    const conflictedFiles = deps.getConflictedFiles(fleet.worktreePath)
+    const conflictedFiles = deps.getConflictedFiles(opts.mainRepoCwd)
     const paneId = deps.spawnMerger({
       conflictedFiles,
-      cwd: fleet.worktreePath,
+      cwd: opts.mainRepoCwd,
       mainRepoCwd: opts.mainRepoCwd,
     })
     setFleetPane(db, opts.projectKey, milestoneId, paneId)

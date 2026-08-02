@@ -15,7 +15,10 @@ export interface MergeOpts {
   target: string
 }
 
-export type MergeOutcome = {message: string; status: 'conflict'} | {message?: string; status: 'merged'}
+export type MergeOutcome =
+  | {message: string; status: 'aborted'}
+  | {message: string; status: 'conflict'}
+  | {message?: string; status: 'merged'}
 
 /**
  * 3-tier merge strategy for epic → milestone merges (ADR-0014):
@@ -43,7 +46,11 @@ export function attemptMerge(opts: MergeOpts, deps: {git: GitFn}): MergeOutcome 
     deps.git(['checkout', opts.target], {cwd: opts.cwd})
   } catch (error_) {
     restoreWorktree(opts.cwd, deps)
-    return {message: `checkout ${opts.target} failed: ${(error_ as Error).message}`, status: 'conflict'}
+    // A checkout refusal (e.g. the target is checked out in another worktree)
+    // is a pre-merge failure, NOT a conflict — reporting it as 'conflict'
+    // spawned phantom merger agents with 0 conflicted files. Callers must
+    // surface this as a hard error, not tier-3 escalation.
+    return {message: `checkout ${opts.target} failed: ${(error_ as Error).message}`, status: 'aborted'}
   }
 
   // Tier 1: fast-forward only.
