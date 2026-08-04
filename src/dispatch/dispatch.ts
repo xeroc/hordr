@@ -257,8 +257,10 @@ export function fetchAncestorChain(
 /** Fetch the globally-ready beans (readiness is beans' job). */
 function fetchReady(cwd?: string): DispatchableBean[] {
   const raw = _shell(['list', '--ready', '--json'], {cwd})
-  const data = JSON.parse(raw) as DispatchableBean[]
-  return data
+  const data = JSON.parse(raw) as DispatchableBean[] | null
+  // beans can print literal `null` when its index is locked/corrupt — coerce
+  // so a sick worktree's beans doesn't crash the whole lane advance.
+  return data ?? []
 }
 
 // --- dependency status ---

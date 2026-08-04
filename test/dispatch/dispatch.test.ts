@@ -166,6 +166,23 @@ describe('dispatch/dispatch', () => {
       expect(getDispatchable('hordr-test')).to.have.length(0)
     })
 
+    it('returns empty when beans list --ready prints null (corrupt/locked .beans)', () => {
+      // eslint-disable-next-line unicorn/consistent-function-scoping -- test-local mock
+      const mock: ShellFn = (args) => {
+        const joined = args.join(' ')
+        if (joined.startsWith('query')) {
+          return JSON.stringify({bean: {children: [{id: 'hordr-0001', type: 'task'}]}})
+        }
+
+        // beans can print literal `null` when its index is locked/corrupt
+        if (joined.includes('--ready')) return 'null'
+        throw new Error(`unexpected: ${joined}`)
+      }
+
+      _setShellForTesting(mock)
+      expect(getDispatchable('hordr-test')).to.deep.equal([])
+    })
+
     it('handles nested descendants (epic → task)', () => {
       // eslint-disable-next-line unicorn/consistent-function-scoping -- test-local mock
       const mock: ShellFn = (args) => {
