@@ -51,11 +51,27 @@ describe('storage/fleets', () => {
   })
 
   describe('project', () => {
-    it('ensureProject is idempotent (INSERT OR IGNORE)', () => {
+    it('ensureProject is idempotent — same input re-registered is a no-op', () => {
       ensureProject(db, {beansPath: '/b', companyPath: null, configPath: '/c', projectKey: PK})
-      // registering twice does not throw and does not duplicate
+      ensureProject(db, {beansPath: '/b', companyPath: null, configPath: '/c', projectKey: PK})
+      // re-registering does not throw and does not duplicate
       const count = db.prepare('SELECT COUNT(*) n FROM projects').get() as {n: number}
       expect(count.n).to.equal(1)
+    })
+
+    it('ensureProject refreshes stale beans_path/config_path/company_path (hordr-stale-project-row)', () => {
+      // Simulate a stale row registered from the wrong cwd (e.g. inside .beans/).
+      // Re-running fleet create from the correct repo root must correct the paths,
+      // otherwise herdr ops get --cwd pointing at a directory that no longer exists.
+      ensureProject(db, {beansPath: '/repo/.beans', companyPath: null, configPath: '/repo/.beans', projectKey: PK})
+      ensureProject(db, {beansPath: '/repo', companyPath: '/co', configPath: '/repo', projectKey: PK})
+      expect(getProjectPath(db, PK)).to.equal('/repo')
+      const row = db.prepare('SELECT config_path, company_path FROM projects WHERE project_key=?').get(PK) as {
+        company_path: null | string
+        config_path: string
+      }
+      expect(row.config_path).to.equal('/repo')
+      expect(row.company_path).to.equal('/co')
     })
 
     it('getProjectPath returns the beans_path stored by ensureProject', () => {

@@ -17,10 +17,21 @@ export interface ProjectRow {
   projectKey: string
 }
 
-/** Insert the project if absent (INSERT OR IGNORE). FK target for fleets. */
+/**
+ * Upsert the project row. The stored paths (beans_path, config_path,
+ * company_path) are the cwd `fleet create` was invoked from — always the
+ * main repo root. They can change (beans dir moved, stale first run from a
+ * bad cwd), so we refresh on every call. project_key (git common-dir) is
+ * stable and stays the PRIMARY KEY. See hordr-stale-project-row.
+ */
 export function ensureProject(db: Database.Database, row: ProjectRow): void {
   db.prepare(
-    'INSERT OR IGNORE INTO projects (project_key, config_path, beans_path, company_path, registered_at) VALUES (?, ?, ?, ?, ?)',
+    `INSERT INTO projects (project_key, config_path, beans_path, company_path, registered_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(project_key) DO UPDATE SET
+       config_path  = excluded.config_path,
+       beans_path   = excluded.beans_path,
+       company_path = excluded.company_path`,
   ).run(row.projectKey, row.configPath, row.beansPath, row.companyPath, new Date().toISOString())
 }
 
