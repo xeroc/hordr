@@ -4,6 +4,7 @@ import {getBean} from '../../beans/client.js'
 import {resolveBeansDir} from '../../beans/dir.js'
 import {loadConfig} from '../../config/loader.js'
 import {fetchChildStatuses} from '../../dispatch/dispatch.js'
+import {worktreeClean} from '../../dispatch/engine.js'
 import {getConflictedFiles, spawnMerger} from '../../dispatch/merger.js'
 import {finishFleet} from '../../fleet/lifecycle.js'
 import {removeWorktreeByPath} from '../../herdr/worktree.js'
@@ -62,6 +63,7 @@ export default class FleetFinish extends Command {
           fetchEpicStatuses: (id) => fetchChildStatuses(id, {cwd: msCwd}),
           getConflictedFiles,
           git: getGitRunner(),
+          isClean: worktreeClean,
           removeWorktree: (worktreePath, opts) => removeWorktreeByPath(worktreePath, opts),
           spawnMerger: (opts) =>
             spawnMerger({

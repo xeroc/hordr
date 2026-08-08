@@ -142,6 +142,11 @@ export interface FinishFleetDeps {
   getConflictedFiles: (worktreePath: string) => string[]
   git: GitFn
   /**
+   * True if the worktree at `cwd` has a clean index. The ms→primary merge is
+   * refused when the main repo has uncommitted changes — never stashed.
+   */
+  isClean: (cwd: string) => boolean
+  /**
    * Remove the milestone worktree by path via `git worktree remove` (no
    * --force). Tolerant of an already-gone worktree. Called only after the
    * milestone + all epics are confirmed completed and the ms→primary merge
@@ -207,7 +212,7 @@ export function finishFleet(
   // git, which previously surfaced as a phantom "0 conflicted files" conflict.
   const outcome = attemptMerge(
     {cwd: opts.mainRepoCwd, source: milestoneId, target: opts.primaryBranch},
-    {git: deps.git},
+    {git: deps.git, isClean: deps.isClean},
   )
 
   if (outcome.status === 'aborted') {

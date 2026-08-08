@@ -278,12 +278,15 @@ describe('fleet/lifecycle', () => {
           return ['src/foo.ts']
         },
         git(args: string[], opts: {cwd: string}): void {
-          // attemptMerge: stash (ignored) → checkout → merge --ff-only → merge --no-ff
+          // attemptMerge: checkout → merge --ff-only → merge --no-ff
           // mergeConflicts makes BOTH merge attempts throw (ff fails = not
-          // fast-forwardable, no-ff fails = real conflict). Stash/checkout
-          // always succeed.
+          // fast-forwardable, no-ff fails = real conflict). Checkout always
+          // succeeds.
           if (args[0] === 'merge' && mergeConflicts) throw new Error('merge conflict')
           gitCalls.push({args, cwd: opts.cwd})
+        },
+        isClean(_cwd: string): boolean {
+          return true
         },
         removeWorktree(worktreePath: string, opts?: {cwd?: string}): void {
           removedWorktrees.push(worktreePath)
@@ -454,6 +457,22 @@ describe('fleet/lifecycle', () => {
         finishFleet(db, MS, {cwd: '/repo', mainRepoCwd: '/main', primaryBranch: PRIMARY, projectKey: PK}, abortedDeps),
       ).to.throw(FleetError, /merge aborted/)
       expect(spawnedMergers, 'no phantom merger agent').to.have.length(0)
+    })
+
+    it('refuses (no merge, no merger) when the main repo has uncommitted changes — never touches the index', () => {
+      // The clean-index guard: attemptMerge returns 'aborted' before any
+      // checkout/merge, so the user's uncommitted work is never stashed or
+      // clobbered. finishFleet surfaces it as a hard FleetError.
+      const dirtyDeps = {...deps(), isClean: () => false}
+
+      expect(() =>
+        finishFleet(db, MS, {cwd: '/repo', mainRepoCwd: '/main', primaryBranch: PRIMARY, projectKey: PK}, dirtyDeps),
+      ).to.throw(FleetError, /merge aborted/)
+
+      // No git mutation ran at all (no checkout, no merge, no stash).
+      const mergeOrCheckout = gitCalls.filter((c) => c.args[0] === 'merge' || c.args[0] === 'checkout')
+      expect(mergeOrCheckout).to.have.length(0)
+      expect(spawnedMergers, 'no merger spawned on dirty index').to.have.length(0)
     })
   })
 

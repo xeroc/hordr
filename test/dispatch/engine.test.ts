@@ -2,7 +2,7 @@
 import Database from 'better-sqlite3'
 import {expect} from 'chai'
 import {execFileSync} from 'node:child_process'
-import {mkdirSync} from 'node:fs'
+import {mkdirSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
@@ -580,6 +580,28 @@ describe('dispatch/engine', () => {
 
       const mergeCall = gitCalls.find((c) => c.args[0] === 'merge' && c.args.includes('--ff-only'))
       expect(mergeCall, 'no merge should fire when nothing is ready upstream').to.equal(undefined)
+    })
+
+    it('skips the refresh merge when the lane worktree has uncommitted changes (clean-index guard)', () => {
+      // The lane worktree must be a real git repo with an uncommitted file so
+      // the engine's clean check (git status --porcelain) reports it dirty.
+      // A dirty worktree must NOT be merged into — the merge would clobber
+      // uncommitted work or spawn a merger on top of it.
+      execFileSync('git', ['init', '-q', laneWt])
+      execFileSync('git', ['-C', laneWt, 'config', 'user.email', 't@t'])
+      execFileSync('git', ['-C', laneWt, 'config', 'user.name', 't'])
+      writeFileSync(join(laneWt, 'dirty.txt'), 'uncommitted')
+      const {mergedCalls} = wireShell({readyInMs: true})
+
+      const engine = createFleetEngine(config)
+      engine.scanFleet(db)
+
+      // No ff-merge fired (clean guard refused), no merger spawned.
+      expect(mergedCalls, 'dirty lane must not be merged into').to.equal(0)
+      const mergeCall = gitCalls.find((c) => c.args[0] === 'merge')
+      expect(mergeCall, 'no merge call at all on a dirty lane worktree').to.equal(undefined)
+      const lane = listLanes(db, 'pk1', 'ms1').find((l) => l.epicBeanId === 'epic-a')!
+      expect(lane.status, 'lane stays active (not merging) — retry next pass').to.equal('active')
     })
   })
 

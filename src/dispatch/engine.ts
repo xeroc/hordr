@@ -104,8 +104,11 @@ function commitBeans(worktreePath: string): void {
  * from {@link worktreeIsClean}. On git failure (broken worktree) returns true
  * — the merge step surfaces real breakage, and false positives here would
  * stall a healthy lane forever.
+ *
+ * Exported so `hordr fleet finish` can reuse the same clean-index verdict for
+ * its ms→primary merge guard (one clean-check policy, no second copy).
  */
-function worktreeClean(worktreePath: string): boolean {
+export function worktreeClean(worktreePath: string): boolean {
   const beansDir = resolveBeansDir(worktreePath)
   let porcelain = ''
   try {
@@ -241,33 +244,42 @@ function maybeCompleteMilestone(fleet: FleetRow): void {
  * returns non-empty — i.e. there IS upstream-ready work. No merge ever
  * fires just because the lane happens to be idle.
  *
+ * The merge itself goes through the shared {@link attemptMerge} (the single
+ * 3-tier strategy), so it inherits the clean-index guard and conflict
+ * contract — no second merge implementation here.
+ *
  * Returns:
- *   'refreshed'   — ff-merge succeeded; caller must re-read dispatchable
- *   'still-empty' — ff-merge succeeded but the lane sees no work (rare; role/schema mismatch)
+ *   'refreshed'   — merge succeeded; caller must re-read dispatchable
+ *   'still-empty' — merge succeeded but the lane sees no work (rare; role/schema mismatch)
  *   'diverged'    — ff-only refused (lane has diverged from ms); needs human
+ *   'conflict'    — merge left conflicts in-progress; caller spawns merger
+ *   'aborted'     — dirty worktree or checkout failure; merge skipped, retry next pass
  *   'no-work'     — nothing ready upstream either; lane is genuinely idle
  */
 function refreshLaneIfStale(
   fleet: FleetRow,
   lane: LaneRow,
-): 'conflict' | 'diverged' | 'no-work' | 'refreshed' | 'still-empty' {
+): 'aborted' | 'conflict' | 'diverged' | 'no-work' | 'refreshed' | 'still-empty' {
   const msReady = getDispatchable(lane.epicBeanId, {cwd: fleet.worktreePath})
   if (msReady.length === 0) return 'no-work'
 
   logger.info(`lane ${lane.epicBeanId}: ${msReady.length} task(s) ready in ms but not here → merging ${fleet.branch}`)
-  // Tier 1: fast-forward only.
-  try {
-    getGitRunner()(['merge', '--ff-only', fleet.branch], {cwd: lane.worktreePath})
-  } catch {
-    // Tier 2: merge commit (--no-ff).
-    try {
-      getGitRunner()(['merge', '--no-ff', fleet.branch], {cwd: lane.worktreePath})
-      logger.info(`lane ${lane.epicBeanId}: ms→lane merge commit created (--no-ff)`)
-    } catch {
-      // Tier 3: conflict — leave in-progress for the merger agent.
-      // The caller spawns the agent.
-      return 'conflict'
-    }
+
+  // The lane worktree is already on lane.branch, so attemptMerge's checkout
+  // is a no-op + restoreWorktree checks back to lane.branch. The clean-index
+  // guard refuses a dirty lane (never clobbers uncommitted work).
+  const outcome = attemptMerge(
+    {cwd: lane.worktreePath, source: fleet.branch, target: lane.branch},
+    {git: getGitRunner(), isClean: worktreeClean},
+  )
+
+  if (outcome.status === 'aborted') {
+    logger.warn(`lane ${lane.epicBeanId}: refresh merge aborted — ${outcome.message}`)
+    return 'aborted'
+  }
+
+  if (outcome.status === 'conflict') {
+    return 'conflict'
   }
 
   commitBeans(lane.worktreePath)
@@ -359,7 +371,11 @@ function finishLaneTeardown(db: Database.Database, fleet: FleetRow, lane: LaneRo
   }
 
   // Toast: this lane's worktree (epic) just merged up into the milestone.
-  notify({body: `epic merged into ${fleet.milestoneBeanId} (${fleet.branch})`, sound: 'done', title: `${lane.epicBeanId} merged`})
+  notify({
+    body: `epic merged into ${fleet.milestoneBeanId} (${fleet.branch})`,
+    sound: 'done',
+    title: `${lane.epicBeanId} merged`,
+  })
 
   setLaneCurrentTask(db, loc, null)
   updateLaneStatus(db, loc, 'done')
@@ -383,7 +399,7 @@ function mergeEpicLane(
 
   const outcome = attemptMerge(
     {cwd: fleet.worktreePath, source: lane.branch, target: fleet.branch},
-    {git: getGitRunner()},
+    {git: getGitRunner(), isClean: worktreeClean},
   )
 
   if (outcome.status === 'conflict') {
@@ -454,6 +470,12 @@ export function createFleetEngine(config: HordrConfig, opts?: {maxLanes?: number
         // itself — only merge when there IS upstream-ready work.
         const refreshed = refreshLaneIfStale(fleet, lane)
         if (refreshed === 'no-work') {
+          return {action: 'idle'}
+        }
+
+        if (refreshed === 'aborted') {
+          // Dirty worktree or checkout failure — merge skipped. Leave the lane
+          // active so the next pass retries once the worktree is clean.
           return {action: 'idle'}
         }
 
