@@ -98,6 +98,16 @@ export default class Tui extends Command {
       }
 
       default: {
+        // Restore terminal on ANY exit path (q, Ctrl+C, crash) — OpenTUI leaves
+        // raw mode + alternate screen on if process.exit bypasses its cleanup.
+        process.on('exit', () => {
+          process.stdout.write('\u001B[?1049l\u001B[?25h')
+          try {
+            if (process.stdin.isTTY) process.stdin.setRawMode(false)
+          } catch {
+            // stdin may already be destroyed during exit
+          }
+        })
         // Dynamic import: boot.ts pulls in @opentui/core's native Zig renderer.
         // Importing it statically would crash `hordr --help`, oclif manifest
         // generation, and the mocha suite. Only load it once the runtime guard
