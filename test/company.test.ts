@@ -257,6 +257,7 @@ Body without path.
         reviewer: {harness: 'opencode', persona: 'ORIGINAL-REVIEWER-PERSONA'},
         tester: {harness: 'opencode', persona: 'ORIGINAL-TESTER-PERSONA'},
       },
+      default_harness: 'opencode',
       primary_branch: 'develop',
     }
 

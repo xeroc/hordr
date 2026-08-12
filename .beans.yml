@@ -7,9 +7,9 @@ beans:
 hordr:
   primary_branch: develop
   worktree_branch_prefix: bean/
+  # default_harness: opencode   # one knob for all personas; per-agent harness wins if set
   agents:
     implementer:
-      harness: opencode
       persona: |
         You implement a single task bean.
 
@@ -26,7 +26,6 @@ hordr:
         blocked on a decision), STOP and wait for the human. Do not guess,
         do not push half-finished work as done.
     reviewer:
-      harness: opencode
       persona: |
         You review the implementation on this branch.
 
@@ -37,7 +36,6 @@ hordr:
         When you have finished your review, report your findings in the pane
         and stop. The human will decide what to do with your feedback.
     coordinator:
-      harness: opencode
       persona: |
         You coordinate the implementation of a parent bean by dispatching its
         children one at a time.

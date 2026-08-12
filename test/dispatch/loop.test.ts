@@ -12,6 +12,7 @@ const config: HordrConfig = {
     implementer: {harness: 'opencode', persona: 'You implement tasks.'},
     tester: {harness: 'claude', persona: 'You test implementations.'},
   },
+  default_harness: 'opencode',
   primary_branch: 'develop',
 }
 

@@ -30,6 +30,7 @@ beans:
 
 const EMPTY_HARNESS_YAML = `
 hordr:
+  default_harness: claude
   agents:
     impl:
       harness: ""
@@ -113,8 +114,11 @@ describe('config/schema', () => {
     }
   })
 
-  it('produces a zod error naming the harness field when empty', () => {
-    expect(() => loadConfig(write(EMPTY_HARNESS_YAML))).to.throw(ConfigError, /harness/)
+  it('treats an empty harness as "inherit default_harness" (one-knob customization)', () => {
+    // New semantics: harness: "" (or omitted) → filled from default_harness.
+    // This is the feature, not a malformed config.
+    const cfg = loadConfig(write(EMPTY_HARNESS_YAML))
+    expect(cfg.agents.impl!.harness).to.equal('claude')
   })
 
   it('errors when an agent has no persona (runtime validation)', () => {
@@ -157,6 +161,47 @@ describe('config/schema', () => {
     const cfg = loadConfig(write(MISSING_BLOCK_YAML))
     expect(cfg.agents).to.have.property('custom-role')
     expect(cfg.agents['custom-role']!.harness).to.equal('opencode')
+  })
+
+  const DEFAULT_HARNESS_YAML = `
+hordr:
+  default_harness: claude
+  agents:
+    implementer:
+      persona: |
+        custom persona, no harness stated
+`
+
+  it('default_harness fills any agent that omits harness (one knob flips all)', () => {
+    const cfg = loadConfig(write(DEFAULT_HARNESS_YAML))
+    expect(cfg.default_harness).to.equal('claude')
+    // user agent without explicit harness → filled from default_harness
+    expect(cfg.agents.implementer!.harness).to.equal('claude')
+    expect(cfg.agents.implementer!.persona).to.contain('custom persona')
+    // built-in defaults (tester/reviewer/merger) also inherit default_harness
+    expect(cfg.agents.tester!.harness).to.equal('claude')
+    expect(cfg.agents.reviewer!.harness).to.equal('claude')
+    expect(cfg.agents.merger!.harness).to.equal('claude')
+  })
+
+  it('explicit agent harness wins over default_harness', () => {
+    const yaml = `
+hordr:
+  default_harness: claude
+  agents:
+    implementer:
+      harness: codex
+      persona: x
+`
+    const cfg = loadConfig(write(yaml))
+    expect(cfg.agents.implementer!.harness).to.equal('codex')
+    // untouched default role still falls back to default_harness
+    expect(cfg.agents.reviewer!.harness).to.equal('claude')
+  })
+
+  it('default_harness defaults to opencode when omitted', () => {
+    const cfg = loadConfig(write(MISSING_BLOCK_YAML))
+    expect(cfg.default_harness).to.equal('opencode')
   })
 
   it('HORDR_COMPANY_PATH overrides config company.path', () => {

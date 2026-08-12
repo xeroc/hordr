@@ -51,10 +51,14 @@ export function shellQuote(s: string): string {
  * Build the shell command to start a harness with a prompt.
  * - omp: bare invocation with @AGENTS.md (omp doesn't auto-load it).
  * - others (opencode, claude, …): run --interactive (opencode auto-loads AGENTS.md).
+ *
+ * A leading space prefixes every command so shells with HISTCONTROL=ignorespace
+ * (bash) or setopt HIST_IGNORE_SPACE (zsh) skip it from history. Execution is
+ * unaffected — the shell trims leading whitespace before running.
  */
 export function buildHarnessCommand(harness: string, prompt: string): string {
-  if (harness === 'omp') return `${harness} @AGENTS.md ${shellQuote(prompt)}`
-  return `${harness} run --interactive ${shellQuote(prompt)}`
+  if (harness === 'omp') return ` omp @AGENTS.md ${shellQuote(prompt)}`
+  return ` ${harness} run --interactive ${shellQuote(prompt)}`
 }
 
 export function resolveHarness(role: string, config: HordrConfig): string {

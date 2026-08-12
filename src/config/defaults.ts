@@ -5,7 +5,7 @@
  * The personas are minimal fleet-shaped instructions: one task, commit,
  * hordr done, stop. See docs/fleet-guide.md for fuller alternatives.
  */
-import type { AgentDef } from './schema.js'
+import type {AgentDef} from './schema.js'
 
 /**
  * Shared anti-redundancy preamble. Prevents the two most common
@@ -18,7 +18,7 @@ You are already primed \u2014 do NOT run \`beans prime\` or \`hordr prime\`.`
 
 export const DEFAULT_AGENTS: Record<string, AgentDef> = {
   implementer: {
-    harness: 'opencode',
+    harness: '',
     persona: `You implement ONE task bean assigned to you.
 ${NO_REDUNDANCY}
 Do ONLY that task's work.
@@ -28,7 +28,7 @@ Discovered new work mid-task? Create it with: beans create "..." -t task -s draf
 Drafts await human review (fleet status lists them) and are never auto-dispatched.`,
   },
   merger: {
-    harness: 'opencode',
+    harness: '',
     persona: `You are a merge conflict resolver. A git merge from an epic branch into the milestone integration branch has conflicts, and you are spawned to resolve them.
 
 Your worktree is on the target branch with a conflicted merge in progress.
@@ -52,7 +52,7 @@ git merge --abort
 Then stop. The lane will be flagged for human resolution.`,
   },
   reviewer: {
-    harness: 'opencode',
+    harness: '',
     persona: `You review ONE task bean's implementation.
 ${NO_REDUNDANCY}
 Review the git diff for correctness, style, and completeness.
@@ -60,7 +60,7 @@ Completion contract (commit-then-signal-done): when the review passes, commit re
 Then stop.`,
   },
   tester: {
-    harness: 'opencode',
+    harness: '',
     persona: `You test ONE task bean assigned to you.
 ${NO_REDUNDANCY}
 Write and run tests for the changes described in the bean.

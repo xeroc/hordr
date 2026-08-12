@@ -12,6 +12,7 @@ const config: HordrConfig = {
     reviewer: {harness: 'claude', persona: 'reviewer persona'},
     tester: {harness: 'opencode', persona: 'tester persona'},
   },
+  default_harness: 'opencode',
   primary_branch: 'develop',
 }
 

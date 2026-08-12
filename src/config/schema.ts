@@ -2,7 +2,9 @@
 import {z} from 'zod'
 
 export const AgentDefSchema = z.object({
-  harness: z.string().min(1),
+  // harness may be omitted per-agent; loadConfig fills it from default_harness.
+  // An empty string also means "inherit default_harness".
+  harness: z.string().default(''),
   // Optional in schema — validated at runtime in loadConfig. When a company
   // context is active, persona comes from AGENTS.md body.
   persona: z.string().optional(),
@@ -18,6 +20,10 @@ export const CompanyRefSchema = z.object({
 export const HordrConfigSchema = z.object({
   agents: z.record(z.string(), AgentDefSchema).default({}),
   company: CompanyRefSchema.nullable().optional(),
+  // Harness used for any agent that doesn't set its own `harness`. Flip this
+  // one line to repoint every persona (defaults + user agents) at a different
+  // binary (claude, codex, opencode, …). An explicit agent.harness always wins.
+  default_harness: z.string().min(1).default('opencode'),
   primary_branch: z.string().min(1).default('develop'),
 })
 

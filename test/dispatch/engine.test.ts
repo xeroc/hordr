@@ -30,6 +30,7 @@ import {addLane, ensureProject, getFleet, listLanes, registerFleet} from '../../
 
 const config: HordrConfig = {
   agents: {implementer: {harness: 'opencode', persona: 'impl'}},
+  default_harness: 'opencode',
   primary_branch: 'develop',
 }
 

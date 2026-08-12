@@ -31,6 +31,7 @@ const makeConfig = (agents: Record<string, unknown> = {}) =>
       ...agents,
     },
     concurrency: 3,
+    default_harness: 'opencode',
     primary_branch: 'develop',
     routing: {default_workflow: 'implement'},
     workflows: {},
@@ -158,17 +159,25 @@ describe('harness/launcher', () => {
   describe('buildHarnessCommand', () => {
     it('opencode: run --interactive with shell-quoted prompt', () => {
       const cmd = buildHarnessCommand('opencode', 'do the thing')
-      expect(cmd).to.equal("opencode run --interactive 'do the thing'")
+      expect(cmd).to.equal(" opencode run --interactive 'do the thing'")
     })
 
     it('omp: includes @AGENTS.md (omp does not auto-load it)', () => {
       const cmd = buildHarnessCommand('omp', 'do the thing')
-      expect(cmd).to.equal("omp @AGENTS.md 'do the thing'")
+      expect(cmd).to.equal(" omp @AGENTS.md 'do the thing'")
     })
 
     it('unknown harness defaults to run --interactive (backward compat)', () => {
       const cmd = buildHarnessCommand('claude', 'review it')
-      expect(cmd).to.equal("claude run --interactive 'review it'")
+      expect(cmd).to.equal(" claude run --interactive 'review it'")
+    })
+
+    it('prefixes every command with a leading space (history-ignore)', () => {
+      // Shells with HISTCONTROL=ignorespace / setopt HIST_IGNORE_SPACE skip
+      // commands that start with a space. Execution is unaffected.
+      expect(buildHarnessCommand('opencode', 'x')).to.match(/^ /)
+      expect(buildHarnessCommand('omp', 'x')).to.match(/^ /)
+      expect(buildHarnessCommand('claude', 'x')).to.match(/^ /)
     })
   })
 

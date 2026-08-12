@@ -65,9 +65,17 @@ export function loadConfig(pathArg?: string): HordrConfig {
   // Agent Companies: populate agents from AGENTS.md bodies + inline skills.
   const result = companyCtx ? applyAgentOverrides(parsed.data, companyCtx) : parsed.data
 
-  // Merge default agents (user-configured agents take precedence).
+  // Merge default agents (user-configured agents take precedence). Clone so
+  // the fill below (and any later mutation) never writes back into the
+  // shared module-level DEFAULT_AGENTS across loadConfig calls.
   for (const [role, def] of Object.entries(DEFAULT_AGENTS)) {
-    if (!(role in result.agents)) result.agents[role] = def
+    if (!(role in result.agents)) result.agents[role] = {...def}
+  }
+
+  // Fill any agent with no explicit harness from default_harness (one knob
+  // flips every persona — defaults + user agents that omit harness).
+  for (const agent of Object.values(result.agents)) {
+    if (!agent.harness) agent.harness = result.default_harness
   }
 
   // Runtime validation: every agent needs a persona by now (from .beans.yml or AGENTS.md).

@@ -28,6 +28,7 @@ function mockBean(id: string, assigned?: string): BeanRecord {
 function mockConfig(roles: Record<string, {harness: string; persona?: string}>): HordrConfig {
   return {
     agents: roles,
+    default_harness: 'opencode',
     primary_branch: 'develop',
   }
 }
