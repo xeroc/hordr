@@ -3,7 +3,7 @@ import path from 'node:path'
 import {parse} from 'yaml'
 
 import {applyAgentOverrides, getCompanyContext} from '../company.js'
-import {DEFAULT_AGENTS} from './defaults.js'
+import {defaultAgents} from './defaults.js'
 import {type HordrConfig, HordrConfigSchema} from './schema.js'
 
 export class ConfigError extends Error {
@@ -68,7 +68,7 @@ export function loadConfig(pathArg?: string): HordrConfig {
   // Merge default agents (user-configured agents take precedence). Clone so
   // the fill below (and any later mutation) never writes back into the
   // shared module-level DEFAULT_AGENTS across loadConfig calls.
-  for (const [role, def] of Object.entries(DEFAULT_AGENTS)) {
+  for (const [role, def] of Object.entries(defaultAgents(result.default_vcs))) {
     if (!(role in result.agents)) result.agents[role] = {...def}
   }
 

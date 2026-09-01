@@ -19,21 +19,35 @@ export interface MergeContext {
   sourceBranch: string
   targetBranch: string
 }
-
-/** Build the prompt for the merger agent. Pure function. */
-export function buildMergerPrompt(persona: string, ctx: MergeContext): string {
+/** Build the prompt for the merger agent. Pure function; vcs-specific steps. */
+export function buildMergerPrompt(persona: string, ctx: MergeContext & {vcs?: 'git' | 'jj'}): string {
+  const vcs = ctx.vcs ?? 'git'
   const fileList =
     ctx.conflictedFiles.length > 0
       ? ctx.conflictedFiles.map((f) => `- \`${f}\``).join('\n')
-      : '- (no files reported — run `git diff --name-only --diff-filter=U` to list them)'
+      : vcs === 'jj'
+        ? '- (no files reported — run `jj --no-pager resolve --list` to list them)'
+        : '- (no files reported — run `git diff --name-only --diff-filter=U` to list them)'
 
-  return `${persona}
+  const steps =
+    vcs === 'jj'
+      ? `You are in a jj workspace. The working-copy change (@) is a conflicted merge of \`${ctx.sourceBranch}\` into \`${ctx.targetBranch}\` — conflicts are materialized as markers in:
 
----
+${fileList}
 
-# Merge Conflict Resolution
+Resolve all conflicts (edit the files, remove markers, keep both sides' intent), verify (lint/typecheck/tests), then:
+\`\`\`
+jj --no-pager describe -m "merge: resolve ${ctx.sourceBranch} into ${ctx.targetBranch}"
+\`\`\`
+Do NOT run \`jj new\` — the engine parks the next head itself.
 
-You are in a git worktree on branch \`${ctx.targetBranch}\`.
+If a conflict is genuinely unresolvable (semantic incompatibility):
+\`\`\`
+jj abandon @
+\`\`\`
+
+Do not switch changes. Do not push. Describe or abandon, then stop.`
+      : `You are in a git worktree on branch \`${ctx.targetBranch}\`.
 A \`git merge --no-ff ${ctx.sourceBranch}\` was attempted and produced conflicts in:
 
 ${fileList}
@@ -50,6 +64,14 @@ git merge --abort
 \`\`\`
 
 Do not switch branches. Do not push. Commit or abort, then stop.`
+
+  return `${persona}
+
+---
+
+# Merge Conflict Resolution
+
+${steps}`
 }
 
 /**
@@ -61,10 +83,9 @@ export function spawnMerger(opts: {config: HordrConfig; ctx: MergeContext; cwd: 
   if (!agent) throw new Error(`no agent configured for role 'merger'`)
   if (!agent.persona) throw new Error(`role 'merger' has no persona`)
 
-  const prompt = buildMergerPrompt(agent.persona, opts.ctx)
-  // git: the merger works in a herdr-managed worktree — reopen it by path.
-  // jj: the working copy is a jj workspace herdr doesn't track — adopt it.
   const vcs = getVcsOrMock(opts.config)
+  const prompt = buildMergerPrompt(agent.persona, {...opts.ctx, vcs: vcs.kind})
+  // jj: the working copy is a jj workspace herdr doesn't track — adopt it.
   const workspaceId =
     vcs.kind === 'jj'
       ? createHerdrWorkspace({cwd: opts.cwd, label: 'hordr:merger'}).workspaceId
