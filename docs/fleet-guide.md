@@ -161,3 +161,39 @@ These responsibilities moved from the agent persona to the fleet-check loop
 The agent is a worker, not a planner. One task, one commit, one `hordr done`.
 The check loop is driven by `hordr fleet check` (run manually or via cron) —
 there is no long-running daemon (ADR-0015).
+
+---
+
+## Jujutsu mode (`default_vcs: jj`)
+
+Setting `hordr.default_vcs: jj` in `.beans.yml` switches the repo from the default git adapter (herdr worktrees, branch-per-lane, 3-tier merges) to jujutsu: colocated workspaces + bookmarks. One knob per repo — there is no per-agent override, because the VCS is a property of the repo. The adapter contract lives in [`src/vcs/types.ts`](../src/vcs/types.ts): the engine, lifecycle, and commands speak only the `Vcs` interface operations, never raw git/jj argv, and each adapter keeps its mechanics internal.
+
+**Requirements:** the repo must be colocated (`jj git init --colocate` in the existing clone) and `jj` must be on PATH. `hordr run`, `hordr fleet create`, and `hordr fleet finish` fail fast otherwise.
+
+### Lane model mapping
+
+| git mode (default)                                          | jj mode (`default_vcs: jj`)                                          |
+| ----------------------------------------------------------- | ---------------------------------------------------------------------- |
+| Lane = herdr worktree, branch-per-lane                      | Lane = jj workspace named after the bean id, created as a sibling directory of the main repo; lane head = the `<epic-id>@` revset |
+| Milestone integration branch `ms/<id>`                      | The ms workspace head                                                  |
+| Integration branches read by humans/CI                      | Bookmarks on primary plus a mirror bookmark on the ms line; colocation mirrors both to git branches, so humans and CI can keep reading git |
+| Epic merge: 3-tier (ff-only → no-ff → in-progress conflict for the merger agent) | Epic merge: `jj new @ <lane>@` — a merge commit; conflicts are first-class conflicted head commits, so the merger agent edits marker-conflicted files in a stable tree; there is no in-progress merge state |
+| Cross-epic refresh (ff-merge of the integration line into the lane) | Cross-epic refresh merges `ms@` into the lane workspace head         |
+| `fleet finish`: 3-tier merge ms → primary                   | Finishing a fleet merges the ms head into primary and moves the primary bookmark |
+
+Nothing is ever pushed. Project identity (the clone-scoped storage key) works from inside jj workspaces — they have no `.git` — via a `jj git root` fallback.
+
+### Agent commit contract
+
+Agents working in a jj workspace commit with `jj describe -m "…"` followed by `jj new` — no staging, no `git add`, and never git commands inside a jj workspace. jj auto-snapshots the working copy, so every command records in-flight edits.
+
+### Crash recovery
+
+Because jj auto-snapshots the working copy, a crashed agent's work is already recorded and recoverable — inspect `jj op log` and `jj evolog` in the lane's workspace directory.
+
+### Trade-offs
+
+- jj does not run git pre-commit hooks (e.g. gitmojify) — agents must run hooks and checks explicitly.
+- jj is pre-1.0 — expect flag churn across upgrades.
+- Contributors without jj cannot work jj-mode lanes.
+- The git side must stay read-only in jj mode, or colocation desyncs.

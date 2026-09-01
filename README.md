@@ -288,6 +288,7 @@ beans:
 | Default              | Value      | Description                                   |
 | -------------------- | ---------- | --------------------------------------------- |
 | `primary_branch`     | `develop`  | Base ref for worktrees and merges             |
+| `default_vcs`        | `git`      | VCS adapter: `git` worktrees or `jj` colocated workspaces   |
 | `agents.implementer` | `opencode` | Fleet-shaped persona (one task, commit, done) |
 | `agents.tester`      | `opencode` | Fleet-shaped persona                          |
 | `agents.reviewer`    | `opencode` | Fleet-shaped persona                          |
@@ -342,9 +343,26 @@ hordr:
 | Field                   | Type    | Default         | Description                                                        |
 | ----------------------- | ------- | --------------- | ------------------------------------------------------------------ |
 | `primary_branch`        | string  | `develop`       | Base ref for worktrees and fleet integration branches              |
+| `default_vcs`           | string  | `git`           | VCS adapter: `git` (worktrees) or `jj` (colocated workspaces)      |
 | `company.path`          | string? | —               | Agent Companies package root (or set `HORDR_COMPANY_PATH` env var) |
 | `agents.<role>.harness` | string  | `opencode`      | Harness binary on PATH                                             |
 | `agents.<role>.persona` | string  | (fleet default) | Opening prompt for the role                                        |
+
+### Using jj
+
+`default_vcs` is one knob per repo, like `primary_branch` — there is no per-agent override, because the VCS is a property of the repo:
+
+```yaml
+hordr:
+  primary_branch: develop
+  default_vcs: git # or: jj
+```
+
+`git` (the default) is the historical behavior: herdr worktrees, branch-per-lane, 3-tier merges. `jj` switches the repo to jujutsu: each lane/epic becomes a jj workspace (a sibling directory of the main repo) with its head at the `<epic-id>@` revset, the milestone integration line is the ms workspace head, and epic merges are merge commits (`jj new @ <lane>@`) with conflicts as first-class conflicted head commits — no in-progress merge state. Bookmarks exist on primary and as a mirror on the ms line; colocation mirrors both to git branches, so humans and CI can keep reading git. Nothing is ever pushed.
+
+jj mode requires a colocated repo (`jj git init --colocate` in the existing clone) and `jj` on PATH — otherwise `hordr run`, `hordr fleet create`, and `hordr fleet finish` fail fast.
+
+Trade-offs: jj does not run git pre-commit hooks (e.g. gitmojify), so agents must run hooks and checks explicitly; jj is pre-1.0 (expect flag churn); contributors without jj cannot work jj-mode lanes; and the git side must stay read-only in jj mode or colocation desyncs. Agents in jj workspaces commit via `jj describe -m "…"` + `jj new` (no staging, no `git add`); jj auto-snapshots the working copy, so crashed agents' work is recoverable (`jj op log`, `jj evolog`). See [Jujutsu mode](docs/fleet-guide.md#jujutsu-mode-default_vcs-jj) in the fleet guide for the full lane model.
 
 ### The `assigned:` bean frontmatter convention
 
