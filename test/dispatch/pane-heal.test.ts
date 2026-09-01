@@ -22,10 +22,10 @@ describe('dispatch/pane-heal — ensureLanePane', () => {
       createTab() {
         throw new Error('createTab must not be called when the pane is alive')
       },
-      openWorktree() {
-        throw new Error('openWorktree must not be called when the pane is alive')
-      },
       paneExists: (id) => id === 'w84:p2',
+      reattach() {
+        throw new Error('reattach must not be called when the pane is alive')
+      },
     }
 
     const result = ensureLanePane(lane, MAIN_REPO, deps)
@@ -44,10 +44,10 @@ describe('dispatch/pane-heal — ensureLanePane', () => {
         expect(opts.cwd).to.equal('/wt/tributary-s16v')
         return created
       },
-      openWorktree() {
-        throw new Error('openWorktree must not be called when only the pane is dead')
-      },
       paneExists: () => false,
+      reattach() {
+        throw new Error('reattach must not be called when only the pane is dead')
+      },
     }
 
     const result = ensureLanePane(lane, MAIN_REPO, deps)
@@ -64,18 +64,18 @@ describe('dispatch/pane-heal — ensureLanePane', () => {
       workspace_id: 'w99',
     }
     const created: PaneInfo = {pane_id: 'w99:p1', tab_id: 'w99:t1', workspace_id: 'w99'}
-    let openOpts: undefined | {branch?: string; cwd?: string}
+    let reattachArgs: [unknown, string] | undefined
     const deps: PaneHealDeps = {
       createTab(opts) {
         // After heal, the tab must land in the NEW workspace, not the stale one.
         expect(opts.workspaceId, 'post-heal createTab must use the reopened workspace').to.equal('w99')
         return created
       },
-      openWorktree(opts) {
-        openOpts = opts
-        return reopened
-      },
       paneExists: () => false,
+      reattach(l, mainRepoCwd) {
+        reattachArgs = [l, mainRepoCwd]
+        return {workspaceId: reopened.workspace_id}
+      },
     }
     // createTab first throws the exact shape herdr produces for a dead workspace.
     const originalCreateTab = deps.createTab
@@ -95,10 +95,10 @@ describe('dispatch/pane-heal — ensureLanePane', () => {
     const result = ensureLanePane(lane, MAIN_REPO, deps)
 
     expect(createTabCalls, 'createTab must be called twice (stale then healed)').to.equal(2)
-    expect(openOpts, 'openWorktree must reattach by branch from the main repo').to.deep.equal({
-      branch: 'tributary-s16v',
-      cwd: MAIN_REPO,
-    })
+    expect(reattachArgs, 'reattach must receive the lane + main repo cwd').to.deep.equal([
+      {branch: 'tributary-s16v', epicBeanId: 'tributary-s16v', paneId: 'w84:p2', workspaceId: 'w84', worktreePath: '/wt/tributary-s16v'},
+      MAIN_REPO,
+    ])
     expect(result.healed).to.equal(true)
     expect(result.paneId).to.equal('w99:p1')
     expect(result.workspaceId, 'must surface the new workspace id to persist').to.equal('w99')
@@ -109,10 +109,10 @@ describe('dispatch/pane-heal — ensureLanePane', () => {
       createTab() {
         throw new Error('herdr tab create failed: {"error":{"code":"label_invalid"}}')
       },
-      openWorktree() {
-        throw new Error('openWorktree must not be called for unrelated failures')
-      },
       paneExists: () => false,
+      reattach() {
+        throw new Error('reattach must not be called for unrelated failures')
+      },
     }
 
     expect(() => ensureLanePane(lane, MAIN_REPO, deps)).to.throw(/label_invalid/)
@@ -125,10 +125,10 @@ describe('dispatch/pane-heal — ensureLanePane', () => {
         expect(opts.workspaceId).to.equal('')
         return created
       },
-      openWorktree() {
-        throw new Error('openWorktree must not be called when createTab succeeds')
-      },
       paneExists: () => false,
+      reattach() {
+        throw new Error('reattach must not be called when createTab succeeds')
+      },
     }
 
     const result = ensureLanePane({...lane, paneId: null, workspaceId: null}, MAIN_REPO, deps)

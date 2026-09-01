@@ -1,6 +1,5 @@
 /* eslint-disable camelcase -- task_id mirrors the JSON contract the agent parses */
 import {Args, Command} from '@oclif/core'
-import {execFileSync} from 'node:child_process'
 
 import {getBean} from '../beans/client.js'
 import {loadConfig} from '../config/loader.js'
@@ -8,6 +7,7 @@ import {type DaemonResponse, handleDone, runDoneChecks} from '../dispatch/done.j
 import {createFleetEngine} from '../dispatch/engine.js'
 import {openFleetDb} from '../storage/db.js'
 import {findLaneByTask} from '../storage/fleets.js'
+import {getVcsOrMock} from '../vcs/resolve.js'
 
 /**
  * hordr done <task-id>
@@ -30,6 +30,7 @@ export default class Done extends Command {
     const taskId = args.task
 
     const config = loadConfig()
+    const vcs = getVcsOrMock(config)
     const db = openFleetDb()
     const engine = createFleetEngine(config)
 
@@ -40,7 +41,7 @@ export default class Done extends Command {
         verify: (id) =>
           runDoneChecks(id, {
             beanStatus: (bid, cwd) => String(getBean(bid, {cwd}).status ?? ''),
-            dirtyPaths: (cwd) => gitStatusPorcelain(cwd),
+            dirtyPaths: (cwd) => vcs.dirtyPaths(cwd),
             worktreePath: (bid) => findLaneByTask(db, bid)?.worktreePath,
           }),
       },
@@ -57,23 +58,4 @@ export default class Done extends Command {
 /** Pure response→stdout/exit mapping. Agent always gets structured JSON; exit code signals success. */
 export function mapDoneResponse(response: DaemonResponse): {exitCode: number; stdout: string} {
   return {exitCode: response.status === 200 ? 0 : 2, stdout: JSON.stringify(response.body)}
-}
-
-/**
- * Non-empty `git status --porcelain` lines in a worktree (empty = clean). On
- * git failure (broken/missing worktree) returns a sentinel so verify fails loud
- * instead of silently acking a broken state — mirrors dirtyNonBeansPaths.
- */
-function gitStatusPorcelain(cwd: string): string[] {
-  let raw = ''
-  try {
-    raw = execFileSync('git', ['-C', cwd, 'status', '--porcelain'], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    })
-  } catch {
-    return ['<git status failed>']
-  }
-
-  return raw.split('\n').filter((l) => l.trim().length > 0)
 }

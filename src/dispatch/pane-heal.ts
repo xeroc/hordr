@@ -13,12 +13,17 @@
  * Pure function: all I/O is injected. Callers persist the returned ids.
  */
 import type {CreateTabOpts, PaneInfo} from '../herdr/pane.js'
-import type {WorktreeInfo, WorktreeOpenOpts} from '../herdr/worktree.js'
 
 export interface PaneHealDeps {
   createTab: (opts: CreateTabOpts) => PaneInfo
-  openWorktree: (opts: WorktreeOpenOpts) => WorktreeInfo
   paneExists: (paneId: string) => boolean
+  /**
+   * Reattach a lane's working copy to a FRESH herdr workspace (the stored one
+   * died). git: `herdr worktree open` (reuses the on-disk worktree + branch).
+   * jj: `herdr workspace create --cwd <path>` (jj workspaces aren't herdr
+   * worktrees — adopt the directory directly).
+   */
+  reattach: (lane: PaneHealLane, mainRepoCwd: string) => {workspaceId: string}
 }
 
 export interface PaneHealLane {
@@ -64,9 +69,9 @@ export function ensureLanePane(lane: PaneHealLane, mainRepoCwd: string, deps: Pa
     return {healed: false, paneId: pane.pane_id}
   } catch (error) {
     if (!WORKSPACE_NOT_FOUND.test((error as Error).message)) throw error
-    // Workspace died — reattach the existing worktree to a fresh workspace.
-    const wt = deps.openWorktree({branch: lane.branch, cwd: mainRepoCwd})
-    const pane = deps.createTab({cwd: lane.worktreePath, label, workspaceId: wt.workspace_id})
-    return {healed: true, paneId: pane.pane_id, workspaceId: wt.workspace_id}
+    // Workspace died — reattach the working copy to a fresh workspace.
+    const ws = deps.reattach(lane, mainRepoCwd)
+    const pane = deps.createTab({cwd: lane.worktreePath, label, workspaceId: ws.workspaceId})
+    return {healed: true, paneId: pane.pane_id, workspaceId: ws.workspaceId}
   }
 }

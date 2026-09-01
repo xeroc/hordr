@@ -19,27 +19,42 @@ export class ProjectError extends Error {
 
 /**
  * Resolve the project key from the given directory (defaults to cwd).
- * Shells out to `git rev-parse --git-common-dir` and returns the absolute path.
+ *
+ * git: `git rev-parse --git-common-dir` — stable across all worktrees of one
+ * clone. jj: a jj workspace has no `.git`, so the git probe fails there;
+ * fall back to `jj git root` (the colocated repo's shared .git path — the
+ * same value the main workspace yields via git). Returns the absolute path.
  */
 export function resolveProjectKey(opts?: {cwd?: string}): string {
-  let raw: string
+  const cwd = opts?.cwd ?? process.cwd()
+  let raw = ''
   try {
     raw = execFileSync('git', ['rev-parse', '--git-common-dir'], {
-      cwd: opts?.cwd,
+      cwd,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
     }).trim()
-  } catch (error) {
-    const e = error as {stderr?: {toString(): string}}
-    throw new ProjectError(
-      `not in a git repository${opts?.cwd ? `: ${opts.cwd}` : ''}: ${e.stderr?.toString().trim() ?? ''}`,
-    )
+  } catch {
+    // Not a plain-git cwd — maybe a jj workspace (no .git inside). The jj
+    // fallback only works in colocated repos, which hordr requires for jj.
+    try {
+      raw = execFileSync('jj', ['--no-pager', 'git', 'root'], {
+        cwd,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }).trim()
+    } catch (error) {
+      const e = error as {stderr?: {toString(): string}}
+      throw new ProjectError(
+        `not in a git or jj repository${opts?.cwd ? `: ${opts.cwd}` : ''}: ${e.stderr?.toString().trim() ?? ''}`,
+      )
+    }
   }
 
-  if (!raw) throw new ProjectError('git rev-parse --git-common-dir returned empty')
+  if (!raw) throw new ProjectError('project key probe returned empty')
 
   // git may return a relative path; resolve to absolute so it's stable as cwd.
-  return path.resolve(opts?.cwd ?? process.cwd(), raw)
+  return path.resolve(cwd, raw)
 }
 
 // --- test seam ---

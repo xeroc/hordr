@@ -169,7 +169,7 @@ describe('commands/fleet/finish', () => {
 
     expect(res.error, res.error?.message).to.be.undefined
     expect(res.stdout).to.match(new RegExp(`finished fleet ${MS}`))
-    expect(gitCalls.some((c) => c.args[0] === 'merge' && c.args.includes('hordr-ms1'))).to.be.true
+    expect(gitCalls.some((c) => c.args[0] === 'merge' && c.args.includes(`ms/${MS}`))).to.be.true
     // merge now stashes first — check by content not position
 
     const db = openFleetDb(dbFile)

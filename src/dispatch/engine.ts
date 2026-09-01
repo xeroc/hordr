@@ -19,7 +19,6 @@
  */
 import type Database from 'better-sqlite3'
 
-import {execFileSync} from 'node:child_process'
 import {existsSync} from 'node:fs'
 
 import type {HordrConfig} from '../config/schema.js'
@@ -29,9 +28,8 @@ import {getBean, markBeanCompleted, resetBeanToTodo} from '../beans/client.js'
 import {resolveBeansDir} from '../beans/dir.js'
 import {finishFleetTeardown} from '../fleet/lifecycle.js'
 import {agentActiveInPane, createTab, notify, paneExists} from '../herdr/pane.js'
-import {closeWorkspace, createWorktree, HerdrError, openWorktree, removeWorktreeByPath} from '../herdr/worktree.js'
+import {createHerdrWorkspace, openWorktree} from '../herdr/worktree.js'
 import {logger} from '../logger.js'
-import {getGitRunner} from '../runtime.js'
 import {
   addLane,
   countActiveLanes,
@@ -46,7 +44,8 @@ import {
   updateFleetStatus,
   updateLaneStatus,
 } from '../storage/fleets.js'
-import {commitBeanChanges} from './commit-beans.js'
+import {getVcsOrMock} from '../vcs/resolve.js'
+import {pathsOutside, type Vcs} from '../vcs/types.js'
 import {type ContinueDeps, continueLane, type ContinueResult} from './continue.js'
 import {
   fetchAncestorChain,
@@ -56,11 +55,10 @@ import {
   fetchEpics,
   getDispatchable,
 } from './dispatch.js'
-import {checkInvocation, worktreeIsClean} from './heal.js'
+import {checkInvocation} from './heal.js'
 import {createLaneForEpic} from './lane-create.js'
 import {dispatchNext} from './loop.js'
-import {attemptMerge, restoreWorktree} from './merge.js'
-import {getConflictedFiles, isMergeComplete, spawnMerger} from './merger.js'
+import {spawnMerger} from './merger.js'
 import {ensureLanePane} from './pane-heal.js'
 import {rollup} from './rollup.js'
 import {scanForNewLanes} from './scan.js'
@@ -90,95 +88,35 @@ export interface FleetEngine {
 // --- internal helpers (not exported) ---
 
 /**
- * Stage + commit beans status changes inside a worktree so they survive merges.
- *  Idempotent: a no-op when nothing is staged (hordr-hmbq).
+ * Commit pending beans status changes so they survive merges. Idempotent:
+ * a no-op when nothing is pending (hordr-hmbq). git: stage the beans dir +
+ * commit; jj: commit the snapshotted working-copy contents.
  */
-function commitBeans(worktreePath: string): void {
-  commitBeanChanges({beansDir: resolveBeansDir(worktreePath), cwd: worktreePath}, {git: getGitRunner()})
+function commitBeans(vcs: Vcs, worktreePath: string): void {
+  vcs.commitPending({cwd: worktreePath, message: 'chore(beans): rollup status changes'})
 }
 
 /**
-/**
- * True if the lane worktree has no uncommitted non-beans changes.
- * Runs `git status --porcelain` and applies the beans-dir exclusion policy
- * from {@link worktreeIsClean}. On git failure (broken worktree) returns true
- * — the merge step surfaces real breakage, and false positives here would
- * stall a healthy lane forever.
+ * True if the lane worktree has no uncommitted non-beans changes. On probe
+ * failure returns true — the merge step surfaces real breakage, and false
+ * positives here would stall a healthy lane forever.
  *
  * Exported so `hordr fleet finish` can reuse the same clean-index verdict for
  * its ms→primary merge guard (one clean-check policy, no second copy).
  */
-export function worktreeClean(worktreePath: string): boolean {
-  const beansDir = resolveBeansDir(worktreePath)
-  let porcelain = ''
-  try {
-    porcelain = execFileSync('git', ['-C', worktreePath, 'status', '--porcelain'], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    })
-  } catch {
-    return true
-  }
-
-  return worktreeIsClean(porcelain, beansDir)
+export function worktreeClean(vcs: Vcs, worktreePath: string): boolean {
+  return vcs.isCleanIgnoringBeans(worktreePath)
 }
 
 /**
  * List uncommitted paths in a worktree OUTSIDE the beans data dir. Beans-dir
  * churn is ephemeral rollup status (committed by commitBeans before teardown);
  * any other dirty file is uncommitted code that teardown must not destroy.
- * Empty array = clean / safe to remove (hordr-wd46).
+ * Empty array = clean / safe to remove (hordr-wd46). Probe failure yields a
+ * sentinel — a broken worktree is "dirty enough" to block, not crash the tick.
  */
-function dirtyNonBeansPaths(worktreePath: string): string[] {
-  const beansDir = resolveBeansDir(worktreePath)
-  let raw = ''
-  try {
-    // ponytail: direct read-only git call — matches worktree.ts's rev-parse
-    // pattern. A broken worktree is "dirty enough" to block, not crash the tick.
-    raw = execFileSync('git', ['-C', worktreePath, 'status', '--porcelain'], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    })
-  } catch {
-    return ['<git status failed>']
-  }
-
-  const dirty: string[] = []
-  for (const line of raw.split('\n')) {
-    if (!line.trim()) continue
-    // porcelain v1: "XY path" (2 status chars + space + path)
-    const p = line.slice(3).trim().replaceAll(/^"|"$/g, '')
-    if (!p.startsWith(beansDir + '/')) dirty.push(p)
-  }
-
-  return dirty
-}
-
-/**
- * Create a worktree off `base` for `branch`, recovering from the
- * "branch already exists" race by opening or recreating it.
- */
-function createWorktreeWithRecovery(opts: {base: string; branch: string; cwd: string}): {
-  path?: string
-  workspaceId: string
-} {
-  try {
-    const wt = createWorktree({base: opts.base, branch: opts.branch, cwd: opts.cwd})
-    return {path: wt.path, workspaceId: wt.workspace_id}
-  } catch (error) {
-    if (error instanceof HerdrError && /already exists/i.test(error.message)) {
-      try {
-        const wt = openWorktree({branch: opts.branch, cwd: opts.cwd})
-        return {path: wt.path, workspaceId: wt.workspace_id}
-      } catch {
-        getGitRunner()(['branch', '-D', opts.branch], {cwd: opts.cwd})
-        const wt = createWorktree({base: opts.base, branch: opts.branch, cwd: opts.cwd})
-        return {path: wt.path, workspaceId: wt.workspace_id}
-      }
-    }
-
-    throw error
-  }
+function dirtyNonBeansPaths(vcs: Vcs, worktreePath: string): string[] {
+  return pathsOutside(resolveBeansDir(worktreePath), vcs.dirtyPaths(worktreePath))
 }
 
 /**
@@ -221,7 +159,7 @@ function rollupAncestors(taskId: string, beansCwd: string): boolean {
  * so without this sweep the milestone stays 'todo' forever and
  * `hordr fleet finish` throws "milestone not completed". Ports tick.ts:193-205.
  */
-function maybeCompleteMilestone(fleet: FleetRow): void {
+function maybeCompleteMilestone(vcs: Vcs, fleet: FleetRow): void {
   if (getBean(fleet.milestoneBeanId, {cwd: fleet.worktreePath}).status === 'completed') return
   const epicStatuses = fetchChildStatuses(fleet.milestoneBeanId, {cwd: fleet.worktreePath})
   const TERMINAL = new Set(['completed', 'scrapped'])
@@ -229,7 +167,7 @@ function maybeCompleteMilestone(fleet: FleetRow): void {
   if (!allDone) return
   logger.info(`fleet ${fleet.milestoneBeanId}: all epics done → marking milestone completed`)
   markBeanCompleted(fleet.milestoneBeanId, {cwd: fleet.worktreePath})
-  commitBeans(fleet.worktreePath)
+  commitBeans(vcs, fleet.worktreePath)
 }
 
 /**
@@ -257,6 +195,7 @@ function maybeCompleteMilestone(fleet: FleetRow): void {
  *   'no-work'     — nothing ready upstream either; lane is genuinely idle
  */
 function refreshLaneIfStale(
+  vcs: Vcs,
   fleet: FleetRow,
   lane: LaneRow,
 ): 'aborted' | 'conflict' | 'diverged' | 'no-work' | 'refreshed' | 'still-empty' {
@@ -265,13 +204,17 @@ function refreshLaneIfStale(
 
   logger.info(`lane ${lane.epicBeanId}: ${msReady.length} task(s) ready in ms but not here → merging ${fleet.branch}`)
 
-  // The lane worktree is already on lane.branch, so attemptMerge's checkout
-  // is a no-op + restoreWorktree checks back to lane.branch. The clean-index
-  // guard refuses a dirty lane (never clobbers uncommitted work).
-  const outcome = attemptMerge(
-    {cwd: lane.worktreePath, source: fleet.branch, target: lane.branch},
-    {git: getGitRunner(), isClean: worktreeClean},
-  )
+  // git: the lane worktree is already on lane.branch, so the 3-tier checkout
+  // is a no-op and the clean-index guard refuses a dirty lane. jj: `jj new @
+  // <ms>@` in the lane workspace (merge commits into the lane stack); no
+  // guard needed — the snapshot keeps uncommitted work recoverable by
+  // construction.
+  const outcome = vcs.integrateHead({
+    cwd: lane.worktreePath,
+    message: `merge: ${fleet.branch} → ${lane.branch} (cross-epic refresh)`,
+    source: fleet.branch,
+    target: lane.branch,
+  })
 
   if (outcome.status === 'aborted') {
     logger.warn(`lane ${lane.epicBeanId}: refresh merge aborted — ${outcome.message}`)
@@ -282,7 +225,7 @@ function refreshLaneIfStale(
     return 'conflict'
   }
 
-  commitBeans(lane.worktreePath)
+  commitBeans(vcs, lane.worktreePath)
 
   const refreshed = getDispatchable(lane.epicBeanId, {cwd: lane.worktreePath})
   if (refreshed.length === 0) {
@@ -304,14 +247,20 @@ function refreshLaneIfStale(
  * branch deletion, lane → done. Shared by the direct-merge success path
  * and the post-merger-resolution path.
  */
-function finishLaneTeardown(db: Database.Database, fleet: FleetRow, lane: LaneRow, taskId?: string): AdvanceResult {
+function finishLaneTeardown(
+  vcs: Vcs,
+  db: Database.Database,
+  fleet: FleetRow,
+  lane: LaneRow,
+  taskId?: string,
+): AdvanceResult {
   const loc: LaneLoc = {epicId: lane.epicBeanId, milestoneId: fleet.milestoneBeanId, projectKey: fleet.projectKey}
 
   // Defense-in-depth: refuse to tear down a worktree with uncommitted non-beans
   // changes (hordr-wd46). Beans-dir-only dirt is tolerated (ephemeral rollup
   // status, committed by commitBeans above). Keep the worktree so work is
   // recoverable; lane → uncommitted for a human.
-  const dirty = dirtyNonBeansPaths(lane.worktreePath)
+  const dirty = dirtyNonBeansPaths(vcs, lane.worktreePath)
   if (dirty.length > 0) {
     logger.error(
       `lane ${lane.epicBeanId}: refusing to remove worktree — uncommitted changes: ${dirty.join(', ')}. ` +
@@ -329,44 +278,38 @@ function finishLaneTeardown(db: Database.Database, fleet: FleetRow, lane: LaneRo
   // `git worktree remove` (no --force) doesn't refuse on dirty-modified
   // (hordr-hmbq). Idempotent — a no-op when the worktree is already clean.
   // Real git errors propagate → lane stalls, worktree preserved (recoverable).
-  commitBeans(lane.worktreePath)
+  commitBeans(vcs, lane.worktreePath)
 
   // Safety contract at the point of no return: the caller (advanceLane) only
   // enters mergeEpicLane when epicStat === 'completed' (re-read from inside
   // the worktree's beans), and the dirty-non-beans check above refused any
-  // uncommitted code. Both gates are satisfied here, so a plain
-  // `git worktree remove` (no --force) is safe — git's own dirty refusal is
-  // the final net (hordr-wd46).
+  // uncommitted code. Both gates are satisfied here, so a plain teardown (no
+  // --force) is safe — the adapter's own dirty refusal is the final net
+  // (hordr-wd46).
+  //
+  // git: `git worktree remove` + safe `branch -d` (refuses unmerged — catches
+  // silent no-op merges). jj: `jj workspace forget` + delete the directory +
+  // close the herdr workspace; no branch to delete (workspace identity is
+  // total). Failures are logged, not fatal — the merge already landed.
   try {
-    removeWorktreeByPath(lane.worktreePath, {cwd: fleet.worktreePath})
+    vcs.removeWorkspace({
+      cwd: fleet.worktreePath,
+      name: lane.branch,
+      path: lane.worktreePath,
+      workspaceId: lane.workspaceId ?? undefined,
+    })
   } catch (error) {
     logger.warn(`lane ${lane.epicBeanId}: worktree removal failed: ${(error as Error).message}`)
   }
 
-  // Branch deletion: -d (safe delete, NOT -D). Run from the fleet worktree
-  // which is on fleet.branch — the branch the lane was merged into. -d refuses
-  // unmerged branches, which catches silent no-op merges. If the worktree
-  // still holds the branch (removal failed above), this also fails — logged,
-  // not fatal. The merge already landed; orphaned refs are manual cleanup.
-  try {
-    getGitRunner()(['branch', '-d', lane.branch], {cwd: fleet.worktreePath})
-  } catch (error) {
-    logger.warn(
-      `lane ${lane.epicBeanId}: branch '${lane.branch}' not deleted: ${(error as Error).message}. ` +
-        `Merge landed in ${fleet.branch}; orphaned ref needs manual cleanup.`,
-    )
-  }
-
-  // Close the lane's herdr workspace — removes its agent + merger tabs/panes.
-  // The worktree was torn down via raw git above (herdr wasn't notified), so
-  // its tabs/panes would otherwise linger as orphaned terminal tabs.
-  // Best-effort: closeWorkspace tolerates an already-gone workspace; any other
-  // herdr failure is logged, not fatal — the merge already landed.
-  if (lane.workspaceId) {
+  if (vcs.kind === 'git') {
     try {
-      closeWorkspace(lane.workspaceId)
+      vcs.deleteRef({cwd: fleet.worktreePath, name: lane.branch})
     } catch (error) {
-      logger.warn(`lane ${lane.epicBeanId}: workspace close failed: ${(error as Error).message}`)
+      logger.warn(
+        `lane ${lane.epicBeanId}: branch '${lane.branch}' not deleted: ${(error as Error).message}. ` +
+          `Merge landed in ${fleet.branch}; orphaned ref needs manual cleanup.`,
+      )
     }
   }
 
@@ -388,6 +331,7 @@ function finishLaneTeardown(db: Database.Database, fleet: FleetRow, lane: LaneRo
  * On success: tears down the lane. On conflict: spawns merger, lane → 'merging'.
  */
 function mergeEpicLane(
+  vcs: Vcs,
   db: Database.Database,
   fleet: FleetRow,
   lane: LaneRow,
@@ -397,15 +341,21 @@ function mergeEpicLane(
   const loc: LaneLoc = {epicId: lane.epicBeanId, milestoneId: fleet.milestoneBeanId, projectKey: fleet.projectKey}
   logger.debug(`lane ${lane.epicBeanId}: merging ${lane.branch} → ${fleet.branch} (cwd=${fleet.worktreePath})`)
 
-  const outcome = attemptMerge(
-    {cwd: fleet.worktreePath, source: lane.branch, target: fleet.branch},
-    {git: getGitRunner(), isClean: worktreeClean},
-  )
+  // git: 3-tier (ff-only → no-ff → leave in-progress). jj: `jj new @ <lane>@`
+  // in the ms workspace — a conflicted merge is a conflicted head commit, so
+  // the merger agent works on a stable tree.
+  const outcome = vcs.integrateHead({
+    cwd: fleet.worktreePath,
+    message: `merge: ${lane.epicBeanId} → ${fleet.branch}`,
+    source: lane.branch,
+    target: fleet.branch,
+  })
 
   if (outcome.status === 'conflict') {
-    // Tier 3: spawn merger agent. The worktree is left on the target branch
-    // with the conflicted merge in progress.
-    const conflictedFiles = getConflictedFiles(fleet.worktreePath)
+    // Conflict: spawn merger agent. git: the worktree is left on the target
+    // branch with the conflicted merge in progress. jj: the ms workspace head
+    // IS the conflicted merge commit.
+    const conflictedFiles = vcs.conflictedFiles(fleet.worktreePath)
     const mainRepoCwd = getProjectPath(db, fleet.projectKey) ?? fleet.worktreePath
     const paneId = spawnMerger({
       config,
@@ -429,8 +379,8 @@ function mergeEpicLane(
     return {action: 'blocked', taskId}
   }
 
-  // Merge succeeded (tier 1 or 2) — teardown the lane.
-  return finishLaneTeardown(db, fleet, lane, taskId)
+  // Merge succeeded — teardown the lane.
+  return finishLaneTeardown(vcs, db, fleet, lane, taskId)
 }
 
 export function createFleetEngine(config: HordrConfig, opts?: {maxLanes?: number}): FleetEngine {
@@ -438,7 +388,18 @@ export function createFleetEngine(config: HordrConfig, opts?: {maxLanes?: number
   // in flight across every project/fleet at once. Idle lanes defer dispatch
   // (stay idle, retry next pass) once the cap is reached. Default 5.
   const maxLanes = opts?.maxLanes ?? 5
-  /** Advance one lane by one step: idle/dispatch/heal/rollup/merge. */
+  // The VCS adapter (default_vcs): git worktrees or jj workspaces. One
+  // instance for the engine's lifetime; module helpers take it explicitly.
+  const vcs = getVcsOrMock(config)
+  /** Pane-heal reattach: git reopens the herdr worktree; jj adopts the dir. */
+  const reattachLaneWorkspace = (
+    lane: {branch: string; worktreePath: string},
+    mainRepoCwd: string,
+  ): {workspaceId: string} => {
+    if (vcs.kind === 'jj') return createHerdrWorkspace({cwd: lane.worktreePath, label: `hordr:${lane.branch}`})
+    return {workspaceId: openWorktree({branch: lane.branch, cwd: mainRepoCwd}).workspace_id}
+  }
+
   const advanceLane = (db: Database.Database, fleet: FleetRow, lane: LaneRow): AdvanceResult => {
     const beansCwd = lane.worktreePath
     const loc: LaneLoc = {epicId: lane.epicBeanId, milestoneId: fleet.milestoneBeanId, projectKey: fleet.projectKey}
@@ -452,14 +413,14 @@ export function createFleetEngine(config: HordrConfig, opts?: {maxLanes?: number
 
         if (epicStat !== 'completed') {
           rollupSweep(lane.epicBeanId, beansCwd)
-          commitBeans(lane.worktreePath)
+          commitBeans(vcs, lane.worktreePath)
           epicStat = getBean(lane.epicBeanId, {cwd: beansCwd}).status
           logger.debug(`lane ${lane.epicBeanId}: post-sweep epic status=${epicStat}`)
         }
 
         if (epicStat === 'completed') {
           logger.info(`lane ${lane.epicBeanId}: epic completed → merge ${lane.branch} into ${fleet.branch}`)
-          return mergeEpicLane(db, fleet, lane, config)
+          return mergeEpicLane(vcs, db, fleet, lane, config)
         }
 
         // Cross-epic blocker refresh (hordr-lcsi): the lane is idle but its
@@ -468,7 +429,7 @@ export function createFleetEngine(config: HordrConfig, opts?: {maxLanes?: number
         // --blocked-by dependency just completed and merged). Pull ms in via
         // fast-forward and re-check. Precondition is the staleness check
         // itself — only merge when there IS upstream-ready work.
-        const refreshed = refreshLaneIfStale(fleet, lane)
+        const refreshed = refreshLaneIfStale(vcs, fleet, lane)
         if (refreshed === 'no-work') {
           return {action: 'idle'}
         }
@@ -481,7 +442,7 @@ export function createFleetEngine(config: HordrConfig, opts?: {maxLanes?: number
 
         if (refreshed === 'conflict') {
           // Tier 3: ms→lane merge conflicted — spawn merger in lane worktree.
-          const conflictedFiles = getConflictedFiles(lane.worktreePath)
+          const conflictedFiles = vcs.conflictedFiles(lane.worktreePath)
           const mainRepoCwd = getProjectPath(db, fleet.projectKey) ?? fleet.worktreePath
           const paneId = spawnMerger({
             config,
@@ -525,7 +486,7 @@ export function createFleetEngine(config: HordrConfig, opts?: {maxLanes?: number
           worktreePath: lane.worktreePath,
         },
         mainRepoCwd,
-        {createTab, openWorktree, paneExists},
+        {createTab, paneExists, reattach: reattachLaneWorkspace},
       )
       if (pane.healed) {
         // Workspace was reopened — persist the new workspace id + pane atomically.
@@ -560,7 +521,7 @@ export function createFleetEngine(config: HordrConfig, opts?: {maxLanes?: number
       {
         beanStatus: (id) => getBean(id, {cwd: beansCwd}).status as string | undefined,
         paneAlive: (p) => agentActiveInPane(p),
-        worktreeClean,
+        worktreeClean: (p) => worktreeClean(vcs, p),
       },
     )
 
@@ -572,7 +533,7 @@ export function createFleetEngine(config: HordrConfig, opts?: {maxLanes?: number
           `resetting bean to todo, re-dispatching next tick`,
       )
       resetBeanToTodo(crashedTaskId, {cwd: beansCwd})
-      commitBeans(lane.worktreePath)
+      commitBeans(vcs, lane.worktreePath)
       setLaneCurrentTask(db, loc, null)
       return {action: 'blocked', taskId: crashedTaskId}
     }
@@ -586,13 +547,13 @@ export function createFleetEngine(config: HordrConfig, opts?: {maxLanes?: number
     // when rollup had no new ancestors to mark — and survives a previous
     // tick whose commit failed. Without this, straggler .beans/ dirt blocks
     // `git worktree remove` at epic completion (hordr-hmbq).
-    commitBeans(lane.worktreePath)
+    commitBeans(vcs, lane.worktreePath)
 
     // did the epic complete? → merge lane into ms/<id>, tear down, go done
     const epicStat = getBean(lane.epicBeanId, {cwd: beansCwd}).status
     logger.debug(`lane epic status=${epicStat}`)
     if (epicStat === 'completed') {
-      return mergeEpicLane(db, fleet, lane, config, taskId)
+      return mergeEpicLane(vcs, db, fleet, lane, config, taskId)
     }
 
     // task done, epic still has work.
@@ -637,16 +598,11 @@ export function createFleetEngine(config: HordrConfig, opts?: {maxLanes?: number
           continue
         }
 
-        // Pane dead — check git state.
-        if (isMergeComplete(fleet.worktreePath, fleet.branch)) {
+        // Pane dead — check integration state.
+        if (vcs.isIntegrationSettled({cwd: fleet.worktreePath, source: fleet.branch, target: fleet.branch})) {
           logger.info(`fleet ${fleet.milestoneBeanId}: merger resolved ms→primary conflicts — finishing`)
-          restoreWorktree(fleet.worktreePath, {git: getGitRunner()})
-          finishFleetTeardown(
-            db,
-            fleet,
-            {mainRepoCwd},
-            {beansDir: resolveBeansDir, git: getGitRunner(), removeWorktree: removeWorktreeByPath},
-          )
+          vcs.finalizeIntegration({cwd: fleet.worktreePath, target: config.primary_branch})
+          finishFleetTeardown(vcs, db, fleet, {mainRepoCwd})
           advanced++
         } else {
           logger.error(`fleet ${fleet.milestoneBeanId}: merger exited but merge not resolved — needs human`)
@@ -710,7 +666,10 @@ export function createFleetEngine(config: HordrConfig, opts?: {maxLanes?: number
           {
             addLane: (row) => addLane(db, row),
             createPane: (o) => createTab({cwd: o.cwd, label: o.label, workspaceId: o.workspaceId}).pane_id,
-            createWorktree: (o) => createWorktreeWithRecovery({base: o.base, branch: o.branch, cwd: mainRepoCwd}),
+            createWorktree(o) {
+              const ws = vcs.createWorkspace({base: o.base, cwd: o.cwd, name: o.branch})
+              return {path: ws.path, workspaceId: ws.workspaceId}
+            },
           },
         )
         lanesCreated++
@@ -755,19 +714,20 @@ export function createFleetEngine(config: HordrConfig, opts?: {maxLanes?: number
             continue
           }
 
-          // Pane dead — check git state. Two possible merge directions:
-          // 1. epic→ms (mergeEpicLane): source is lane.branch, check in fleet worktree
-          // 2. ms→lane (refreshLaneIfStale): source is fleet.branch, check in lane worktree
-          if (isMergeComplete(fleet.worktreePath, lane.branch)) {
+          // Pane dead — check integration state. Two possible directions:
+          // 1. epic→ms (mergeEpicLane): the merge lives in the fleet worktree
+          // 2. ms→lane (refreshLaneIfStale): the merge lives in the lane worktree
+          if (vcs.isIntegrationSettled({cwd: fleet.worktreePath, source: lane.branch, target: fleet.branch})) {
             // Epic→ms merge resolved — restore + teardown lane.
             logger.info(`lane ${lane.epicBeanId}: merger resolved epic→ms conflicts — restoring + tearing down`)
-            restoreWorktree(fleet.worktreePath, {git: getGitRunner()})
-            finishLaneTeardown(db, fleet, lane)
+            vcs.finalizeIntegration({cwd: fleet.worktreePath, target: fleet.branch})
+            finishLaneTeardown(vcs, db, fleet, lane)
             advanced++
-          } else if (isMergeComplete(lane.worktreePath, fleet.branch)) {
+          } else if (vcs.isIntegrationSettled({cwd: lane.worktreePath, source: fleet.branch, target: lane.branch})) {
             // Ms→lane refresh resolved — commit beans, lane back to active.
             logger.info(`lane ${lane.epicBeanId}: merger resolved ms→lane conflicts — resuming`)
-            commitBeans(lane.worktreePath)
+            vcs.finalizeIntegration({cwd: lane.worktreePath})
+            commitBeans(vcs, lane.worktreePath)
             updateLaneStatus(db, loc, 'active')
           } else {
             // Neither merge resolved — lane → conflict. Worktree stays dirty.
@@ -808,8 +768,8 @@ export function createFleetEngine(config: HordrConfig, opts?: {maxLanes?: number
 
           logger.info(`lane ${lane.epicBeanId}: worktree gone, recreating from ${fleet.branch}`)
           try {
-            const wt = createWorktreeWithRecovery({base: fleet.branch, branch: lane.branch, cwd: mainRepoCwd})
-            const wtPath = wt.path ?? wt.workspaceId
+            const wt = vcs.createWorkspace({base: fleet.branch, cwd: mainRepoCwd, name: lane.branch})
+            const wtPath = wt.path
             const paneId = createTab({
               cwd: wtPath,
               label: `hordr:${lane.epicBeanId}`,
@@ -843,7 +803,7 @@ export function createFleetEngine(config: HordrConfig, opts?: {maxLanes?: number
 
       // 3. Fleet completion (hordr-45f3, ports tick.ts:193-205). Per-task
       // rollup stops at the epic level, so the milestone needs its own sweep.
-      maybeCompleteMilestone(fleet)
+      maybeCompleteMilestone(vcs, fleet)
     }
 
     return {advanced, lanesCreated}
@@ -872,7 +832,7 @@ export function createFleetEngine(config: HordrConfig, opts?: {maxLanes?: number
       getDispatchable: (epicId) => getDispatchable(epicId, {cwd: beansCwd}),
       rollup(id) {
         rollupAncestors(id, beansCwd)
-        commitBeans(lane.worktreePath)
+        commitBeans(vcs, lane.worktreePath)
       },
       setCurrentTask: (loc, beanId) => setLaneCurrentTask(db, loc, beanId),
     }

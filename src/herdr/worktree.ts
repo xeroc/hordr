@@ -239,6 +239,24 @@ export function closeWorkspace(workspaceId: string): void {
   }
 }
 
+// --- jj lane adoption: herdr workspaces for jj working copies ---
+/**
+ * Create a herdr workspace for a working-copy directory herdr did not set up
+ * itself — jj workspaces (`jj workspace add`) carry no herdr bookkeeping, so
+ * the lane's panes would have no owner. Mirrors `herdr workspace create
+ * --cwd <dir> --label <text>`; the id lives at `result.workspace.workspace_id`.
+ *
+ * Live-verified (herdr 0.8.0): creating for the same cwd twice does NOT
+ * error — it opens a second workspace. Duplicate tolerance comes from the
+ * caller gating on `jj workspace list` (reuse-if-exists), not from herdr.
+ */
+export function createHerdrWorkspace(opts: {cwd: string; label: string}): {workspaceId: string} {
+  const r = runHerdr(['workspace', 'create', '--cwd', opts.cwd, '--label', opts.label], opts.cwd)
+  const workspaceId = obj(r.workspace).workspace_id as string | undefined
+  if (!workspaceId) throw new HerdrError('herdr workspace create: result missing workspace_id')
+  return {workspaceId}
+}
+
 /**
  * Compute the worktree branch name for a bean: the bean id itself.
  * Consistent with fleet lane naming (`laneBranchName` → epic id).

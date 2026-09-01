@@ -1,17 +1,13 @@
 import {Args, Command, Flags} from '@oclif/core'
 
 import {getBean} from '../../beans/client.js'
-import {resolveBeansDir} from '../../beans/dir.js'
 import {loadConfig} from '../../config/loader.js'
 import {fetchChildStatuses} from '../../dispatch/dispatch.js'
-import {worktreeClean} from '../../dispatch/engine.js'
-import {getConflictedFiles, spawnMerger} from '../../dispatch/merger.js'
+import {spawnMerger} from '../../dispatch/merger.js'
 import {finishFleet} from '../../fleet/lifecycle.js'
-import {removeWorktreeByPath} from '../../herdr/worktree.js'
-import {getGitRunner} from '../../runtime.js'
 import {openFleetDb} from '../../storage/db.js'
 import {getFleetByMilestone} from '../../storage/fleets.js'
-
+import {assertVcsReady, getVcsOrMock} from '../../vcs/resolve.js'
 /**
  * hordr fleet finish <milestone-id>
  *
@@ -33,10 +29,12 @@ export default class FleetFinish extends Command {
 
   async run(): Promise<void> {
     const {args, flags} = await this.parse(FleetFinish)
-    const milestoneId = args.milestone
-
     const config = loadConfig()
+    assertVcsReady(config, process.cwd())
+    const vcs = getVcsOrMock(config)
     const primary = flags.base ?? config.primary_branch
+
+    const milestoneId = args.milestone
 
     const db = openFleetDb()
     try {
@@ -58,13 +56,8 @@ export default class FleetFinish extends Command {
           projectKey: fleet.projectKey,
         },
         {
-          beansDir: resolveBeansDir,
           beanStatus: (id) => getBean(id, {cwd: msCwd}).status as string | undefined,
           fetchEpicStatuses: (id) => fetchChildStatuses(id, {cwd: msCwd}),
-          getConflictedFiles,
-          git: getGitRunner(),
-          isClean: worktreeClean,
-          removeWorktree: (worktreePath, opts) => removeWorktreeByPath(worktreePath, opts),
           spawnMerger: (opts) =>
             spawnMerger({
               config,
@@ -72,6 +65,7 @@ export default class FleetFinish extends Command {
               cwd: opts.cwd,
               mainRepoCwd: opts.mainRepoCwd,
             }),
+          vcs,
         },
       )
 

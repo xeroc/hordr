@@ -1,11 +1,12 @@
 import {Args, Command, Flags} from '@oclif/core'
 import {existsSync} from 'node:fs'
 
+import {loadConfig} from '../../config/loader.js'
 import {resetLane} from '../../fleet/lifecycle.js'
 import {createTab, paneExists} from '../../herdr/pane.js'
-import {createWorktree, openWorktree} from '../../herdr/worktree.js'
 import {openFleetDb} from '../../storage/db.js'
 import {getFleetByMilestone, listLanes} from '../../storage/fleets.js'
+import {getVcsOrMock} from '../../vcs/resolve.js'
 
 /**
  * hordr fleet reset <milestone-id> [--lane <epic-id>] [--force]
@@ -34,6 +35,7 @@ export default class FleetReset extends Command {
 
   async run(): Promise<void> {
     const {args, flags} = await this.parse(FleetReset)
+    const vcs = getVcsOrMock(loadConfig())
     const milestoneId = args.milestone
 
     const db = openFleetDb()
@@ -63,13 +65,9 @@ export default class FleetReset extends Command {
             const pane = createTab({cwd: opts.cwd, label: opts.label, workspaceId: opts.workspaceId})
             return pane.pane_id
           },
-          createWorktree(opts) {
-            const wt = createWorktree({base: opts.base, branch: opts.branch, cwd: opts.cwd})
-            return {path: wt.path ?? wt.workspace_id, workspaceId: wt.workspace_id}
-          },
-          openWorktree(opts) {
-            const wt = openWorktree({branch: opts.branch, cwd: opts.cwd})
-            return {path: wt.path ?? wt.workspace_id, workspaceId: wt.workspace_id}
+          createWorkspace(opts) {
+            const ws = vcs.createWorkspace(opts)
+            return {path: ws.path, workspaceId: ws.workspaceId}
           },
           paneExists,
           worktreeExists: (path) => existsSync(path),

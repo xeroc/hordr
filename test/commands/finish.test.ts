@@ -13,7 +13,9 @@ import {
 } from '../../src/beans/client.js'
 import Finish from '../../src/commands/finish.js'
 import {
+  _resetGit as _resetWtGit,
   _resetShell as _resetWtShell,
+  _setGitForTesting as _setWtGit,
   _setShellForTesting as _setWtShell,
   HerdrError,
   type ShellFn,
@@ -101,7 +103,7 @@ describe('commands/finish', () => {
   const wtShell: ShellFn = (args) => {
     wtCalls.push(args)
     if (args[0] === 'worktree' && args[1] === 'open') return JSON.stringify({result: OPEN_RESULT})
-    if (args[0] === 'worktree' && args[1] === 'remove') return JSON.stringify({result: {ok: true}})
+    if (args[0] === 'workspace' && args[1] === 'close') return JSON.stringify({result: {type: 'ok'}})
     throw new Error(`unexpected herdr call: ${args.join(' ')}`)
   }
 
@@ -121,6 +123,8 @@ describe('commands/finish', () => {
     beanStatus = 'completed'
     gitResponder = null
     _setWtShell(wtShell)
+    // removeWorkspace routes `git worktree remove` through its own seam.
+    _setWtGit(() => {})
     _setGitRunnerForTesting(gitRunner)
     _setBeansShell((_cmd: string, args: string[], opts: ShellOptions) => {
       beanCalls.push({args, cwd: opts.cwd})
@@ -132,6 +136,7 @@ describe('commands/finish', () => {
     process.chdir(origCwd)
     rmSync(configDir, {force: true, recursive: true})
     _resetWtShell()
+    _resetWtGit()
     _resetGitRunner()
     _resetBeansShell()
   })
@@ -142,18 +147,19 @@ describe('commands/finish', () => {
     expect(res.error, res.error?.message).to.be.undefined
     expect(res.stdout).to.match(/finished hordr-1234/)
 
-    // git: checkout develop, merge hordr-1234, then safe-delete the branch
-    expect(gitCalls).to.have.length(3)
+    // git: 3-tier merge (checkout → ff-only → checkout back), then safe-delete
+    expect(gitCalls).to.have.length(4)
     expect(gitCalls[0]!.args).to.deep.equal(['checkout', 'develop'])
-    expect(gitCalls[1]!.args).to.deep.equal(['merge', '--no-ff', 'hordr-1234'])
-    expect(gitCalls[2]!.args).to.deep.equal(['branch', '-d', 'hordr-1234'])
-    expect(gitCalls[2]!.cwd).to.equal(process.cwd())
+    expect(gitCalls[1]!.args).to.deep.equal(['merge', '--ff-only', 'hordr-1234'])
+    expect(gitCalls[2]!.args).to.deep.equal(['checkout', '-'])
+    expect(gitCalls[3]!.args).to.deep.equal(['branch', '-d', 'hordr-1234'])
+    expect(gitCalls[3]!.cwd).to.equal(process.cwd())
 
-    // worktree open (to find workspace) then remove
+    // worktree open (to find workspace), teardown closes the herdr workspace
     const openCall = wtCalls.find((c) => c[1] === 'open')
     expect(openCall).to.include.members(['--branch', 'hordr-1234'])
-    const removeCall = wtCalls.find((c) => c[1] === 'remove')
-    expect(removeCall).to.include.members(['--workspace', 'wP'])
+    const closeCall = wtCalls.find((c) => c[1] === 'close')
+    expect(closeCall).to.include.members(['wP'])
 
     // bean status is read from the worktree checkout, not the main repo
     const showCall = beanCalls.find((c) => c.args[0] === 'show')
@@ -207,9 +213,9 @@ describe('commands/finish', () => {
     const res = await invoke(['hordr-1234'])
 
     expect(res.error, res.error?.message).to.be.undefined
-    expect(gitCalls).to.have.length(3)
-    expect(gitCalls[2]!.args).to.deep.equal(['branch', '-d', 'hordr-1234'])
-    expect(res.stdout).to.match(/no worktree for hordr-1234/)
+    expect(gitCalls).to.have.length(4)
+    expect(gitCalls[3]!.args).to.deep.equal(['branch', '-d', 'hordr-1234'])
+    expect(res.stdout).to.match(/no workspace for hordr-1234/)
     expect(res.stdout).to.match(/finished hordr-1234/)
 
     // no worktree → bean read from main repo (cwd unset), not a worktree path

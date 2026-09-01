@@ -1,4 +1,3 @@
-/* eslint-disable camelcase -- herdr envelopes mirror snake_case JSON */
 import type {Config} from '@oclif/core'
 
 import {expect} from 'chai'
@@ -8,9 +7,10 @@ import path from 'node:path'
 
 import FleetAbort from '../../../src/commands/fleet/abort.js'
 import {
+  _resetGit as _resetWtGit,
   _resetShell as _resetWtShell,
+  _setGitForTesting as _setWtGit,
   _setShellForTesting as _setWtShell,
-  HerdrError,
   type ShellFn,
 } from '../../../src/herdr/worktree.js'
 import {_resetGitRunner, _setGitRunnerForTesting, type GitRunner} from '../../../src/runtime.js'
@@ -84,7 +84,7 @@ describe('commands/fleet/abort', () => {
   let origDb: string | undefined
   let wtCalls: string[][]
   let gitCalls: string[][]
-  let openThrows: boolean
+  let wtGitRemoves: string[][]
 
   beforeEach(() => {
     configDir = mkdtempSync(path.join(os.tmpdir(), 'hordr-fab-cfg-'))
@@ -96,20 +96,12 @@ describe('commands/fleet/abort', () => {
     process.chdir(configDir)
     wtCalls = []
     gitCalls = []
-    openThrows = false
+    wtGitRemoves = []
+    _setWtGit((args) => {
+      wtGitRemoves.push(args)
+    })
     _setWtShell(((args): string => {
       wtCalls.push(args)
-      if (args[1] === 'open') {
-        if (openThrows) {
-          throw new HerdrError(
-            `herdr worktree open failed: (stderr: ${JSON.stringify({error: {code: 'worktree_not_found', message: 'gone'}})})`,
-          )
-        }
-
-        return JSON.stringify({result: {workspace: {workspace_id: 'wLane'}}})
-      }
-
-      if (args[1] === 'remove') return JSON.stringify({result: {ok: true}})
       throw new Error(`unexpected herdr call: ${args.join(' ')}`)
     }) as ShellFn)
     _setGitRunnerForTesting(((args): void => {
@@ -124,6 +116,7 @@ describe('commands/fleet/abort', () => {
     else process.env.HORDR_DB = origDb
     rmSync(configDir, {force: true, recursive: true})
     _resetWtShell()
+    _resetWtGit()
     _resetGitRunner()
     _setProjectKeyResolverForTesting(null)
   })
@@ -152,21 +145,27 @@ describe('commands/fleet/abort', () => {
     const res = await invoke([MS, '--force'])
 
     expect(res.error, res.error?.message).to.be.undefined
-    // open (resolve workspace) + remove
-    expect(wtCalls.filter((c) => c[1] === 'remove')).to.have.length(2)
-    expect(wtCalls.find((c) => c[1] === 'remove')).to.include.members(['--workspace', 'wLane'])
-    // ms branch force-deleted
+    // lane + ms working copies removed via the git worktree seam
+    expect(wtGitRemoves.filter((c) => c[0] === 'worktree' && c[1] === 'remove')).to.have.length(2)
+    // ms branch force-deleted via the adapter (force → -D)
     expect(gitCalls).to.deep.equal([['branch', '-D', MS]])
   })
 
   it('--force tolerates an already-gone worktree', async () => {
     seedFleetWithLane(dbFile)
-    openThrows = true
+    _setWtGit((args) => {
+      wtGitRemoves.push(args)
+      if (args[0] === 'worktree' && args[1] === 'remove') {
+        const err = new Error('worktree remove failed') as {message: string; stderr?: string}
+        err.stderr = "fatal: '/wt/epic-a' is not a working tree"
+        throw err
+      }
+    })
     const res = await invoke([MS, '--force'])
 
     expect(res.error, res.error?.message).to.be.undefined
-    // open failed (gone) → no remove call, but ms branch still deleted + rows removed
-    expect(wtCalls.filter((c) => c[1] === 'remove')).to.have.length(0)
+    // removals were attempted (and tolerated as already-gone)
+    expect(wtGitRemoves).to.have.length(2)
     expect(gitCalls).to.deep.equal([['branch', '-D', MS]])
   })
 

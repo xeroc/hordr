@@ -11,8 +11,6 @@ import type Database from 'better-sqlite3'
 
 import type {BeanRecord} from '../beans/client.js'
 
-import {commitBeanChanges} from '../dispatch/commit-beans.js'
-import {attemptMerge, type GitFn} from '../dispatch/merge.js'
 import {areAllEpicsCompleted, isMilestoneComplete} from '../dispatch/rollup.js'
 import {notify} from '../herdr/pane.js'
 import {logger} from '../logger.js'
@@ -31,6 +29,7 @@ import {
   updateFleetStatus,
   updateLaneStatus,
 } from '../storage/fleets.js'
+import {type MergeOutcome, type Vcs} from '../vcs/types.js'
 
 export class FleetError extends Error {
   constructor(message: string) {
@@ -47,12 +46,9 @@ export interface ProjectInfo {
 }
 
 export interface CreateFleetDeps {
-  /** Create a herdr worktree for the ms branch; return its path. */
-  createWorktree: (opts: {base: string; branch: string; cwd: string}) => {path: string; workspaceId: string}
+  /** Create the ms working copy (worktree / jj workspace); return its path. */
+  createWorkspace: (opts: {base: string; cwd: string; name: string}) => {path: string; workspaceId: string}
   fetchBean: (id: string) => BeanRecord
-  git: GitFn
-  /** Recover when createWorktree reports the branch already exists (partial-failure retry). */
-  openWorktree: (opts: {branch: string; cwd: string}) => {path: string; workspaceId: string}
 }
 
 export interface CreateFleetResult {
@@ -88,17 +84,12 @@ export async function createFleet(
 
   const branch = milestoneId
 
-  // Create the ms branch + worktree in one shot: herdr worktree create
-  // --branch <milestoneId> --base <primary>. The worktree IS on the milestone
-  // branch — epic merges land here, the scanner reads from here. Falls back
-  // to openWorktree when the branch already exists (partial-failure retry).
-  let msWt: {path: string; workspaceId: string}
-  try {
-    msWt = deps.createWorktree({base: opts.primaryBranch, branch, cwd: opts.cwd})
-  } catch (error) {
-    if (!/already exists/i.test((error as Error).message)) throw error
-    msWt = deps.openWorktree({branch, cwd: opts.cwd})
-  }
+  // Create the ms integration workspace in one shot: git — herdr worktree
+  // create --branch <milestoneId> --base <primary> (the worktree IS on the
+  // milestone branch; epic merges land here, the scanner reads from here);
+  // jj — a workspace named <milestoneId> on top of the primary bookmark.
+  // The adapter tolerates re-creation (partial-failure retry) internally.
+  const msWs = deps.createWorkspace({base: opts.primaryBranch, cwd: opts.cwd, name: milestoneId})
 
   registerFleet(db, {
     branch,
@@ -107,7 +98,7 @@ export async function createFleet(
     projectKey: opts.project.projectKey,
     projectRoot: opts.cwd,
     status: 'active',
-    worktreePath: msWt.path,
+    worktreePath: msWs.path,
   })
 
   return {branch}
@@ -132,33 +123,17 @@ export function describeFleet(db: Database.Database, projectKey: string, milesto
 }
 
 export interface FinishFleetDeps {
-  /** Beans data dir name (e.g., '.beans'), resolved from the worktree's config. */
-  beansDir: (worktreePath: string) => string
-  /** Status of a bean in the worktree ('completed', 'todo', …). */
+  /** Status of a bean in the ms worktree ('completed', 'todo', …). */
   beanStatus: (id: string) => string | undefined
   /** The milestone's direct children (epics) with their status. */
   fetchEpicStatuses: (id: string) => Array<{id: string; status: string}>
-  /** List files with unresolved merge conflicts in a worktree. */
-  getConflictedFiles: (worktreePath: string) => string[]
-  git: GitFn
   /**
-   * True if the worktree at `cwd` has a clean index. The ms→primary merge is
-   * refused when the main repo has uncommitted changes — never stashed.
-   */
-  isClean: (cwd: string) => boolean
-  /**
-   * Remove the milestone worktree by path via `git worktree remove` (no
-   * --force). Tolerant of an already-gone worktree. Called only after the
-   * milestone + all epics are confirmed completed and the ms→primary merge
-   * has landed. opts.cwd is set to mainRepoCwd so git discovers the repo
-   * even when hordr runs from a non-git directory (hordr-ppsp).
-   */
-  removeWorktree: (worktreePath: string, opts?: {cwd?: string}) => void
-  /**
-   * Spawn a merger agent in the ms worktree to resolve ms→primary conflicts.
-   * Returns the pane ID for liveness tracking. Called only on tier-3 conflict.
+   * Spawn a merger agent to resolve ms→primary conflicts. Returns the pane
+   * ID for liveness tracking. Called only on conflict escalation.
    */
   spawnMerger: (opts: {conflictedFiles: string[]; cwd: string; mainRepoCwd: string}) => string
+  /** The VCS adapter (default_vcs) — merge, conflict probes, teardown. */
+  vcs: Vcs
 }
 
 export interface FinishFleetResult {
@@ -207,25 +182,30 @@ export function finishFleet(
     throw new FleetError(`not all epics under ${milestoneId} are completed`)
   }
 
-  // The ms→primary merge runs in the MAIN repo (primary is checked out there),
-  // not the ms worktree. Checking primary out in the ms worktree is refused by
-  // git, which previously surfaced as a phantom "0 conflicted files" conflict.
-  const outcome = attemptMerge(
-    {cwd: opts.mainRepoCwd, source: milestoneId, target: opts.primaryBranch},
-    {git: deps.git, isClean: deps.isClean},
-  )
+  // git: the ms→primary merge runs in the MAIN repo (primary is checked out
+  // there; checking it out in the ms worktree is refused by git — historically
+  // surfaced as a phantom "0 conflicted files" conflict). jj: it runs in the
+  // ms workspace — `jj new <primary> @` + bookmark move — no checkout constraint.
+  const mergeCwd = deps.vcs.kind === 'jj' ? fleet.worktreePath : opts.mainRepoCwd
+  const outcome: MergeOutcome = deps.vcs.mergeHeadIntoRef({
+    cwd: mergeCwd,
+    message: `merge: ${milestoneId} → ${opts.primaryBranch}`,
+    ref: opts.primaryBranch,
+    source: fleet.branch,
+  })
 
   if (outcome.status === 'aborted') {
     throw new FleetError(`ms→primary merge aborted: ${outcome.message}`)
   }
 
   if (outcome.status === 'conflict') {
-    // Tier 3: spawn merger agent. The worktree is left on the primary branch
-    // with the conflicted merge in progress.
-    const conflictedFiles = deps.getConflictedFiles(opts.mainRepoCwd)
+    // Conflict: spawn merger agent. git: the main repo is left on primary
+    // with the conflicted merge in progress. jj: the ms workspace head IS
+    // the conflicted merge commit.
+    const conflictedFiles = deps.vcs.conflictedFiles(mergeCwd)
     const paneId = deps.spawnMerger({
       conflictedFiles,
-      cwd: opts.mainRepoCwd,
+      cwd: mergeCwd,
       mainRepoCwd: opts.mainRepoCwd,
     })
     setFleetPane(db, opts.projectKey, milestoneId, paneId)
@@ -237,44 +217,34 @@ export function finishFleet(
     return {branch: fleet.branch, conflictPaneId: paneId, merged: false}
   }
 
-  // Tier 1/2 success — tear down.
-  finishFleetTeardown(db, fleet, opts, deps)
+  // Merge succeeded — tear down.
+  finishFleetTeardown(deps.vcs, db, fleet, opts)
   return {branch: fleet.branch, merged: true}
 }
 
 /**
- * Post-merge fleet teardown: defensive beans commit, worktree removal, branch
+ * Post-merge fleet teardown: defensive beans commit, workspace removal, ref
  * deletion, row cleanup. Shared by the immediate-success path (finishFleet)
  * and the post-merger-resolution path (engine tick loop).
  *
- * Branch deletion uses `-d` (safe delete, NOT -D): refuses unmerged branches,
- * which catches silent no-op merges. Run from mainRepoCwd because the ms
- * worktree is already gone at this point.
+ * git: safe `branch -d` (refuses unmerged — catches silent no-op merges), run
+ * from mainRepoCwd. jj: the ms bookmark deletion mirrors to the git branch.
  */
-export function finishFleetTeardown(
-  db: Database.Database,
-  fleet: FleetRow,
-  opts: {mainRepoCwd: string},
-  deps: {
-    beansDir: (worktreePath: string) => string
-    git: GitFn
-    removeWorktree: (worktreePath: string, opts?: {cwd?: string}) => void
-  },
-): void {
-  // Defensive commit: mop up any straggler .beans/ writes so `git worktree
-  // remove` (no --force) doesn't refuse on dirty-modified (hordr-hmbq).
+export function finishFleetTeardown(vcs: Vcs, db: Database.Database, fleet: FleetRow, opts: {mainRepoCwd: string}): void {
+  // Defensive commit: mop up any straggler .beans/ writes before removal
+  // (hordr-hmbq). Idempotent.
   if (fleet.worktreePath) {
-    commitBeanChanges({beansDir: deps.beansDir(fleet.worktreePath), cwd: fleet.worktreePath}, {git: deps.git})
-    deps.removeWorktree(fleet.worktreePath, {cwd: opts.mainRepoCwd})
+    vcs.commitPending({cwd: fleet.worktreePath, message: 'chore(beans): rollup status changes'})
+    vcs.removeWorkspace({cwd: opts.mainRepoCwd, name: fleet.branch, path: fleet.worktreePath})
   }
 
-  // Branch deletion: -d (safe delete). The merge already landed; orphaned
-  // refs are manual cleanup if this fails (e.g. worktree still holds the ref).
+  // Ref deletion. The merge already landed; orphaned refs are manual cleanup
+  // if this fails (e.g. the worktree still holds the ref).
   try {
-    deps.git(['branch', '-d', fleet.branch], {cwd: opts.mainRepoCwd})
+    vcs.deleteRef({cwd: opts.mainRepoCwd, name: fleet.branch})
   } catch (error) {
     logger.warn(
-      `fleet ${fleet.milestoneBeanId}: branch '${fleet.branch}' not deleted: ${(error as Error).message}. ` +
+      `fleet ${fleet.milestoneBeanId}: ref '${fleet.branch}' not deleted: ${(error as Error).message}. ` +
         `Merge landed in ${opts.mainRepoCwd}; orphaned ref needs manual cleanup.`,
     )
   }
@@ -287,12 +257,13 @@ export function finishFleetTeardown(
 }
 
 export interface AbortFleetDeps {
-  git: GitFn
+  /** Discard the milestone integration ref (branch/bookmark), merged or not. */
+  discardRef: (opts: {cwd: string; name: string}) => void
   /**
-   * Remove a lane's worktree by its branch. Tolerant: a no-op if the worktree
-   * is already gone (lane was 'done' / merged). Only called with --force.
+   * Remove a lane's working copy. Tolerant: a no-op if already gone (lane was
+   * 'done' / merged). Only called with --force.
    */
-  removeWorktree: (branch: string) => void
+  removeWorkspace: (opts: {cwd: string; name: string; path: string}) => void
 }
 
 export interface AbortFleetResult {
@@ -322,21 +293,21 @@ export function abortFleet(
 
   if (opts.force) {
     for (const lane of lanes) {
-      deps.removeWorktree(lane.branch)
+      deps.removeWorkspace({cwd: opts.cwd, name: lane.branch, path: lane.worktreePath})
       worktreesRemoved++
     }
 
-    // Remove the ms worktree too
+    // Remove the ms workspace too
     if (fleet.worktreePath) {
       try {
-        deps.removeWorktree(fleet.branch)
+        deps.removeWorkspace({cwd: opts.cwd, name: fleet.branch, path: fleet.worktreePath})
       } catch {
-        // ms worktree may already be gone
+        // ms workspace may already be gone
       }
     }
 
-    // Discard the milestone integration branch
-    deps.git(['branch', '-D', fleet.branch], {cwd: opts.cwd})
+    // Discard the milestone integration ref (branch/bookmark)
+    deps.discardRef({cwd: opts.cwd, name: fleet.branch})
   }
 
   deleteLanes(db, opts.projectKey, milestoneId)
@@ -346,8 +317,7 @@ export function abortFleet(
 
 export interface ResetLaneDeps {
   createPane: (opts: {cwd: string; label: string; workspaceId: string}) => string
-  createWorktree: (opts: {base: string; branch: string; cwd: string}) => {path: string; workspaceId: string}
-  openWorktree: (opts: {branch: string; cwd: string}) => {path: string; workspaceId: string}
+  createWorkspace: (opts: {base: string; cwd: string; name: string}) => {path: string; workspaceId: string}
   paneExists: (paneId: string) => boolean
   worktreeExists: (path: string) => boolean
 }
@@ -372,19 +342,12 @@ export function resetLane(db: Database.Database, lane: LaneRow, fleet: FleetRow,
   let worktreeCreated = false
   let paneCreated = false
 
-  // Worktree gone? Recreate from the ms branch.
+  // Worktree gone? Recreate from the ms integration line (adapter handles
+  // the already-exists recovery internally).
   if (!deps.worktreeExists(worktreePath)) {
-    try {
-      const wt = deps.createWorktree({base: fleet.branch, branch: lane.branch, cwd: fleet.worktreePath})
-      worktreePath = wt.path
-      workspaceId = wt.workspaceId
-    } catch (error) {
-      if (!/already exists/i.test((error as Error).message)) throw error
-      const wt = deps.openWorktree({branch: lane.branch, cwd: fleet.worktreePath})
-      worktreePath = wt.path
-      workspaceId = wt.workspaceId
-    }
-
+    const wt = deps.createWorkspace({base: fleet.branch, cwd: fleet.worktreePath, name: lane.branch})
+    worktreePath = wt.path
+    workspaceId = wt.workspaceId
     worktreeCreated = true
   }
 

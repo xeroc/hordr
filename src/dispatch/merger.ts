@@ -1,17 +1,18 @@
 /**
- * Merger agent — spawned when a 3-tier epic→ms merge hits conflicts (tier 3).
- *
- * The merger agent runs in the milestone worktree where the conflicted merge
- * is left in-progress. It resolves conflicts, commits, and stops. The engine
- * detects completion via pane-death + git-state checks (no bean, no /done).
+ * Merger agent — spawned when an epic→ms / ms→lane / ms→primary integration
+ * hits conflicts. The merger agent runs in the working copy where the
+ * conflicted merge lives (git: in-progress merge state; jj: conflicted head
+ * commit with markers materialized in the tree). It resolves conflicts,
+ * commits, and stops. The engine detects completion via pane-death + adapter
+ * state probes (no bean, no /done).
  */
-import {execFileSync} from 'node:child_process'
-
 import type {HordrConfig} from '../config/schema.js'
 
 import {buildHarnessCommand} from '../harness/launcher.js'
 import {createTab, runInPane} from '../herdr/pane.js'
-import {openWorktree} from '../herdr/worktree.js'
+import {createHerdrWorkspace, openWorktree} from '../herdr/worktree.js'
+import {getVcsOrMock} from '../vcs/resolve.js'
+
 
 export interface MergeContext {
   conflictedFiles: string[]
@@ -61,37 +62,14 @@ export function spawnMerger(opts: {config: HordrConfig; ctx: MergeContext; cwd: 
   if (!agent.persona) throw new Error(`role 'merger' has no persona`)
 
   const prompt = buildMergerPrompt(agent.persona, opts.ctx)
-  const wt = openWorktree({cwd: opts.mainRepoCwd, path: opts.cwd})
-  const pane = createTab({cwd: opts.cwd, label: 'hordr:merger', workspaceId: wt.workspace_id})
+  // git: the merger works in a herdr-managed worktree — reopen it by path.
+  // jj: the working copy is a jj workspace herdr doesn't track — adopt it.
+  const vcs = getVcsOrMock(opts.config)
+  const workspaceId =
+    vcs.kind === 'jj'
+      ? createHerdrWorkspace({cwd: opts.cwd, label: 'hordr:merger'}).workspaceId
+      : openWorktree({cwd: opts.mainRepoCwd, path: opts.cwd}).workspace_id
+  const pane = createTab({cwd: opts.cwd, label: 'hordr:merger', workspaceId})
   runInPane(pane.pane_id, buildHarnessCommand(agent.harness, prompt))
   return pane.pane_id
-}
-
-/** List files with unresolved merge conflicts in the worktree. */
-export function getConflictedFiles(worktreePath: string): string[] {
-  try {
-    const raw = execFileSync('git', ['-C', worktreePath, 'diff', '--name-only', '--diff-filter=U'], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    })
-    return raw.split('\n').filter((l) => l.trim().length > 0)
-  } catch {
-    return []
-  }
-}
-
-/**
- * Check if the merge succeeded: the source branch's tip is now an ancestor
- * of HEAD (meaning the merge commit landed). Run in the milestone worktree.
- */
-export function isMergeComplete(worktreePath: string, sourceBranch: string): boolean {
-  try {
-    execFileSync('git', ['-C', worktreePath, 'merge-base', '--is-ancestor', sourceBranch, 'HEAD'], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    })
-    return true
-  } catch {
-    return false
-  }
 }

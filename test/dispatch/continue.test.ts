@@ -13,6 +13,7 @@ const config: HordrConfig = {
     tester: {harness: 'opencode', persona: 'tester persona'},
   },
   default_harness: 'opencode',
+  default_vcs: 'git',
   primary_branch: 'develop',
 }
 

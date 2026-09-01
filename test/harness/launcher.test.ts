@@ -32,6 +32,7 @@ const makeConfig = (agents: Record<string, unknown> = {}) =>
     },
     concurrency: 3,
     default_harness: 'opencode',
+    default_vcs: 'git',
     primary_branch: 'develop',
     routing: {default_workflow: 'implement'},
     workflows: {},

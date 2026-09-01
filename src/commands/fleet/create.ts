@@ -4,12 +4,11 @@ import {getBean} from '../../beans/client.js'
 import {loadConfig} from '../../config/loader.js'
 import {createFleetEngine} from '../../dispatch/engine.js'
 import {createFleet} from '../../fleet/lifecycle.js'
-import {createWorktree, openWorktree} from '../../herdr/worktree.js'
 import {logger} from '../../logger.js'
-import {getGitRunner} from '../../runtime.js'
 import {openFleetDb} from '../../storage/db.js'
 import {acquireFleetLock} from '../../storage/lock.js'
 import {resolveProjectKeyOrMock} from '../../storage/project.js'
+import {assertVcsReady, getVcsOrMock} from '../../vcs/resolve.js'
 import {runFleetCheck} from './check.js'
 
 /**
@@ -37,9 +36,11 @@ export default class FleetCreate extends Command {
     getBean(milestoneId)
 
     const config = loadConfig()
+    assertVcsReady(config, process.cwd())
     const primary = flags.base ?? config.primary_branch
     const cwd = process.cwd()
     const projectKey = resolveProjectKeyOrMock({cwd})
+    const vcs = getVcsOrMock(config)
 
     const db = openFleetDb()
     try {
@@ -57,16 +58,11 @@ export default class FleetCreate extends Command {
           },
         },
         {
-          createWorktree(opts) {
-            const wt = createWorktree({base: opts.base, branch: opts.branch, cwd: opts.cwd})
-            return {path: wt.path ?? wt.workspace_id, workspaceId: wt.workspace_id}
+          createWorkspace(opts) {
+            const ws = vcs.createWorkspace(opts)
+            return {path: ws.path, workspaceId: ws.workspaceId}
           },
           fetchBean: (id) => getBean(id),
-          git: getGitRunner(),
-          openWorktree(opts) {
-            const wt = openWorktree({branch: opts.branch, cwd: opts.cwd})
-            return {path: wt.path ?? wt.workspace_id, workspaceId: wt.workspace_id}
-          },
         },
       )
 

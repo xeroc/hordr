@@ -10,7 +10,8 @@ import {
   HerdrError,
   type ShellFn,
 } from '../src/herdr/worktree.js'
-import {_resetGitRunner, _setGitRunnerForTesting, createDeps, gitDeleteBranch, type GitRunner} from '../src/runtime.js'
+import {_resetGitRunner, _setGitRunnerForTesting, createDeps, type GitRunner} from '../src/runtime.js'
+import {createGitVcs} from '../src/vcs/git-vcs.js'
 
 interface Call {
   args: string[]
@@ -270,9 +271,9 @@ describe('runtime / createDeps.createWorktree', () => {
     expect(() => deps.createWorktree('hordr-999')).to.throw(/not fully merged/)
   })
 
-  describe('gitDeleteBranch', () => {
+  describe('git deleteRef', () => {
     it('runs git branch -d <branch> from cwd (NEVER -D)', () => {
-      gitDeleteBranch('hordr-1234', configDir)
+      createGitVcs().deleteRef({cwd: configDir, name: 'hordr-1234'})
       expect(gitCalls).to.have.length(1)
       expect(gitCalls[0]!.args).to.deep.equal(['branch', '-d', 'hordr-1234'])
       expect(gitCalls[0]!.args).to.not.include('-D')
@@ -284,7 +285,7 @@ describe('runtime / createDeps.createWorktree', () => {
         throw new HerdrError('git branch -d hordr-1234 failed: error: not fully merged')
       }
 
-      expect(() => gitDeleteBranch('hordr-1234', configDir)).to.throw(/not fully merged/)
+      expect(() => createGitVcs().deleteRef({cwd: configDir, name: 'hordr-1234'})).to.throw(/not fully merged/)
     })
   })
 })

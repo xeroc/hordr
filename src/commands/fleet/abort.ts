@@ -1,10 +1,11 @@
 import {Args, Command, Flags} from '@oclif/core'
 
+import {loadConfig} from '../../config/loader.js'
 import {abortFleet} from '../../fleet/lifecycle.js'
-import {HerdrError, openWorktree, removeWorktree} from '../../herdr/worktree.js'
-import {getGitRunner} from '../../runtime.js'
+import {logger} from '../../logger.js'
 import {openFleetDb} from '../../storage/db.js'
 import {getFleetByMilestone} from '../../storage/fleets.js'
+import {getVcsOrMock} from '../../vcs/resolve.js'
 
 /**
  * hordr fleet abort <milestone-id> [--force]
@@ -27,7 +28,7 @@ export default class FleetAbort extends Command {
   async run(): Promise<void> {
     const {args, flags} = await this.parse(FleetAbort)
     const milestoneId = args.milestone
-
+    const vcs = getVcsOrMock(loadConfig())
     const db = openFleetDb()
     try {
       const fleet = getFleetByMilestone(db, milestoneId)
@@ -40,8 +41,16 @@ export default class FleetAbort extends Command {
         milestoneId,
         {cwd: fleet.projectRoot || process.cwd(), force: flags.force, projectKey: fleet.projectKey},
         {
-          git: getGitRunner(),
-          removeWorktree: (branch) => removeWorktreeByBranch(branch, fleet.projectRoot || process.cwd()),
+          discardRef: (o) => vcs.deleteRef({...o, force: true}),
+          // Discard is best-effort: a lane the daemon already cleaned up (or
+          // one that refuses removal) must not fail the whole abort.
+          removeWorkspace(o) {
+            try {
+              vcs.removeWorkspace(o)
+            } catch (error) {
+              logger.warn(`abort: worktree removal failed for ${o.name}: ${(error as Error).message}`)
+            }
+          },
         },
       )
 
@@ -62,23 +71,4 @@ export default class FleetAbort extends Command {
       db.close()
     }
   }
-}
-
-/**
- * Remove a lane worktree by its branch: open (to resolve the workspace) then
- * remove. Tolerant of an already-gone worktree (lane was 'done' / merged).
- */
-function removeWorktreeByBranch(branch: string, cwd: string): void {
-  // ponytail: tolerate missing worktree — abort must not fail on a lane the
-  // daemon already cleaned up.
-  let workspaceId: string | undefined
-  try {
-    const result = openWorktree({branch, cwd})
-    workspaceId = result.workspace_id
-  } catch (error) {
-    if (!(error instanceof HerdrError) || !/worktree_not_found/.test(error.message)) throw error
-    return // already gone
-  }
-
-  if (workspaceId) removeWorktree({force: true, workspaceId})
 }

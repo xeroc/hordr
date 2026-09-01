@@ -1,7 +1,9 @@
 import {Args, Command, Flags} from '@oclif/core'
 
 import {getBean} from '../beans/client.js'
+import {loadConfig} from '../config/loader.js'
 import {getDeps} from '../runtime.js'
+import {assertVcsReady} from '../vcs/resolve.js'
 
 /**
  * Fire-and-forget bean launch: create a worktree, spawn the harness in a
@@ -25,7 +27,7 @@ export default class Run extends Command {
     const {args, flags} = await this.parse(Run)
     const beanId = args.bean
 
-    // Validate the bean exists + is well-formed before creating anything.
+    assertVcsReady(loadConfig(), process.cwd())
     getBean(beanId)
 
     const deps = getDeps()

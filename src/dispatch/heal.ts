@@ -56,6 +56,27 @@ export function checkInvocation(opts: HealOpts, deps: HealDeps): HealResult {
 }
 
 /**
+ * Parse `git status --porcelain` output into changed paths (rename-aware,
+ * quote-stripped). Shared by the git VCS adapter's dirtyPaths probe.
+ */
+export function porcelainPaths(porcelain: string): string[] {
+  const paths: string[] = []
+  for (const line of porcelain.split('\n')) {
+    if (line.trim().length === 0) continue
+    // porcelain v1: "XY PATH" — 2 status chars, space at index 2, path at 3+
+    let p = line.slice(3)
+    // rename: "R  OLD -> NEW" — the destination is what now exists
+    const arrow = p.indexOf(' -> ')
+    if (arrow !== -1) p = p.slice(arrow + 4)
+    // strip surrounding quotes (git quotes paths with special chars)
+    if (p.startsWith('"') && p.endsWith('"')) p = p.slice(1, -1)
+    paths.push(p)
+  }
+
+  return paths
+}
+
+/**
  * Pure policy: parse `git status --porcelain` output and return true only if
  * every dirty path is inside `beansDir`.
  *
@@ -65,20 +86,6 @@ export function checkInvocation(opts: HealOpts, deps: HealDeps): HealResult {
  * so the daemon must wait (phantom-completion guard, hordr-7zxr).
  */
 export function worktreeIsClean(porcelain: string, beansDir: string): boolean {
-  const lines = porcelain.split('\n').filter((l) => l.trim().length > 0)
-  if (lines.length === 0) return true
-
   const prefix = beansDir.replace(/\/+$/, '') + '/'
-  for (const line of lines) {
-    // porcelain v1: "XY PATH" — 2 status chars, space at index 2, path at 3+
-    let p = line.slice(3)
-    // rename: "R  OLD -> NEW" — the destination is what now exists
-    const arrow = p.indexOf(' -> ')
-    if (arrow !== -1) p = p.slice(arrow + 4)
-    // strip surrounding quotes (git quotes paths with special chars)
-    if (p.startsWith('"') && p.endsWith('"')) p = p.slice(1, -1)
-    if (!p.startsWith(prefix)) return false
-  }
-
-  return true
+  return porcelainPaths(porcelain).every((p) => p.startsWith(prefix))
 }

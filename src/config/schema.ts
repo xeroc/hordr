@@ -24,6 +24,10 @@ export const HordrConfigSchema = z.object({
   // one line to repoint every persona (defaults + user agents) at a different
   // binary (claude, codex, opencode, …). An explicit agent.harness always wins.
   default_harness: z.string().min(1).default('opencode'),
+  // Version control system hordr drives: 'git' (herdr worktrees) or 'jj'
+  // (colocated jj workspaces). Per-repo property — one knob, no per-agent
+  // override. jj mode requires a colocated repo (see src/vcs/resolve.ts).
+  default_vcs: z.enum(['git', 'jj']).default('git'),
   primary_branch: z.string().min(1).default('develop'),
 })
 

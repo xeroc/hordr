@@ -258,6 +258,7 @@ Body without path.
         tester: {harness: 'opencode', persona: 'ORIGINAL-TESTER-PERSONA'},
       },
       default_harness: 'opencode',
+      default_vcs: 'git' as const,
       primary_branch: 'develop',
     }
 
