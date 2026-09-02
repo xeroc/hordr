@@ -2,7 +2,7 @@
 import Database from 'better-sqlite3'
 import {expect} from 'chai'
 import {execFileSync} from 'node:child_process'
-import {mkdirSync, writeFileSync} from 'node:fs'
+import {mkdirSync, rmSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
@@ -27,6 +27,7 @@ import {
 import {_resetGitRunner, _setGitRunnerForTesting, type GitRunner} from '../../src/runtime.js'
 import {applySchema, openDb} from '../../src/storage/db.js'
 import {addLane, ensureProject, getFleet, listLanes, registerFleet} from '../../src/storage/fleets.js'
+import {_resetShell as _resetJjShell, _setShellForTesting as _setJjShell} from '../../src/vcs/jj-vcs.js'
 
 const config: HordrConfig = {
   agents: {implementer: {harness: 'opencode', persona: 'impl'}},
@@ -793,14 +794,161 @@ describe('dispatch/engine', () => {
       expect(closeCall, 'teardown must close the lane herdr workspace').to.not.equal(undefined)
       expect(closeCall).to.include('ws-close')
 
-      // Toast: the merged lane (epic-a → ms1) was announced.
       const notifyCall = paneShellCalls.find((a) => a[0] === 'notification' && a[1] === 'show')
+      // Toast: the merged lane (epic-a → ms1) was announced.
       expect(notifyCall, 'teardown must toast the merge').to.not.equal(undefined)
       expect(notifyCall).to.include('epic-a merged')
 
       // Teardown completed (not blocked on dirty worktree) → lane is done.
       const lane = listLanes(db, 'pk1', 'ms1').find((l) => l.epicBeanId === 'epic-a')!
       expect(lane.status).to.equal('done')
+    })
+  })
+
+  describe('per-fleet config resolution: cwd-independent fleet check (hordr-c6ry)', () => {
+    let db: Database.Database
+    let projRoot: string
+    let msWt: string
+    let jjCalls: string[][]
+    let wtCalls: string[][]
+
+    beforeEach(() => {
+      db = openDb(':memory:')
+      applySchema(db)
+      const stamp = `${process.pid}-${Date.now()}`
+      projRoot = join(tmpdir(), `hordr-jjproj-${stamp}`)
+      msWt = join(tmpdir(), `hordr-jjms-${stamp}`)
+      mkdirSync(projRoot, {recursive: true})
+      mkdirSync(msWt, {recursive: true})
+      writeFileSync(join(projRoot, '.beans.yml'), 'hordr:\n  default_vcs: jj\n')
+
+      ensureProject(db, {
+        beansPath: projRoot,
+        companyPath: null,
+        configPath: join(projRoot, '.beans.yml'),
+        projectKey: 'pk1',
+      })
+      registerFleet(db, {
+        branch: 'ms/ms1',
+        createdAt: '2026-09-02T00:00:00Z',
+        milestoneBeanId: 'ms1',
+        projectKey: 'pk1',
+        projectRoot: projRoot,
+        status: 'active',
+        worktreePath: msWt,
+      })
+
+      jjCalls = []
+      wtCalls = []
+      // jj adapter shell: only the 'default' workspace exists; every other
+      // invocation is a no-op probe (empty output ⇒ nothing pending/conflicted).
+      _setJjShell((args: string[]) => {
+        jjCalls.push(args)
+        if (args[0] === 'workspace' && args[1] === 'list') return 'default: . abc123 000000 (empty)'
+        return ''
+      })
+      // herdr shell: answer worktree create (git path) + workspace create (jj
+      // adoption); everything else is a bug in the test's expectations.
+      _setWtShellForTesting(((args: string[]) => {
+        wtCalls.push(args)
+        if (args[0] === 'worktree' && args[1] === 'create') {
+          return JSON.stringify({result: {workspace_id: 'ws-git', worktree: {branch: 'epic-a', path: '/wt-epic-a'}}})
+        }
+
+        if (args[0] === 'workspace' && args[1] === 'create') {
+          return JSON.stringify({result: {workspace: {workspace_id: 'ws-jj'}}})
+        }
+
+        throw new Error(`unexpected herdr call: ${args.join(' ')}`)
+      }) as WtShellFn)
+      _setPaneShellForTesting((args: string[]) => {
+        if (args[0] === 'tab') return JSON.stringify({result: {root_pane: {pane_id: 'p-lane'}}})
+        return ''
+      })
+      // dispatch shell: ready work ONLY in the ms worktree, so lane creation
+      // fires but the fresh lane stays idle (no spawn machinery needed).
+      _setShellForTesting(((args: string[], opts?: {cwd?: string}) => {
+        const inMs = (opts?.cwd ?? '') === msWt
+        if (args[0] === 'list') {
+          return JSON.stringify(
+            inMs ? [{id: 'task-a', priority: 'normal', status: 'todo', title: 'Task A', type: 'task'}] : [],
+          )
+        }
+
+        if (args[0] === 'query') {
+          // Milestone subtree → the epic; epic subtree → the ready task.
+          const children = args.some((a) => a.includes('ms1'))
+            ? [{id: 'epic-a', status: 'todo', title: 'Epic A', type: 'epic'}]
+            : [{id: 'task-a', status: 'todo', title: 'Task A', type: 'task'}]
+          return JSON.stringify({bean: {children}})
+        }
+
+        throw new Error(`unexpected dispatch call: ${args.join(' ')}`)
+      }) as ShellFn)
+      // beans client shell: epic-a todo, ms1 active, updates ok, subtrees empty.
+      _setBeansShell(((cmd: string, args: string[]) => {
+        if (cmd === 'update') return JSON.stringify({ok: true})
+        if (cmd === 'query') {
+          return JSON.stringify({bean: {children: args.includes('ms1') ? [{id: 'epic-a', status: 'todo'}] : []}})
+        }
+
+        const id = args.includes('ms1') ? 'ms1' : 'epic-a'
+        return JSON.stringify({
+          body: '',
+          created_at: '',
+          etag: 'e1',
+          id,
+          path: 'p',
+          priority: 'normal',
+          slug: id,
+          status: id === 'ms1' ? 'active' : 'todo',
+          title: id,
+          type: id === 'ms1' ? 'milestone' : 'epic',
+          updated_at: '',
+        })
+      }) as unknown as BeansShellFn)
+      _setGitRunnerForTesting((() => '') as GitRunner)
+      _setWtGitForTesting((() => {}) as WtGitShellFn)
+    })
+
+    afterEach(() => {
+      _resetShell()
+      _resetBeansShell()
+      _resetGitRunner()
+      _resetWtGit()
+      _resetWtShell()
+      _resetPaneShell()
+      _resetJjShell()
+      db.close()
+    })
+
+    it('creates the lane via the jj adapter when the fleet project says default_vcs: jj (engine invoked with git)', () => {
+      const engine = createFleetEngine(config) // config.default_vcs === 'git'
+      const res = engine.scanFleet(db)
+
+      expect(res.lanesCreated).to.equal(1)
+      const add = jjCalls.find((a) => a[0] === 'workspace' && a[1] === 'add')
+      expect(add, 'lane working copy must be created via jj workspace add').to.not.equal(undefined)
+      expect(add![add!.indexOf('--name') + 1]).to.equal('epic-a')
+      expect(add![add!.indexOf('-r') + 1]).to.equal('ms/ms1')
+      expect(
+        wtCalls.find((a) => a[0] === 'worktree'),
+        'herdr worktree create must NOT run for a jj fleet (not_git_worktree)',
+      ).to.equal(undefined)
+    })
+
+    it('falls back to the invocation config (git adapter) when the project has no .beans.yml', () => {
+      rmSync(join(projRoot, '.beans.yml'))
+
+      const engine = createFleetEngine(config)
+      const res = engine.scanFleet(db)
+
+      expect(res.lanesCreated).to.equal(1)
+      const create = wtCalls.find((a) => a[0] === 'worktree' && a[1] === 'create')
+      expect(create, 'git fleet keeps herdr worktree create').to.not.equal(undefined)
+      expect(create).to.include('--branch')
+      expect(create![create!.indexOf('--branch') + 1]).to.equal('epic-a')
+      expect(jjCalls.length).to.equal(0)
     })
   })
 })

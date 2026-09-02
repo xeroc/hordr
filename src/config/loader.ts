@@ -17,7 +17,7 @@ export class ConfigError extends Error {
 }
 
 // ponytail: simple upward search to /, first .beans.yml wins
-function findConfigPath(start: string): string | undefined {
+export function findConfigPath(start: string): string | undefined {
   let dir = start
   while (true) {
     const candidate = path.join(dir, '.beans.yml')

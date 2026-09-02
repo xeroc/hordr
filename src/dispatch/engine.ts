@@ -26,6 +26,7 @@ import type {FleetRow, LaneLoc, LaneRow} from '../storage/fleets.js'
 
 import {getBean, markBeanCompleted, resetBeanToTodo} from '../beans/client.js'
 import {resolveBeansDir} from '../beans/dir.js'
+import {findConfigPath, loadConfig} from '../config/loader.js'
 import {finishFleetTeardown} from '../fleet/lifecycle.js'
 import {agentActiveInPane, createTab, notify, paneExists} from '../herdr/pane.js'
 import {createHerdrWorkspace, openWorktree} from '../herdr/worktree.js'
@@ -35,6 +36,7 @@ import {
   countActiveLanes,
   deleteLanesByEpic,
   findLaneByTask,
+  getFleet,
   getProjectPath,
   listFleets,
   listLanes,
@@ -383,24 +385,56 @@ function mergeEpicLane(
   return finishLaneTeardown(vcs, db, fleet, lane, taskId)
 }
 
+/** Pane-heal reattach: git reopens the herdr worktree; jj adopts the dir. */
+function reattachLaneWorkspace(
+  vcs: Vcs,
+  lane: {branch: string; worktreePath: string},
+  mainRepoCwd: string,
+): {workspaceId: string} {
+  if (vcs.kind === 'jj') return createHerdrWorkspace({cwd: lane.worktreePath, label: `hordr:${lane.branch}`})
+  return {workspaceId: openWorktree({branch: lane.branch, cwd: mainRepoCwd}).workspace_id}
+}
+
 export function createFleetEngine(config: HordrConfig, opts?: {maxLanes?: number}): FleetEngine {
   // Global concurrency ceiling: at most this many agent invocations may be
   // in flight across every project/fleet at once. Idle lanes defer dispatch
   // (stay idle, retry next pass) once the cap is reached. Default 5.
   const maxLanes = opts?.maxLanes ?? 5
-  // The VCS adapter (default_vcs): git worktrees or jj workspaces. One
-  // instance for the engine's lifetime; module helpers take it explicitly.
-  const vcs = getVcsOrMock(config)
-  /** Pane-heal reattach: git reopens the herdr worktree; jj adopts the dir. */
-  const reattachLaneWorkspace = (
-    lane: {branch: string; worktreePath: string},
-    mainRepoCwd: string,
-  ): {workspaceId: string} => {
-    if (vcs.kind === 'jj') return createHerdrWorkspace({cwd: lane.worktreePath, label: `hordr:${lane.branch}`})
-    return {workspaceId: openWorktree({branch: lane.branch, cwd: mainRepoCwd}).workspace_id}
+  /**
+   * Per-fleet config (hordr-c6ry): resolve .beans.yml from the fleet's own
+   * project root (fleet.projectRoot, else the projects-table beans_path) so
+   * default_vcs — and with it the adapter + vcs-specific agent personas —
+   * match the project, NOT the cwd `fleet check`/`done` was invoked from.
+   * Falls back to the invocation config when no config is found or it fails
+   * to parse (one broken project must not stall every other fleet).
+   */
+  const fleetConfigCache = new Map<string, HordrConfig>()
+  const fleetConfigFor = (db: Database.Database, fleet: FleetRow): HordrConfig => {
+    const start = fleet.projectRoot || getProjectPath(db, fleet.projectKey)
+    if (!start) return config
+    const configPath = findConfigPath(start)
+    if (!configPath) return config
+    const hit = fleetConfigCache.get(configPath)
+    if (hit) return hit
+    try {
+      const resolved = loadConfig(configPath)
+      fleetConfigCache.set(configPath, resolved)
+      logger.debug(`fleet ${fleet.milestoneBeanId}: default_vcs=${resolved.default_vcs} (${configPath})`)
+      return resolved
+    } catch (error) {
+      logger.warn(
+        `fleet ${fleet.milestoneBeanId}: config ${configPath} unreadable (${(error as Error).message}) — using invocation config`,
+      )
+      return config
+    }
   }
 
+
   const advanceLane = (db: Database.Database, fleet: FleetRow, lane: LaneRow): AdvanceResult => {
+    // Per-fleet config + adapter (hordr-c6ry) — shadows the engine-wide pair
+    // so every vcs call and spawned persona below matches this fleet's project.
+    const config = fleetConfigFor(db, fleet)
+    const vcs = getVcsOrMock(config)
     const beansCwd = lane.worktreePath
     const loc: LaneLoc = {epicId: lane.epicBeanId, milestoneId: fleet.milestoneBeanId, projectKey: fleet.projectKey}
 
@@ -486,7 +520,7 @@ export function createFleetEngine(config: HordrConfig, opts?: {maxLanes?: number
           worktreePath: lane.worktreePath,
         },
         mainRepoCwd,
-        {createTab, paneExists, reattach: reattachLaneWorkspace},
+        {createTab, paneExists, reattach: (l, cwd) => reattachLaneWorkspace(vcs, l, cwd)},
       )
       if (pane.healed) {
         // Workspace was reopened — persist the new workspace id + pane atomically.
@@ -580,6 +614,11 @@ export function createFleetEngine(config: HordrConfig, opts?: {maxLanes?: number
         logger.warn(`fleet ${fleet.milestoneBeanId}: project ${fleet.projectKey} not in projects table — skipping`)
         continue
       }
+
+      // Per-fleet config + adapter (hordr-c6ry) — shadows the engine-wide
+      // pair for everything this fleet's pass does below.
+      const config = fleetConfigFor(db, fleet)
+      const vcs = getVcsOrMock(config)
 
       // Fleet is merging — a merger agent is resolving ms→primary conflicts
       // in the milestone worktree. Check if it's done (pane dead + merge
@@ -815,9 +854,16 @@ export function createFleetEngine(config: HordrConfig, opts?: {maxLanes?: number
     const lane = findLaneByTask(db, taskId)
     if (!lane) return {next: null, reason: 'no lane owns this task (idempotent)'}
 
+    // Per-fleet config + adapter (hordr-c6ry): continuation dispatches the
+    // next task with the project's own personas/commit contract. Falls back
+    // to the invocation config when the fleet row is gone.
+    const fleet = getFleet(db, lane.projectKey, lane.fleetMilestoneBeanId)
+    const cfg = fleet ? fleetConfigFor(db, fleet) : config
+    const vcs = getVcsOrMock(cfg)
+
     const beansCwd = lane.worktreePath
     const deps: ContinueDeps = {
-      config,
+      config: cfg,
       fetchAncestorChain: (id) => fetchAncestorChain(id, {cwd: beansCwd}),
       fetchBean: (id) => getBean(id, {cwd: beansCwd}),
       fetchDependencyStatus: (id) => fetchDependencyStatus(id, {cwd: beansCwd}),
