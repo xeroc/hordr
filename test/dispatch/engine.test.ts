@@ -489,8 +489,12 @@ describe('dispatch/engine', () => {
      * After the ff-merge call lands, the lane wt is considered refreshed —
      * subsequent `beans list --ready` from the lane wt also returns task-a.
      * This mirrors the real behavior (the merge pulls .beans/ forward).
+     *
+     * `msAlreadyMerged: true` simulates the lane-AHEAD state (hordr-48ao):
+     * the ancestry probe succeeds, i.e. everything from ms is already in
+     * the lane head and a refresh merge would be empty by construction.
      */
-    function wireShell(opts: {readyInMs: boolean}): {get mergedCalls(): number} {
+    function wireShell(opts: {msAlreadyMerged?: boolean; readyInMs: boolean}): {get mergedCalls(): number} {
       let mergedCalls = 0
       // beans/client.ts shell — getBean returns the epic as 'todo' regardless
       // of cwd (epic status is not affected by the staleness).
@@ -550,9 +554,12 @@ describe('dispatch/engine', () => {
       }) as ShellFn)
 
       // git runner — record calls + count ff-merges (so the shell mock can
-      // observe the refresh). Default: succeed silently.
+      // observe the refresh). The ancestry probe (`merge-base --is-ancestor`)
+      // exits 1 — the runner throws — while ms is NOT in the lane head (the
+      // normal lane-behind state); `msAlreadyMerged` flips it to exit 0.
       _setGitRunnerForTesting(((args: string[], opts2: {cwd: string}) => {
         gitCalls.push({args, cwd: opts2.cwd})
+        if (args[0] === 'merge-base' && !opts.msAlreadyMerged) throw new Error('exit 1: not an ancestor')
         if (args[0] === 'merge' && args.includes('--ff-only')) mergedCalls++
       }) as GitRunner)
 
@@ -583,6 +590,23 @@ describe('dispatch/engine', () => {
 
       const mergeCall = gitCalls.find((c) => c.args[0] === 'merge' && c.args.includes('--ff-only'))
       expect(mergeCall, 'no merge should fire when nothing is ready upstream').to.equal(undefined)
+    })
+
+    it('skips the refresh merge when the ms head is already an ancestor of the lane head (hordr-48ao)', () => {
+      // Lane-AHEAD: the lane completed a task ms has not merged back (the
+      // epic→ms merge only fires when the whole epic completes), so ms still
+      // reports it ready while the lane does not. That readiness diff must
+      // NOT trigger a refresh merge — it pulls nothing (empty tree) and
+      // would repeat every pass, accumulating junk changesets forever.
+      wireShell({msAlreadyMerged: true, readyInMs: true})
+
+      const engine = createFleetEngine(config)
+      engine.scanFleet(db)
+
+      const mergeCall = gitCalls.find((c) => c.args[0] === 'merge' && c.args.includes('--ff-only'))
+      expect(mergeCall, 'lane-ahead must not trigger a refresh merge').to.equal(undefined)
+      const lane = listLanes(db, 'pk1', 'ms1').find((l) => l.epicBeanId === 'epic-a')!
+      expect(lane.status, 'lane stays active (idle) — work resumes when ms truly advances').to.equal('active')
     })
 
     it('skips the refresh merge when the lane worktree has uncommitted changes (clean-index guard)', () => {

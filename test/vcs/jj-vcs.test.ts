@@ -37,6 +37,7 @@ function herdrFake(): {
 const CONFLICT_PROBE_ARGS = ['log', '-r', '@', '--no-graph', '-T', 'if(conflict, "1", "")']
 const HEAD_PROBE_ARGS = ['log', '-r', '@', '--no-graph', '-T', 'if(empty, "E", "NE") ++ "|" ++ description']
 const PARENTS_PROBE_ARGS = ['log', '-r', '@-', '--no-graph', '-T', String.raw`commit_id ++ "\n"`]
+const HAS_NEW_COMMITS_PROBE_ARGS = ['log', '-r', '(::msA@ & ~(empty() & description(exact:""))) ~ ::@', '--no-graph', '-T', 'commit_id']
 
 describe('vcs/jj-vcs', () => {
   afterEach(() => {
@@ -323,6 +324,32 @@ describe('vcs/jj-vcs', () => {
       _setShellForTesting(mockShell((args) => (args.includes('@-') ? '11111\n' : '')).shell)
 
       expect(createJjVcs().isIntegrationSettled({cwd: '/w/repo', source: 'x', target: 'y'})).to.be.false
+    })
+  })
+
+  describe('hasNewCommits (hordr-48ao)', () => {
+    it('true when the lane lacks real commits from ms (probe output non-empty)', () => {
+      const {calls, shell} = mockShell((args) => (args[0] === 'log' ? 'abc123\n' : ''))
+      _setShellForTesting(shell)
+
+      expect(createJjVcs().hasNewCommits({cwd: '/w/laneA', source: 'msA'})).to.be.true
+      expect(calls.map((c) => c.args)).to.deep.equal([HAS_NEW_COMMITS_PROBE_ARGS])
+    })
+
+    it('false when ms holds nothing the lane lacks but parked empty heads', () => {
+      _setShellForTesting(mockShell(() => '').shell)
+
+      expect(createJjVcs().hasNewCommits({cwd: '/w/laneA', source: 'msA'})).to.be.false
+    })
+
+    it('true when the probe fails (fail open — the merge surfaces real errors)', () => {
+      _setShellForTesting(
+        mockShell(() => {
+          throw new Error('jj log failed')
+        }).shell,
+      )
+
+      expect(createJjVcs().hasNewCommits({cwd: '/w/laneA', source: 'msA'})).to.be.true
     })
   })
 

@@ -279,6 +279,9 @@ describe('fleet/lifecycle', () => {
         findWorkspace() {
           return null
         },
+        hasNewCommits() {
+          return true
+        },
         integrateHead() {
           return {status: 'merged'}
         },

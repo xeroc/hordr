@@ -204,6 +204,21 @@ function refreshLaneIfStale(
   const msReady = getDispatchable(lane.epicBeanId, {cwd: fleet.worktreePath})
   if (msReady.length === 0) return 'no-work'
 
+  // Lane-ahead guard (hordr-48ao): the ms-vs-lane readiness diff has two
+  // causes — the lane is BEHIND ms (pull it in), or the lane is AHEAD (it
+  // completed tasks that only merge back to ms when the whole epic
+  // completes). The second looped forever: every pass merged an empty tree
+  // and parked an empty head (thousands of junk changesets in jj repos).
+  // When ms holds no commits the lane lacks (beyond parked empty heads)
+  // there is nothing to pull — skip the merge and idle until ms advances
+  // with real content.
+  if (!vcs.hasNewCommits({cwd: lane.worktreePath, source: fleet.branch})) {
+    logger.info(
+      `lane ${lane.epicBeanId}: ${fleet.branch} already merged in — ready diff is lane-ahead (completions not yet back in ms), skipping refresh`,
+    )
+    return 'no-work'
+  }
+
   logger.info(`lane ${lane.epicBeanId}: ${msReady.length} task(s) ready in ms but not here → merging ${fleet.branch}`)
 
   // git: the lane worktree is already on lane.branch, so the 3-tier checkout

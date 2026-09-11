@@ -98,6 +98,28 @@ export interface Vcs {
   findWorkspace(opts: {cwd: string; name: string}): null | {path: string; workspaceId?: string}
 
   /**
+   * Whether the working copy at `cwd` lacks commits from `source` that a
+   * merge would pull. Guards refreshLaneIfStale against the lane-ahead
+   * case (hordr-48ao): a ms-vs-lane readiness diff can mean the LANE
+   * completed tasks ms has not merged back, which must not trigger a
+   * (forever-empty) refresh merge.
+   * git: `git merge-base --is-ancestor <source> HEAD` (exit 0 = contained
+   *      → nothing to pull).
+   * jj:  commits in `::<source>@` but not in `::@`, IGNORING undescribed
+   *      empty parked heads — parking one on ms (finalizeIntegration does)
+   *      must not re-arm an empty refresh. FAIL-OPEN (true): a broken probe
+   *      lets the merge run and surface the real error, as before.
+   */
+  hasNewCommits(opts: {cwd: string; source: string}): boolean
+
+  /**
+   * Whether a merger-agent-attended integration at `cwd` finished: resolved
+   * and landed. git: source ref is an ancestor of target. jj: the head has
+   * no conflicts and is a merge (>= 2 parents) — an abandoned merge collapses
+   * to a single parent and reports unsettled.
+   */
+
+  /**
    * Merge the `source` lane's head into the integration line whose working
    * copy is `cwd`. For git, `target` is the branch checked out at cwd (the
    * 3-tier strategy runs there; conflict = merge left in-progress). For jj,
@@ -106,13 +128,6 @@ export interface Vcs {
    * in-progress state).
    */
   integrateHead(opts: {cwd: string; message: string; source: string; target: string}): MergeOutcome
-
-  /**
-   * Whether a merger-agent-attended integration at `cwd` finished: resolved
-   * and landed. git: source ref is an ancestor of target. jj: the head has
-   * no conflicts and is a merge (>= 2 parents) — an abandoned merge collapses
-   * to a single parent and reports unsettled.
-   */
 
   /**
    * Clean-for-merge verdict: true when the only dirt is inside the beans dir

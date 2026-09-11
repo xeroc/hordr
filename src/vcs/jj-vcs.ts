@@ -182,6 +182,22 @@ export function createJjVcs(deps: JjVcsDeps = {}): Vcs {
       return existing ? {path: existing} : null
     },
 
+    hasNewCommits(opts) {
+      try {
+        // Commits the cwd stack lacks from source, IGNORING undescribed
+        // empty parked heads — parking one on ms (finalizeIntegration does)
+        // must not re-arm an empty refresh merge.
+        return (
+          run(
+            ['log', '-r', `(::${opts.source}@ & ~(empty() & description(exact:""))) ~ ::@`, '--no-graph', '-T', 'commit_id'],
+            opts.cwd,
+          ).trim() !== ''
+        )
+      } catch {
+        return true // unreadable state: fail open, let the merge surface it
+      }
+    },
+
     integrateHead(opts) {
       // No clean-worktree guard: jj snapshot semantics carry uncommitted edits
       // into the merge instead of losing them under a checkout.

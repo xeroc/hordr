@@ -121,6 +121,19 @@ export function createGitVcs(): Vcs {
       }
     },
 
+    hasNewCommits(opts: {cwd: string; source: string}): boolean {
+      // `merge-base --is-ancestor` speaks in exit codes: 0 = source fully
+      // contained in HEAD (nothing to pull), non-zero = not (and the shared
+      // runner throws on non-zero). Fail-open true on any probe failure —
+      // the merge then surfaces the real error.
+      try {
+        getGitRunner()(['merge-base', '--is-ancestor', opts.source, 'HEAD'], {cwd: opts.cwd})
+        return false
+      } catch {
+        return true
+      }
+    },
+
     integrateHead(opts: {cwd: string; message: string; source: string; target: string}): MergeOutcome {
       return attemptMerge({cwd: opts.cwd, source: opts.source, target: opts.target}, {
         git: gitFn,
