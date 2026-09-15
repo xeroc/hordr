@@ -394,7 +394,7 @@ to `implementer`. See [docs/fleet-guide.md](docs/fleet-guide.md) for details.
 | `hordr run <bean>`     | Create a worktree, spawn the agent harness in a fresh pane. Fire-and-forget.       |
 | `hordr finish <bean>`  | Verify the bean is `completed`, merge its branch, remove worktree + delete branch. |
 | `hordr cleanup <bean>` | Remove the worktree for a bean. `--force` for unmerged changes.                    |
-| `hordr done <task>`    | Agent-facing: verify a task done, roll up, return the next bean in the lane.       |
+| `hordr prompt <name>`  | Create an ad-hoc worktree/workspace + pane with the default harness (no bean, no prompt). |
 
 #### `hordr run`
 
@@ -423,6 +423,18 @@ repo — the worktree has the up-to-date status), merges `<id>` into
 ```bash
 hordr cleanup <bean> [--force] [--json]
 ```
+
+#### `hordr prompt`
+
+```bash
+hordr prompt <name> [--base <ref>] [--json]
+```
+
+Ad-hoc agent session: creates an isolated working copy named `<name>` (git
+worktree branch in git mode, named workspace in jj mode), opens a fresh pane
+in it, and starts `default_harness` bare — no prompt, no persona, no flags.
+The harness comes up and you type. Bean-less counterpart to `hordr run`;
+tear down with `hordr cleanup`-style `herdr worktree remove` when done.
 
 ### Fleet mode
 

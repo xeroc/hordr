@@ -119,3 +119,22 @@ export function launchAgent(opts: {beanId: string; cwd: string; role: string; wo
 
   return {paneLabel: pane.pane_id}
 }
+
+/**
+ * Open a fresh pane in an existing workspace and start the default harness
+ * BARE — just the binary, no prompt, no persona, no --interactive/--mini
+ * flag. For human-driven `hordr prompt` sessions: the harness comes up and
+ * the human types. Returns the new pane id.
+ */
+export function launchHarness(opts: {cwd: string; name: string; workspaceId: string}): {
+  paneLabel: string
+} {
+  const config = loadConfig()
+  const harness = config.default_harness
+  if (!_which(harness)) throw new HarnessError(`harness '${harness}' not on PATH`)
+
+  const pane = createTab({cwd: opts.cwd, label: `hordr:${opts.name}`, workspaceId: opts.workspaceId})
+  runInPane(pane.pane_id, ` ${harness}`)
+
+  return {paneLabel: pane.pane_id}
+}

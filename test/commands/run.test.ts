@@ -92,6 +92,9 @@ describe('commands/run (minimal, hordr-zn3f)', () => {
       depsCalls.push(opts)
       return { paneLabel: 'wX:pNEW' }
     },
+    launchHarness() {
+      return { paneLabel: 'wX:pNEW' }
+    },
     removeWorktree() { },
   }
 

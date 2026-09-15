@@ -1,13 +1,13 @@
 /**
  * Production HordrDeps composition + test seam. With no engine, this is a
  * thin facade over the VCS adapter (workspaces) + harness (agent launch)
- * used by `hordr run` and `hordr cleanup`.
+ * used by `hordr run`, `hordr prompt`, and `hordr cleanup`.
  */
 import {execFileSync} from 'node:child_process'
 import process from 'node:process'
 
 import {loadConfig} from './config/loader.js'
-import {launchAgent as harnessLaunchAgent} from './harness/launcher.js'
+import {launchAgent as harnessLaunchAgent, launchHarness as harnessLaunchHarness} from './harness/launcher.js'
 import {HerdrError, removeWorktree} from './herdr/worktree.js'
 import {getVcsOrMock} from './vcs/resolve.js'
 
@@ -42,22 +42,27 @@ export function getGitRunner(): GitRunner {
 }
 
 export interface HordrDeps {
-  createWorktree(beanId: string, opts?: {base?: string}): {branch: string; path?: string; workspaceId: string}
+  createWorktree(name: string, opts?: {base?: string}): {branch: string; path?: string; workspaceId: string}
   launchAgent(opts: {beanId: string; cwd: string; role: string; workspaceId: string}): {paneLabel: string}
+  launchHarness(opts: {cwd: string; name: string; workspaceId: string}): {paneLabel: string}
   removeWorktree(workspaceId: string): void
 }
 
 export function createDeps(): HordrDeps {
   return {
-    createWorktree(beanId: string, opts?: {base?: string}): {branch: string; path?: string; workspaceId: string} {
+    createWorktree(name: string, opts?: {base?: string}): {branch: string; path?: string; workspaceId: string} {
       const config = loadConfig()
       const base = opts?.base ?? config.primary_branch
-      const ws = getVcsOrMock(config).createWorkspace({base, cwd: process.cwd(), name: beanId})
-      return {branch: beanId, path: ws.path, workspaceId: ws.workspaceId}
+      const ws = getVcsOrMock(config).createWorkspace({base, cwd: process.cwd(), name})
+      return {branch: name, path: ws.path, workspaceId: ws.workspaceId}
     },
 
     launchAgent(opts: {beanId: string; cwd: string; role: string; workspaceId: string}): {paneLabel: string} {
       return harnessLaunchAgent(opts)
+    },
+
+    launchHarness(opts: {cwd: string; name: string; workspaceId: string}): {paneLabel: string} {
+      return harnessLaunchHarness(opts)
     },
 
     removeWorktree(workspaceId: string): void {

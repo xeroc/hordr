@@ -1,5 +1,8 @@
 /* eslint-disable camelcase -- SAMPLE_BEAN mirrors the on-disk beans JSON contract (status, pane_id, workspace_id) */
 import {assert, expect} from 'chai'
+import {mkdtempSync, rmSync, writeFileSync} from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 
 import {
   _resetShell as _resetBeansShell,
@@ -18,6 +21,7 @@ import {
   buildPrompt,
   HarnessError,
   launchAgent,
+  launchHarness,
   resolveHarness,
 } from '../../src/harness/launcher.js'
 import {_resetShell as _resetPaneShell, _setShellForTesting as _setPaneShell} from '../../src/herdr/pane.js'
@@ -235,6 +239,57 @@ describe('harness/launcher', () => {
       })
 
       expect(result).to.deep.equal({paneLabel: 'wX:pNEW'})
+    })
+  })
+
+  describe('launchHarness (hordr-dme7)', () => {
+    let configDir: string
+    let origCwd: string
+
+    beforeEach(() => {
+      // launchHarness loads config from cwd — pin default_harness hermetically.
+      configDir = mkdtempSync(path.join(os.tmpdir(), 'hordr-launch-cfg-'))
+      writeFileSync(path.join(configDir, '.beans.yml'), 'hordr:\n  default_harness: opencode\n')
+      origCwd = process.cwd()
+      process.chdir(configDir)
+    })
+
+    afterEach(() => {
+      process.chdir(origCwd)
+      rmSync(configDir, {force: true, recursive: true})
+    })
+
+    it('creates a tab labeled hordr:<name> and runs the bare harness command', () => {
+      _setWhichForTesting(() => true)
+      paneResponder = (c) => {
+        if (c.args[0] === 'tab' && c.args[1] === 'create')
+          return JSON.stringify({result: {root_pane: {pane_id: 'wX:pNEW', workspace_id: 'wX'}}})
+        return ''
+      }
+
+      const result = launchHarness({cwd: '/wt/spike', name: 'spike-auth', workspaceId: 'wX'})
+
+      expect(result).to.deep.equal({paneLabel: 'wX:pNEW'})
+
+      const tabCreate = paneCalls.find((c) => c.args[0] === 'tab' && c.args[1] === 'create')
+      assert.ok(tabCreate, 'tab create was called')
+      expect(tabCreate!.args).to.include('--workspace', 'wX')
+      expect(tabCreate!.args).to.include('--cwd', '/wt/spike')
+      expect(tabCreate!.args).to.include('--label', 'hordr:spike-auth')
+
+      // Bare default harness: no run, no --interactive/--mini, no prompt —
+      // just the binary (with the history-ignore leading space).
+      const run = paneCalls.find((c) => c.args[0] === 'pane' && c.args[1] === 'run')
+      assert.ok(run, 'pane run was called')
+      expect(run!.args.at(-1)).to.equal(' opencode')
+    })
+
+    it('throws HarnessError when the harness binary is not on PATH', () => {
+      _setWhichForTesting(() => false)
+      expect(() => launchHarness({cwd: '/wt/spike', name: 'spike-auth', workspaceId: 'wX'})).to.throw(
+        HarnessError,
+        "harness 'opencode' not on PATH",
+      )
     })
   })
 })
