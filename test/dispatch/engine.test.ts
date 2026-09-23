@@ -972,6 +972,9 @@ describe('dispatch/engine', () => {
       expect(create, 'git fleet keeps herdr worktree create').to.not.equal(undefined)
       expect(create).to.include('--branch')
       expect(create![create!.indexOf('--branch') + 1]).to.equal('epic-a')
+      // herdr rejects create/open from a linked worktree (linked_worktree_source):
+      // --cwd must be the main repo checkout, not the ms integration worktree.
+      expect(create![create!.indexOf('--cwd') + 1]).to.equal(projRoot)
       expect(jjCalls.length).to.equal(0)
     })
   })

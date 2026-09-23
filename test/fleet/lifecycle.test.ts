@@ -491,6 +491,7 @@ describe('fleet/lifecycle', () => {
     let db: Database.Database
     let worktreeAlive: boolean
     let paneAlive: boolean
+    let wsCwds: string[]
     let createdPanes: number
     let createdWorktrees: number
 
@@ -539,8 +540,9 @@ describe('fleet/lifecycle', () => {
           createdPanes++
           return `w1:p${createdPanes + 10}`
         },
-        createWorkspace() {
+        createWorkspace(opts: {base: string; cwd: string; name: string}) {
           createdWorktrees++
+          wsCwds.push(opts.cwd)
           return {path: '/wt/epic-a-new', workspaceId: 'ws-new'}
         },
         paneExists(id: string) {
@@ -559,6 +561,7 @@ describe('fleet/lifecycle', () => {
       registerFleet(db, FLEET_ROW)
       worktreeAlive = true
       paneAlive = true
+      wsCwds = []
       createdPanes = 0
       createdWorktrees = 0
     })
@@ -588,7 +591,10 @@ describe('fleet/lifecycle', () => {
       const res = resetLane(db, laneByEpic('epic-a'), FLEET_ROW, deps())
 
       expect(res.worktreeCreated).to.equal(true)
-      expect(createdWorktrees).to.equal(1)
+      // herdr rejects create from a linked worktree (linked_worktree_source):
+      // the ms worktree (/wt/ms) must NOT be the source cwd — the project
+      // root (/b, from the projects table) must be.
+      expect(wsCwds).to.deep.equal(['/b'])
       const lane = laneByEpic('epic-a')
       expect(lane.status).to.equal('active')
       expect(lane.worktreePath).to.equal('/wt/epic-a-new')

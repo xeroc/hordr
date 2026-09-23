@@ -19,6 +19,10 @@ export interface CreateLaneDeps {
 }
 
 export interface CreateLaneOpts {
+  /**
+   * Main repo checkout — NOT the ms integration worktree. herdr rejects
+   * worktree create/open sourced from a linked worktree (linked_worktree_source).
+   */
   cwd: string
   epic: {id: string}
   fleet: {milestoneBeanId: string; msBranch: string; projectKey: string}

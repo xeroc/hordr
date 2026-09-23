@@ -713,7 +713,7 @@ export function createFleetEngine(config: HordrConfig, opts?: {maxLanes?: number
         logger.info(`creating lane for epic ${epic.id} (${epic.title}) in fleet ${fleet.milestoneBeanId}`)
         createLaneForEpic(
           {
-            cwd: fleet.worktreePath,
+            cwd: mainRepoCwd, // NOT fleet.worktreePath — herdr rejects create from a linked worktree
             epic,
             fleet: {milestoneBeanId: fleet.milestoneBeanId, msBranch: fleet.branch, projectKey: fleet.projectKey},
           },

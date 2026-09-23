@@ -20,6 +20,7 @@ import {
   ensureProject,
   type FleetRow,
   getFleet,
+  getProjectPath,
   type LaneLoc,
   type LaneRow,
   listLanes,
@@ -345,7 +346,10 @@ export function resetLane(db: Database.Database, lane: LaneRow, fleet: FleetRow,
   // Worktree gone? Recreate from the ms integration line (adapter handles
   // the already-exists recovery internally).
   if (!deps.worktreeExists(worktreePath)) {
-    const wt = deps.createWorkspace({base: fleet.branch, cwd: fleet.worktreePath, name: lane.branch})
+    // NOT fleet.worktreePath — herdr rejects worktree create/open sourced from
+    // a linked worktree (linked_worktree_source); start from the main repo.
+    const mainRepoCwd = getProjectPath(db, fleet.projectKey) ?? fleet.worktreePath
+    const wt = deps.createWorkspace({base: fleet.branch, cwd: mainRepoCwd, name: lane.branch})
     worktreePath = wt.path
     workspaceId = wt.workspaceId
     worktreeCreated = true
