@@ -47,7 +47,7 @@ async function invoke(args: string[]): Promise<RunResult> {
 
 const YAML = `
 hordr:
-  primary_branch: develop
+  default_vcs: git
 `
 const MS = 'hordr-ms1'
 const PK = 'pk-test'

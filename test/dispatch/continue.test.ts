@@ -14,7 +14,6 @@ const config: HordrConfig = {
   },
   default_harness: 'opencode',
   default_vcs: 'git',
-  primary_branch: 'develop',
 }
 
 const loc: LaneLoc = {epicId: 'epic-1', milestoneId: 'ms-1', projectKey: 'pk'}

@@ -57,18 +57,20 @@ parallel across epics; tasks within a lane are serialized. Each lane has a
 status: `active`, `idle`, `merging`, `conflict`, `done`, `uncommitted`.
 _Avoid:_ worker, thread, queue.
 
-**Integration Branch**
-The milestone-scoped branch (`ms/<milestone-id>`) created from the primary
-branch at fleet creation. Epic branches merge into it; it merges into the
-primary branch at fleet finish. Accumulates completed epics' code so
-newly-unblocked epics inherit it automatically (lazy creation).
-_Avoid:_ develop (that's the primary), base branch, staging.
+**Base Ref**
+The branch (git) or bookmark (jj) the invocation directory stands on when
+`hordr run` / `hordr prompt` / `hordr fleet create` is invoked — the default
+base for new worktrees/workspaces. `hordr fleet create` records it on the
+fleet row; fleet finish merges the integration line back into it. No
+configured trunk; `--base` overrides everywhere.
+_Avoid:_ primary branch (removed setting), default branch, trunk.
 
 **Worktree**
 An isolated git working directory created and owned by herdr. In fleet mode,
 each lane gets its own worktree branched from the integration branch; the
 fleet itself has a worktree on the integration branch. In single-bean mode,
-each `hordr run` gets a worktree branched from the primary branch. Removed
+each `hordr run` gets a worktree branched from the invocation directory's
+current ref. Removed
 when the owning merge succeeds.
 _Avoid:_ checkout, clone, copy.
 
@@ -150,11 +152,10 @@ _Avoid:_ conflict resolver, mediator.
 
 ## Boundaries
 
-**Primary Branch**
-The branch hordr treats as the base for worktrees and the target for fleet
-finishes. Configured as `primary_branch` (default: `develop`). Agents never
-touch `main`; `main` is release-only.
-_Avoid:_ trunk, master, default branch, main.
+**Integration Branch**
+The milestone-scoped line created from the base ref at fleet creation. Epic
+lanes merge into it; it merges back into the recorded base at fleet finish.
+_Avoid:_ develop, base branch, staging.
 
 **Storage Boundary**
 The strict separation between beans (work-state) and SQLite (process-state).

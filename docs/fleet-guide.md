@@ -176,10 +176,10 @@ Setting `hordr.default_vcs: jj` in `.beans.yml` switches the repo from the defau
 | ----------------------------------------------------------- | ---------------------------------------------------------------------- |
 | Lane = herdr worktree, branch-per-lane                      | Lane = jj workspace named after the bean id, created as a sibling directory of the main repo; lane head = the `<epic-id>@` revset |
 | Milestone integration branch `ms/<id>`                      | The ms workspace head                                                  |
-| Integration branches read by humans/CI                      | Bookmarks on primary plus a mirror bookmark on the ms line; colocation mirrors both to git branches, so humans and CI can keep reading git |
+| Integration branches read by humans/CI                      | Bookmarks on the recorded base plus a mirror bookmark on the ms line; colocation mirrors both to git branches, so humans and CI can keep reading git |
 | Epic merge: 3-tier (ff-only → no-ff → in-progress conflict for the merger agent) | Epic merge: `jj new @ <lane>@` — a merge commit; conflicts are first-class conflicted head commits, so the merger agent edits marker-conflicted files in a stable tree; there is no in-progress merge state |
 | Cross-epic refresh (ff-merge of the integration line into the lane) | Cross-epic refresh merges `ms@` into the lane workspace head         |
-| `fleet finish`: 3-tier merge ms → primary                   | Finishing a fleet merges the ms head into primary and moves the primary bookmark |
+| `fleet finish`: 3-tier merge ms → base                       | Finishing a fleet merges the ms head into the fleet's recorded base (the bookmark the human stood on at `fleet create`) and moves that bookmark |
 
 Nothing is ever pushed. Project identity (the clone-scoped storage key) works from inside jj workspaces — they have no `.git` — via a `jj git root` fallback.
 

@@ -57,6 +57,17 @@ export function resolveProjectKey(opts?: {cwd?: string}): string {
   return path.resolve(cwd, raw)
 }
 
+/**
+ * The project's main checkout: the directory holding the shared .git's
+ * parent — the git main worktree (linked worktrees resolve here too) or the
+ * jj default workspace. The stable cwd for fleet create (herdr rejects
+ * workspace creation from a linked worktree) and the fallback bean read
+ * when invoked from a workspace whose working copy predates the bean.
+ */
+export function resolveMainCheckout(opts?: {cwd?: string}): string {
+  return path.dirname(resolveProjectKeyOrMock(opts))
+}
+
 // --- test seam ---
 let _override: ((opts?: {cwd?: string}) => string) | null = null
 

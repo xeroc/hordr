@@ -47,7 +47,7 @@ hordr run <bean> [--role <name>] [--base <ref>] [--json]
 
 - `<bean>` — bean id (required). Hordr reads it via `beans show --json` to validate it exists and to inline its body into the prompt.
 - `--role` — agent role (default `implementer`). Must exist in `config.agents`.
-- `--base` — git base ref for the worktree (default `config.primary_branch`).
+- `--base` — base ref for the worktree (default: the current ref of the invocation directory — checked-out branch in git, nearest ancestor bookmark in jj).
 - `--json` — emit `{bean, branch, pane, role, workspace}`.
 
 Steps:
@@ -94,7 +94,6 @@ beans:
   id_length: 4
 
 hordr:
-  primary_branch: develop # worktree base
   worktree_branch_prefix: bean/ # → bean/<bean-id>
 
   company: # optional — Agent Companies package
@@ -115,7 +114,6 @@ hordr:
 
 | Field                    | Type    | Default   | Description                                            |
 | ------------------------ | ------- | --------- | ------------------------------------------------------ |
-| `primary_branch`         | string  | `develop` | Base ref for worktrees                                 |
 | `worktree_branch_prefix` | string  | `bean/`   | Worktree branch prefix → `bean/<bean-id>`              |
 | `company.path`           | string? | —         | Agent Companies package root (enables persona loading) |
 | `agents.<role>.harness`  | string  | —         | Harness binary on PATH                                 |

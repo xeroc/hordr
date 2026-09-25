@@ -2,6 +2,7 @@
 import type {Config} from '@oclif/core'
 
 import {expect} from 'chai'
+import {execFileSync} from 'node:child_process'
 import {mkdirSync, mkdtempSync, rmSync, writeFileSync} from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -60,7 +61,7 @@ async function invoke(args: string[]): Promise<RunResult> {
 
 const YAML = `
 hordr:
-  primary_branch: develop
+  default_vcs: git
 `
 
 const MILESTONE_BEAN = {
@@ -88,6 +89,8 @@ describe('commands/fleet/create', () => {
   let origLock: string | undefined
   let gitCalls: Array<{args: string[]; cwd: string}>
   let beanType: string
+  let wtCreateCalls: string[][]
+  let beanCalls: Array<{args: string[]; cwd?: string}>
 
   beforeEach(() => {
     configDir = mkdtempSync(path.join(os.tmpdir(), 'hordr-fc-cfg-'))
@@ -102,11 +105,26 @@ describe('commands/fleet/create', () => {
     process.chdir(configDir)
     gitCalls = []
     beanType = 'milestone'
+    wtCreateCalls = []
+    beanCalls = []
     _setGitRunnerForTesting(((args, opts): void => {
       gitCalls.push({args, cwd: opts.cwd})
     }) as GitRunner)
-    _setProjectKeyResolverForTesting(() => 'pk-test')
-    _setBeansShell(() => JSON.stringify({...MILESTONE_BEAN, type: beanType}))
+    // Real repo: currentRef resolves the unborn/current branch without the runner seam.
+    execFileSync('git', ['init', '-b', 'develop', configDir], {stdio: 'ignore'})
+    writeFileSync(path.join(configDir, 'seed.txt'), 'x')
+    execFileSync('git', ['add', '.'], {cwd: configDir, stdio: 'ignore'})
+    execFileSync(
+      'git',
+      ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-m', 'init'],
+      {cwd: configDir, stdio: 'ignore'},
+    )
+    // Absolute key so resolveMainCheckout lands inside the sandbox.
+    _setProjectKeyResolverForTesting(() => path.join(configDir, '.git'))
+    _setBeansShell((_cmd: string, args: string[], opts?: {cwd?: string}) => {
+      beanCalls.push({args, cwd: opts?.cwd})
+      return JSON.stringify({...MILESTONE_BEAN, type: beanType})
+    })
     // The check pass calls dispatch.ts's own beans seam (fetchEpics etc).
     // Mock it to report an epic-less milestone so scanFleet is a clean no-op.
     _setDispatchShell(() => JSON.stringify({bean: {children: []}}))
@@ -114,6 +132,7 @@ describe('commands/fleet/create', () => {
       if (args[0] === 'worktree' && args[1] === 'create') {
         // Real herdr creates the worktree dir; the mock must too, or the check
         // pass quarantines the fleet (worktree-gone → broken).
+        wtCreateCalls.push(args)
         const wtPath = configDir + '/ms-wt'
         mkdirSync(wtPath, {recursive: true})
         return JSON.stringify({result: {workspace: {workspace_id: 'w-ms'}, worktree: {path: wtPath}}})
@@ -147,15 +166,22 @@ describe('commands/fleet/create', () => {
 
     const db = openFleetDb()
     try {
-      const row = db.prepare('SELECT status, branch FROM fleets WHERE milestone_bean_id = ?').get('hordr-ms1') as {
+      const row = db.prepare('SELECT status, branch, base_ref FROM fleets WHERE milestone_bean_id = ?').get('hordr-ms1') as {
+        base_ref: string
         branch: string
         status: string
       }
       expect(row.status).to.equal('active')
       expect(row.branch).to.equal('hordr-ms1')
+      // Base = the invocation dir's current branch (develop), recorded for finish.
+      expect(row.base_ref).to.equal('develop')
     } finally {
       db.close()
     }
+
+    // herdr got --base develop (the sandbox repo's current branch)
+    expect(wtCreateCalls[0]).to.include('--base')
+    expect(wtCreateCalls[0]).to.include('develop')
   })
 
   it('--json emits milestone, branch, projectKey', async () => {
@@ -170,7 +196,7 @@ describe('commands/fleet/create', () => {
     expect(parsed).to.deep.equal({
       branch: 'hordr-ms1',
       milestone: 'hordr-ms1',
-      projectKey: 'pk-test',
+      projectKey: path.join(configDir, '.git'),
     })
   })
 
@@ -188,8 +214,36 @@ describe('commands/fleet/create', () => {
     const res = await invoke(['hordr-ms1', '--base', 'main'])
 
     expect(res.error, res.error?.message).to.be.undefined
-    // No git calls — herdr creates branch + worktree from the base ref
-    expect(gitCalls).to.have.length(0)
+    expect(wtCreateCalls[0]).to.include('main')
+  })
+
+  it('falls back to the main checkout when the invocation worktree cannot see the bean', async () => {
+    // The reported bug: `fleet create` from a jj/git workspace whose working
+    // copy predates the milestone bean → 'bean not found'. The bean must be
+    // re-read from the main checkout.
+    const wtDir = path.join(path.dirname(configDir), `${path.basename(configDir)}-wt`)
+    execFileSync('git', ['worktree', 'add', wtDir, '-b', 'spike'], {cwd: configDir, stdio: 'ignore'})
+    _setProjectKeyResolverForTesting(null) // real resolution: worktree → main .git
+    _setBeansShell((_cmd: string, args: string[], opts?: {cwd?: string}) => {
+      beanCalls.push({args, cwd: opts?.cwd})
+      if (opts?.cwd === wtDir) throw new Error('bean not found: hordr-ms1')
+      return JSON.stringify(MILESTONE_BEAN)
+    })
+    process.chdir(wtDir)
+
+    try {
+      const res = await invoke(['hordr-ms1'])
+
+      expect(res.error, res.error?.message).to.be.undefined
+      // First read fails in the workspace; the retry reaches the main checkout.
+      const cwds = beanCalls.filter((c) => c.args[0] === 'show').map((c) => c.cwd)
+      expect(cwds).to.include(configDir)
+      // Base = the workspace's own branch; ms workspace created from the MAIN checkout.
+      expect(wtCreateCalls[0]).to.include('spike')
+    } finally {
+      process.chdir(configDir)
+      rmSync(wtDir, {force: true, recursive: true})
+    }
   })
 
   it('errors when milestone id is missing', async () => {

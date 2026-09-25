@@ -59,8 +59,8 @@ describe('fleet/lifecycle', () => {
         db,
         MS,
         {
+          baseRef: PRIMARY,
           cwd: '/repo',
-          primaryBranch: PRIMARY,
           project: {beansPath: '/b', companyPath: null, configPath: '/c', projectKey: PK},
         },
         {
@@ -86,6 +86,9 @@ describe('fleet/lifecycle', () => {
       const fleet = getFleet(db, PK, MS)
       expect(fleet?.status).to.equal('active')
       expect(fleet?.branch).to.equal(MS)
+
+      // The base the fleet was created on is recorded — finish merges back into it.
+      expect(getFleet(db, PK, MS)?.baseRef).to.equal(PRIMARY)
       expect(res).to.deep.equal({branch: MS})
     })
 
@@ -136,8 +139,8 @@ describe('fleet/lifecycle', () => {
           db,
           MS,
           {
+            baseRef: PRIMARY,
             cwd: '/repo',
-            primaryBranch: PRIMARY,
             project: {beansPath: '/b', companyPath: null, configPath: '/c', projectKey: PK},
           },
           {
@@ -269,6 +272,9 @@ describe('fleet/lifecycle', () => {
         createWorkspace() {
           return {path: '/x', workspaceId: 'w'}
         },
+        currentRef() {
+          return 'develop'
+        },
         deleteRef(o) {
           vcsCalls.push(`deleteRef:${o.name}:${o.cwd}`)
         },
@@ -322,20 +328,20 @@ describe('fleet/lifecycle', () => {
     }
 
     it('merges ms/<id> into primary and deletes rows when milestone + epics complete', () => {
-      finishFleet(db, MS, {cwd: '/repo', mainRepoCwd: '/main', primaryBranch: PRIMARY, projectKey: PK}, deps())
+      finishFleet(db, MS, {baseRef: PRIMARY, cwd: '/repo', mainRepoCwd: '/main', projectKey: PK}, deps())
 
       expect(vcsCalls.includes(`merge:${PRIMARY}`)).to.be.true
       expect(getFleet(db, PK, MS)).to.be.undefined
     })
 
     it('deletes the ms ref after a successful merge (cwd = main repo)', () => {
-      finishFleet(db, MS, {cwd: '/repo', mainRepoCwd: '/main', primaryBranch: PRIMARY, projectKey: PK}, deps())
+      finishFleet(db, MS, {baseRef: PRIMARY, cwd: '/repo', mainRepoCwd: '/main', projectKey: PK}, deps())
 
       expect(vcsCalls).to.include(`deleteRef:${MS}:/main`)
     })
 
     it('tears down the ms workspace after a successful merge (cwd = main repo)', () => {
-      finishFleet(db, MS, {cwd: '/repo', mainRepoCwd: '/main', primaryBranch: PRIMARY, projectKey: PK}, deps())
+      finishFleet(db, MS, {baseRef: PRIMARY, cwd: '/repo', mainRepoCwd: '/main', projectKey: PK}, deps())
 
       expect(vcsCalls).to.include(`removeWorkspace:${MS}:/main`)
       expect(getFleet(db, PK, MS)).to.be.undefined
@@ -344,7 +350,7 @@ describe('fleet/lifecycle', () => {
     it('refuses when the milestone bean is not completed', () => {
       milestoneStatus = 'in-progress'
       expect(() =>
-        finishFleet(db, MS, {cwd: '/repo', mainRepoCwd: '/main', primaryBranch: PRIMARY, projectKey: PK}, deps()),
+        finishFleet(db, MS, {baseRef: PRIMARY, cwd: '/repo', mainRepoCwd: '/main', projectKey: PK}, deps()),
       ).to.throw(FleetError, /not completed/)
       expect(vcsCalls).to.have.length(0)
     })
@@ -355,7 +361,7 @@ describe('fleet/lifecycle', () => {
         {id: 'epic-2', status: 'in-progress'},
       ]
       expect(() =>
-        finishFleet(db, MS, {cwd: '/repo', mainRepoCwd: '/main', primaryBranch: PRIMARY, projectKey: PK}, deps()),
+        finishFleet(db, MS, {baseRef: PRIMARY, cwd: '/repo', mainRepoCwd: '/main', projectKey: PK}, deps()),
       ).to.throw(FleetError, /not all epics/)
       expect(vcsCalls).to.have.length(0)
     })
@@ -365,7 +371,7 @@ describe('fleet/lifecycle', () => {
       const result = finishFleet(
         db,
         MS,
-        {cwd: '/repo', mainRepoCwd: '/main', primaryBranch: PRIMARY, projectKey: PK},
+        {baseRef: PRIMARY, cwd: '/repo', mainRepoCwd: '/main', projectKey: PK},
         deps(),
       )
 
@@ -384,12 +390,12 @@ describe('fleet/lifecycle', () => {
 
     it('refuses when no fleet row exists', () => {
       expect(() =>
-        finishFleet(db, 'nope', {cwd: '/repo', mainRepoCwd: '/main', primaryBranch: PRIMARY, projectKey: PK}, deps()),
+        finishFleet(db, 'nope', {baseRef: PRIMARY, cwd: '/repo', mainRepoCwd: '/main', projectKey: PK}, deps()),
       ).to.throw(FleetError, /no fleet for nope/)
     })
 
     it('hordr-hmbq: defensively commits pending beans writes BEFORE workspace removal', () => {
-      finishFleet(db, MS, {cwd: '/repo', mainRepoCwd: '/main', primaryBranch: PRIMARY, projectKey: PK}, deps())
+      finishFleet(db, MS, {baseRef: PRIMARY, cwd: '/repo', mainRepoCwd: '/main', projectKey: PK}, deps())
 
       const commitIdx = vcsCalls.indexOf('commitPending')
       const removeIdx = vcsCalls.indexOf(`removeWorkspace:${MS}:/main`)
@@ -405,7 +411,7 @@ describe('fleet/lifecycle', () => {
       mergeOutcome = {message: 'uncommitted changes in /main', status: 'aborted'}
 
       expect(() =>
-        finishFleet(db, MS, {cwd: '/repo', mainRepoCwd: '/main', primaryBranch: PRIMARY, projectKey: PK}, deps()),
+        finishFleet(db, MS, {baseRef: PRIMARY, cwd: '/repo', mainRepoCwd: '/main', projectKey: PK}, deps()),
       ).to.throw(FleetError, /merge aborted/)
       expect(spawnedMergers, 'no phantom merger agent').to.have.length(0)
       expect(vcsCalls.filter((c) => c.startsWith('removeWorkspace')), 'no teardown on abort').to.deep.equal([])

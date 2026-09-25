@@ -2,7 +2,7 @@ import {Args, Command, Flags} from '@oclif/core'
 
 import {getBean} from '../beans/client.js'
 import {loadConfig} from '../config/loader.js'
-import {assertVcsReady, getVcsOrMock} from '../vcs/resolve.js'
+import {assertVcsReady, getVcsOrMock, resolveBaseRef} from '../vcs/resolve.js'
 
 /**
  * Finish a bean: assert it is `completed`, merge its working copy's head into
@@ -23,6 +23,7 @@ export default class Finish extends Command {
   static description = 'Merge a completed bean into primary, remove its workspace, and delete the ref (-d).'
   static examples = ['<%= config.bin %> <%= command.id %> hordr-1234']
   static flags = {
+    base: Flags.string({description: 'Branch/bookmark to merge into (defaults to the current ref of the invocation directory)'}),
     json: Flags.boolean({default: false, description: 'Emit machine-parseable JSON'}),
   }
 
@@ -34,6 +35,7 @@ export default class Finish extends Command {
     const beanId = args.bean
     const branch = beanId
     const cwd = process.cwd()
+    const target = flags.base ?? resolveBaseRef(vcs, cwd)
 
     // 1. Locate the bean's working copy (tolerate "already gone": a re-run
     //    after a successful finish has nothing left — fall back to main-repo
@@ -49,7 +51,7 @@ export default class Finish extends Command {
     if (vcs.kind === 'jj' && !ws) {
       this.error(
         `no jj workspace named '${branch}' found — the lane work must be merged manually ` +
-          `(jj new ${config.primary_branch} and resolve, or recreate the workspace)`,
+          `(jj new ${target} and resolve, or recreate the workspace)`,
       )
     }
 
@@ -58,16 +60,16 @@ export default class Finish extends Command {
     const mergeCwd = vcs.kind === 'jj' ? ws!.path! : cwd
     const outcome = vcs.mergeHeadIntoRef({
       cwd: mergeCwd,
-      message: `merge: ${beanId} → ${config.primary_branch}`,
-      ref: config.primary_branch,
+      message: `merge: ${beanId} → ${target}`,
+      ref: target,
       source: branch,
     })
     if (outcome.status === 'conflict') {
-      this.error(`merge of ${branch} into ${config.primary_branch} conflicted — resolve manually in ${mergeCwd}`)
+      this.error(`merge of ${branch} into ${target} conflicted — resolve manually in ${mergeCwd}`)
     }
 
     if (outcome.status === 'aborted') {
-      this.error(`merge of ${branch} into ${config.primary_branch} aborted: ${outcome.message}`)
+      this.error(`merge of ${branch} into ${target} aborted: ${outcome.message}`)
     }
 
     // 4. Remove the working copy (only if one was found).
@@ -91,7 +93,7 @@ export default class Finish extends Command {
       } catch (error) {
         this.warn(
           `branch '${branch}' not deleted: ${(error as Error).message}. ` +
-            `Merge landed in ${config.primary_branch}; orphaned ref needs manual cleanup.`,
+            `Merge landed in ${target}; orphaned ref needs manual cleanup.`,
         )
       }
     }
@@ -115,7 +117,7 @@ export default class Finish extends Command {
     }
 
     this.log(
-      `finished ${beanId}: merged ${branch} into ${config.primary_branch}` +
+      `finished ${beanId}: merged ${branch} into ${target}` +
         (workspaceId ? `, removed workspace ${workspaceId}` : '') +
         (refDeleted ? `, deleted branch ${branch}` : ''),
     )

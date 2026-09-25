@@ -98,6 +98,11 @@ export function createGitVcs(): Vcs {
       }
     },
 
+    currentRef(cwd: string): string {
+      // '' on detached HEAD (exit 0, empty stdout) and outside any repo.
+      return gitRead(['branch', '--show-current'], cwd).trim()
+    },
+
     deleteRef(opts: {cwd: string; force?: boolean; name: string}): void {
       // -d (safe, NEVER -D) by default: git refuses unmerged branches —
       // natural net. force opts in to discard (abort path).

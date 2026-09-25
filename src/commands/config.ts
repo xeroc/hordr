@@ -23,9 +23,6 @@ const EXAMPLE = `# ────────────────────�
 # must be merged by hand — this appends, it does not overwrite.)
 # ─────────────────────────────────────────────────────────────────────────────
 hordr:
-  # Branch that worktrees branch from and PRs merge back into.
-  primary_branch: develop
-
   # Harness binary used for any agent that does not set its own \`harness\`.
   # Flip this ONE line to repoint every persona at a different tool.
   #   opencode  (default)
@@ -34,6 +31,10 @@ hordr:
   #   omp       (OpenMultiAgent — note: gets @AGENTS.md injected)
   # An explicit agent.harness below always wins over default_harness.
   default_harness: opencode
+
+  # Version control system hordr drives: git (herdr worktrees) or jj
+  # (colocated workspaces). Per-repo property — one knob.
+  default_vcs: git
 
   # Optional: Agent Companies package (https://agentcompanies.io). When set,
   # agents/<role>/AGENTS.md bodies override the personas below with the

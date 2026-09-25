@@ -34,7 +34,7 @@ describe('commands/config', () => {
     // Top-level hordr block marker so `>> .beans.yml` produces a valid section
     expect(text).to.contain('hordr:')
     // Every documented knob must appear so the output is self-describing
-    expect(text).to.contain('primary_branch')
+    expect(text).to.contain('default_vcs')
     expect(text).to.contain('default_harness')
     expect(text).to.contain('agents:')
     expect(text).to.contain('harness:')

@@ -18,7 +18,7 @@ export default class Run extends Command {
     '<%= config.bin %> <%= command.id %> hordr-1234 --role reviewer',
   ]
   static flags = {
-    base: Flags.string({description: 'Base ref/branch for the worktree (defaults to config.primary_branch)'}),
+    base: Flags.string({description: 'Base branch/bookmark for the worktree (defaults to the current ref of the invocation directory)'}),
     json: Flags.boolean({default: false, description: 'Emit machine-parseable JSON'}),
     role: Flags.string({default: 'implementer', description: 'Agent role to spawn (from config.agents)'}),
   }

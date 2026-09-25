@@ -58,7 +58,8 @@ export interface CreateFleetResult {
 
 /**
  * Bootstrap a fleet for a milestone: validate the bean is a milestone, create
- * the milestone integration branch from primary, and register the fleet row.
+ * the milestone integration branch from the recorded base ref (the branch /
+ * bookmark the human stood on at `fleet create`), and register the fleet row.
  * Refuses if an active fleet already exists.
  *
  * Does NOT create lanes/worktrees — `hordr fleet check` does that lazily as
@@ -68,7 +69,7 @@ export interface CreateFleetResult {
 export async function createFleet(
   db: Database.Database,
   milestoneId: string,
-  opts: {cwd: string; primaryBranch: string; project: ProjectInfo},
+  opts: {baseRef: string; cwd: string; project: ProjectInfo},
   deps: CreateFleetDeps,
 ): Promise<CreateFleetResult> {
   const bean = deps.fetchBean(milestoneId)
@@ -86,13 +87,14 @@ export async function createFleet(
   const branch = milestoneId
 
   // Create the ms integration workspace in one shot: git — herdr worktree
-  // create --branch <milestoneId> --base <primary> (the worktree IS on the
+  // create --branch <milestoneId> --base <baseRef> (the worktree IS on the
   // milestone branch; epic merges land here, the scanner reads from here);
-  // jj — a workspace named <milestoneId> on top of the primary bookmark.
+  // jj — a workspace named <milestoneId> on top of the base bookmark.
   // The adapter tolerates re-creation (partial-failure retry) internally.
-  const msWs = deps.createWorkspace({base: opts.primaryBranch, cwd: opts.cwd, name: milestoneId})
+  const msWs = deps.createWorkspace({base: opts.baseRef, cwd: opts.cwd, name: milestoneId})
 
   registerFleet(db, {
+    baseRef: opts.baseRef,
     branch,
     createdAt: new Date().toISOString(),
     milestoneBeanId: milestoneId,
@@ -160,7 +162,7 @@ export interface FinishFleetResult {
 export function finishFleet(
   db: Database.Database,
   milestoneId: string,
-  opts: {cwd: string; mainRepoCwd: string; primaryBranch: string; projectKey: string},
+  opts: {baseRef: string; cwd: string; mainRepoCwd: string; projectKey: string},
   deps: FinishFleetDeps,
 ): FinishFleetResult {
   const fleet = getFleet(db, opts.projectKey, milestoneId)
@@ -190,8 +192,8 @@ export function finishFleet(
   const mergeCwd = deps.vcs.kind === 'jj' ? fleet.worktreePath : opts.mainRepoCwd
   const outcome: MergeOutcome = deps.vcs.mergeHeadIntoRef({
     cwd: mergeCwd,
-    message: `merge: ${milestoneId} → ${opts.primaryBranch}`,
-    ref: opts.primaryBranch,
+    message: `merge: ${milestoneId} → ${opts.baseRef}`,
+    ref: opts.baseRef,
     source: fleet.branch,
   })
 

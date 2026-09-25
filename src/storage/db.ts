@@ -75,6 +75,12 @@ export function openFleetDb(dbPath?: string): Database.Database {
 /** Apply the schema (idempotent). Safe to call on every daemon start. */
 export function applySchema(db: Database.Database): void {
   db.exec(SCHEMA_SQL)
+  // Post-ship column (base_ref): CREATE TABLE IF NOT EXISTS won't add it to
+  // an existing fleets table. Guarded ALTER = the whole migration story.
+  const cols = db.prepare('PRAGMA table_info(fleets)').all() as Array<{name: string}>
+  if (!cols.some((c) => c.name === 'base_ref')) {
+    db.exec("ALTER TABLE fleets ADD COLUMN base_ref TEXT NOT NULL DEFAULT ''")
+  }
 }
 
 const SCHEMA_SQL = `
@@ -91,6 +97,7 @@ CREATE TABLE IF NOT EXISTS fleets (
   milestone_bean_id TEXT NOT NULL,
   worktree_path     TEXT NOT NULL,
   project_root      TEXT NOT NULL DEFAULT '',
+  base_ref          TEXT NOT NULL DEFAULT '',
   branch            TEXT NOT NULL,
   status            TEXT NOT NULL,
   pane_id           TEXT,

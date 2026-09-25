@@ -1,31 +1,52 @@
 import {Args, Command, Flags} from '@oclif/core'
+import path from 'node:path'
 
-import {getBean} from '../../beans/client.js'
+import {type BeanRecord, getBean} from '../../beans/client.js'
 import {loadConfig} from '../../config/loader.js'
 import {createFleetEngine} from '../../dispatch/engine.js'
 import {createFleet} from '../../fleet/lifecycle.js'
 import {logger} from '../../logger.js'
 import {openFleetDb} from '../../storage/db.js'
 import {acquireFleetLock} from '../../storage/lock.js'
-import {resolveProjectKeyOrMock} from '../../storage/project.js'
-import {assertVcsReady, getVcsOrMock} from '../../vcs/resolve.js'
+import {resolveMainCheckout, resolveProjectKeyOrMock} from '../../storage/project.js'
+import {assertVcsReady, getVcsOrMock, resolveBaseRef} from '../../vcs/resolve.js'
 import {runFleetCheck} from './check.js'
+
+/**
+ * Read the milestone bean, tolerating invocation from a workspace (git
+ * worktree / jj workspace) whose working copy predates the bean: fall back
+ * to the main checkout, which holds the authoritative .beans/.
+ */
+function fetchMilestoneBean(id: string, cwd: string, mainRoot: string): BeanRecord {
+  try {
+    return getBean(id, {cwd})
+  } catch (error) {
+    if (mainRoot === cwd) throw error
+    return getBean(id, {cwd: mainRoot})
+  }
+}
 
 /**
  * hordr fleet create <milestone-id>
  *
- * Bootstrap a fleet for a milestone bean: validate it's a milestone, create the
- * ms/<id> integration branch from primary, register the fleet row, then run one
- * `fleet check` pass so lanes spawn immediately. Per-epic lanes are otherwise
- * created lazily by `hordr fleet check` (ADR-0014/0015). Refuses if a fleet is
- * already active for the milestone.
+ * Bootstrap a fleet for a milestone bean: validate it's a milestone, create
+ * the ms/<id> integration workspace based on the CURRENT ref (the branch /
+ * bookmark of the invocation directory — no configured trunk), register the
+ * fleet row with that base so `fleet finish` merges back into it, then run
+ * one `fleet check` pass so lanes spawn immediately. Per-epic lanes are
+ * otherwise created lazily by `hordr fleet check` (ADR-0014/0015). Refuses
+ * if a fleet is already active for the milestone.
+ *
+ * Works from any working copy of the project: git/beans operations run
+ * against the MAIN checkout (herdr rejects workspace creation from a linked
+ * worktree; the main checkout holds the authoritative .beans/).
  */
 export default class FleetCreate extends Command {
   static args = {milestone: Args.string({description: 'Milestone bean id', required: true})}
   static description = 'Bootstrap a fleet for a milestone bean.'
   static examples = ['<%= config.bin %> fleet create hordr-ab12']
   static flags = {
-    base: Flags.string({description: 'Base branch for ms/<id> (defaults to config.primary_branch)'}),
+    base: Flags.string({description: 'Base branch/bookmark for the fleet (defaults to the current ref of the invocation directory)'}),
     json: Flags.boolean({default: false, description: 'Emit machine-parseable JSON'}),
   }
 
@@ -33,14 +54,15 @@ export default class FleetCreate extends Command {
     const {args, flags} = await this.parse(FleetCreate)
     const milestoneId = args.milestone
 
-    getBean(milestoneId)
-
     const config = loadConfig()
     assertVcsReady(config, process.cwd())
-    const primary = flags.base ?? config.primary_branch
+    const vcs = getVcsOrMock(config)
     const cwd = process.cwd()
     const projectKey = resolveProjectKeyOrMock({cwd})
-    const vcs = getVcsOrMock(config)
+    const mainRoot = path.resolve(resolveMainCheckout({cwd}))
+    const baseRef = flags.base ?? resolveBaseRef(vcs, cwd)
+
+    fetchMilestoneBean(milestoneId, cwd, mainRoot)
 
     const db = openFleetDb()
     try {
@@ -48,12 +70,12 @@ export default class FleetCreate extends Command {
         db,
         milestoneId,
         {
-          cwd,
-          primaryBranch: primary,
+          baseRef,
+          cwd: mainRoot,
           project: {
-            beansPath: cwd,
+            beansPath: mainRoot,
             companyPath: config.company?.path ?? null,
-            configPath: cwd,
+            configPath: mainRoot,
             projectKey,
           },
         },
@@ -62,7 +84,7 @@ export default class FleetCreate extends Command {
             const ws = vcs.createWorkspace(opts)
             return {path: ws.path, workspaceId: ws.workspaceId}
           },
-          fetchBean: (id) => getBean(id),
+          fetchBean: (id) => fetchMilestoneBean(id, cwd, mainRoot),
         },
       )
 

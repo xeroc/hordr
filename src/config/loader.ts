@@ -35,8 +35,8 @@ export function loadConfig(pathArg?: string): HordrConfig {
   const configPath = pathArg ?? findConfigPath(process.cwd())
 
   // No config file found (and none passed explicitly) → load defaults. A
-  // missing .beans.yml must not be fatal: DEFAULT_AGENTS + primary_branch
-  // 'develop' make hordr work zero-config out of any directory.
+  // missing .beans.yml must not be fatal: DEFAULT_AGENTS
+  // make hordr work zero-config out of any directory.
   let doc: Record<string, unknown> = {}
   if (configPath) {
     let raw: unknown

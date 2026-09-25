@@ -287,7 +287,6 @@ beans:
 
 | Default              | Value      | Description                                   |
 | -------------------- | ---------- | --------------------------------------------- |
-| `primary_branch`     | `develop`  | Base ref for worktrees and merges             |
 | `default_vcs`        | `git`      | VCS adapter: `git` worktrees or `jj` colocated workspaces   |
 | `agents.implementer` | `opencode` | Fleet-shaped persona (one task, commit, done) |
 | `agents.tester`      | `opencode` | Fleet-shaped persona                          |
@@ -306,7 +305,6 @@ beans:
   prefix: hordr-
 
 hordr:
-  primary_branch: main
   agents:
     implementer:
       harness: opencode
@@ -328,7 +326,6 @@ beans:
   prefix: hordr-
 
 hordr:
-  primary_branch: develop
   company:
     path: /path/to/my-company # agents/<role>/AGENTS.md drives personas
   agents:
@@ -342,7 +339,6 @@ hordr:
 
 | Field                   | Type    | Default         | Description                                                        |
 | ----------------------- | ------- | --------------- | ------------------------------------------------------------------ |
-| `primary_branch`        | string  | `develop`       | Base ref for worktrees and fleet integration branches              |
 | `default_vcs`           | string  | `git`           | VCS adapter: `git` (worktrees) or `jj` (colocated workspaces)      |
 | `company.path`          | string? | —               | Agent Companies package root (or set `HORDR_COMPANY_PATH` env var) |
 | `agents.<role>.harness` | string  | `opencode`      | Harness binary on PATH                                             |
@@ -350,13 +346,20 @@ hordr:
 
 ### Using jj
 
-`default_vcs` is one knob per repo, like `primary_branch` — there is no per-agent override, because the VCS is a property of the repo:
+`default_vcs` is one knob per repo — there is no per-agent override, because the VCS is a property of the repo:
 
 ```yaml
 hordr:
-  primary_branch: develop
   default_vcs: git # or: jj
 ```
+
+There is no configured trunk branch. Every base is positional: `hordr run` /
+`hordr prompt` / `hordr fleet create` base their worktree/workspace on the
+CURRENT ref of the directory you invoke them from — git: the checked-out
+branch; jj: the nearest ancestor bookmark of the workspace head. `hordr
+fleet create` records that base on the fleet row; `hordr fleet finish` and
+`hordr finish` merge back into it (`--base` overrides everywhere). Detached
+HEAD or an un-bookmarked jj ancestry → pass `--base` explicitly.
 
 `git` (the default) is the historical behavior: herdr worktrees, branch-per-lane, 3-tier merges. `jj` switches the repo to jujutsu: each lane/epic becomes a jj workspace (a sibling directory of the main repo) with its head at the `<epic-id>@` revset, the milestone integration line is the ms workspace head, and epic merges are merge commits (`jj new @ <lane>@`) with conflicts as first-class conflicted head commits — no in-progress merge state. Bookmarks exist on primary and as a mirror on the ms line; colocation mirrors both to git branches, so humans and CI can keep reading git. Nothing is ever pushed.
 
@@ -415,8 +418,9 @@ hordr finish <bean> [--json]
 ```
 
 Verifies the bean is `completed` (reading from the worktree, not the main
-repo — the worktree has the up-to-date status), merges `<id>` into
-`primary_branch` via `--no-ff`, removes the worktree.
+repo — the worktree has the up-to-date status), merges `<id>` into the
+current branch of the invocation directory (`--base` to override) via
+`--no-ff`, removes the worktree.
 
 #### `hordr cleanup`
 
@@ -443,7 +447,7 @@ tear down with `hordr cleanup`-style `herdr worktree remove` when done.
 | `hordr fleet create <milestone>` | Create the milestone integration branch, scan for unblocked epics, start lanes.              |
 | `hordr fleet check`              | Advance every active fleet one step (scan + heal + merge + spawn). Run manually or via cron. |
 | `hordr fleet status <milestone>` | Show fleet state + all lanes (active/pending/merging/conflict/done).                         |
-| `hordr fleet finish <milestone>` | Assert all epics merged, 3-tier merge ms→primary, teardown.                                  |
+| `hordr fleet finish <milestone>` | Assert all epics merged, 3-tier merge ms→base (recorded at create), teardown.                                  |
 | `hordr fleet abort <milestone>`  | Stop all lanes. `--force` removes all worktrees + milestone branch.                          |
 | `hordr fleet reset <milestone>`  | Reset a lane from conflict/uncommitted — recreates worktree + pane if gone.                  |
 
@@ -543,7 +547,7 @@ serialized (one at a time, driven by `--blocked-by` chains).
 
 ```
 Fleet (milestone hordr-MS)
-├── milestone branch: ms/hordr-MS (from primary, at fleet create)
+├── milestone branch: ms/hordr-MS (from the current ref at fleet create)
 │
 ├── Lane: epic-1 (unblocked at start)
 │   ├── worktree from ms/hordr-MS → branch ms/hordr-MS/epic-1
@@ -587,7 +591,7 @@ crashed lane simply waits.
 
 ### Merge escalation: 3-tier (ff → no-ff → agent)
 
-Both epic→integration and integration→primary merges use the same 3-tier
+Both epic→integration and integration→base merges use the same 3-tier
 strategy:
 
 ```

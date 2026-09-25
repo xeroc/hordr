@@ -160,5 +160,33 @@ describe('storage/db', () => {
           .run(),
       ).to.throw()
     })
+
+    it('adds the base_ref column to a pre-base_ref fleets table (guarded ALTER)', () => {
+      // An old DB: fleets shipped before base_ref. Simulate by creating the
+      // legacy shape directly, then applySchema must upgrade it in place.
+      const legacy = new Database(':memory:')
+      legacy.exec(`
+        CREATE TABLE projects (
+          project_key TEXT PRIMARY KEY, config_path TEXT NOT NULL,
+          beans_path TEXT NOT NULL, company_path TEXT, registered_at TEXT NOT NULL);
+        CREATE TABLE fleets (
+          project_key TEXT NOT NULL REFERENCES projects(project_key),
+          milestone_bean_id TEXT NOT NULL, worktree_path TEXT NOT NULL,
+          project_root TEXT NOT NULL DEFAULT '', branch TEXT NOT NULL,
+          status TEXT NOT NULL, pane_id TEXT, created_at TEXT NOT NULL,
+          PRIMARY KEY (project_key, milestone_bean_id));
+      `)
+      legacy.exec("INSERT INTO projects VALUES ('pk', 'c', 'b', NULL, 'now')")
+      legacy.exec("INSERT INTO fleets (project_key, milestone_bean_id, worktree_path, branch, status, created_at) VALUES ('pk', 'ms1', '/wt', 'ms1', 'active', 'now')")
+
+      applySchema(legacy)
+
+      const cols = (legacy.prepare('PRAGMA table_info(fleets)').all() as Array<{name: string}>).map((c) => c.name)
+      expect(cols).to.include('base_ref')
+      // Existing rows survive with the default ''.
+      const row = legacy.prepare('SELECT base_ref FROM fleets WHERE milestone_bean_id = ?').get('ms1') as {base_ref: string}
+      expect(row.base_ref).to.equal('')
+      legacy.close()
+    })
   })
 })

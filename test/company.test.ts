@@ -259,7 +259,6 @@ Body without path.
       },
       default_harness: 'opencode',
       default_vcs: 'git' as const,
-      primary_branch: 'develop',
     }
 
     it('overrides persona from AGENTS.md body', () => {

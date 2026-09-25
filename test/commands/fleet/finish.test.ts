@@ -58,7 +58,7 @@ async function invoke(args: string[]): Promise<RunResult> {
 
 const YAML = `
 hordr:
-  primary_branch: develop
+  default_vcs: git
 `
 const MS = 'hordr-ms1'
 const PK = 'pk-test'
@@ -87,7 +87,7 @@ function seedFleet(dbFile: string, fleetStatus: string): void {
       '2026-01-01T00:00:00Z',
     )
     db.prepare(
-      'INSERT INTO fleets (project_key, milestone_bean_id, worktree_path, branch, status, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+      "INSERT INTO fleets (project_key, milestone_bean_id, worktree_path, base_ref, branch, status, created_at) VALUES (?, ?, ?, 'develop', ?, ?, ?)",
     ).run(PK, MS, '/repo', `ms/${MS}`, fleetStatus, '2026-01-01T00:00:00Z')
   } finally {
     db.close()
@@ -242,8 +242,8 @@ describe('commands/fleet/finish', () => {
         '2026-01-01T00:00:00Z',
       )
       db.prepare(
-        'INSERT INTO fleets (project_key, milestone_bean_id, worktree_path, project_root, branch, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      ).run(PK, MS, '/repo', '/custom/main-repo', `ms/${MS}`, 'active', '2026-01-01T00:00:00Z')
+        'INSERT INTO fleets (project_key, milestone_bean_id, worktree_path, project_root, base_ref, branch, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      ).run(PK, MS, '/repo', '/custom/main-repo', 'develop', `ms/${MS}`, 'active', '2026-01-01T00:00:00Z')
     } finally {
       db.close()
     }

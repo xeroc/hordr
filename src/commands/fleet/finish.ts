@@ -7,7 +7,7 @@ import {spawnMerger} from '../../dispatch/merger.js'
 import {finishFleet} from '../../fleet/lifecycle.js'
 import {openFleetDb} from '../../storage/db.js'
 import {getFleetByMilestone} from '../../storage/fleets.js'
-import {assertVcsReady, getVcsOrMock} from '../../vcs/resolve.js'
+import {assertVcsReady, getVcsOrMock, resolveBaseRef} from '../../vcs/resolve.js'
 /**
  * hordr fleet finish <milestone-id>
  *
@@ -23,7 +23,7 @@ export default class FleetFinish extends Command {
   static description = 'Merge a completed fleet into primary and tear it down.'
   static examples = ['<%= config.bin %> fleet finish hordr-ab12']
   static flags = {
-    base: Flags.string({description: 'Primary branch to merge into (defaults to config.primary_branch)'}),
+    base: Flags.string({description: 'Branch/bookmark to merge into (defaults to the fleet\u2019s recorded base, else the main repo\u2019s current ref)'}),
     json: Flags.boolean({default: false, description: 'Emit machine-parseable JSON'}),
   }
 
@@ -32,7 +32,6 @@ export default class FleetFinish extends Command {
     const config = loadConfig()
     assertVcsReady(config, process.cwd())
     const vcs = getVcsOrMock(config)
-    const primary = flags.base ?? config.primary_branch
 
     const milestoneId = args.milestone
 
@@ -44,15 +43,20 @@ export default class FleetFinish extends Command {
         this.error(`no fleet for ${milestoneId}`)
       }
 
+      const mainRepoCwd = fleet.projectRoot || process.cwd()
+      // Recorded base first (where the human stood at create); pre-base_ref
+      // fleets fall back to the main repo's current ref.
+      const base = flags.base ?? (fleet.baseRef || resolveBaseRef(vcs, mainRepoCwd))
+
       const msCwd = fleet.worktreePath
 
       const result = finishFleet(
         db,
         milestoneId,
         {
+          baseRef: base,
           cwd: msCwd,
-          mainRepoCwd: fleet.projectRoot || process.cwd(),
-          primaryBranch: primary,
+          mainRepoCwd,
           projectKey: fleet.projectKey,
         },
         {
@@ -61,7 +65,7 @@ export default class FleetFinish extends Command {
           spawnMerger: (opts) =>
             spawnMerger({
               config,
-              ctx: {conflictedFiles: opts.conflictedFiles, sourceBranch: fleet.branch, targetBranch: primary},
+              ctx: {conflictedFiles: opts.conflictedFiles, sourceBranch: fleet.branch, targetBranch: base},
               cwd: opts.cwd,
               mainRepoCwd: opts.mainRepoCwd,
             }),
@@ -70,9 +74,9 @@ export default class FleetFinish extends Command {
       )
 
       if (flags.json) {
-        this.log(JSON.stringify({branch: result.branch, merged: result.merged, milestone: milestoneId, primary}))
+        this.log(JSON.stringify({base, branch: result.branch, merged: result.merged, milestone: milestoneId}))
       } else if (result.merged) {
-        this.log(`finished fleet ${milestoneId}: merged ${result.branch} into ${primary}`)
+        this.log(`finished fleet ${milestoneId}: merged ${result.branch} into ${base}`)
       } else {
         this.log(
           `fleet ${milestoneId}: merge conflicted — spawned merger agent (pane=${result.conflictPaneId}). ` +

@@ -9,7 +9,7 @@ import process from 'node:process'
 import {loadConfig} from './config/loader.js'
 import {launchAgent as harnessLaunchAgent, launchHarness as harnessLaunchHarness} from './harness/launcher.js'
 import {HerdrError, removeWorktree} from './herdr/worktree.js'
-import {getVcsOrMock} from './vcs/resolve.js'
+import {getVcsOrMock, resolveBaseRef} from './vcs/resolve.js'
 
 /** Lazy git runner. Mockable for tests. Default shells out synchronously. */
 export type GitRunner = (args: string[], opts: {cwd: string}) => void
@@ -52,8 +52,9 @@ export function createDeps(): HordrDeps {
   return {
     createWorktree(name: string, opts?: {base?: string}): {branch: string; path?: string; workspaceId: string} {
       const config = loadConfig()
-      const base = opts?.base ?? config.primary_branch
-      const ws = getVcsOrMock(config).createWorkspace({base, cwd: process.cwd(), name})
+      const vcs = getVcsOrMock(config)
+      const base = opts?.base ?? resolveBaseRef(vcs, process.cwd())
+      const ws = vcs.createWorkspace({base, cwd: process.cwd(), name})
       return {branch: name, path: ws.path, workspaceId: ws.workspaceId}
     },
 

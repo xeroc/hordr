@@ -19,7 +19,6 @@ const config: HordrConfig = {
   },
   default_harness: 'opencode',
   default_vcs: 'git',
-  primary_branch: 'develop',
 }
 
 describe('dispatch (lane flow integration)', () => {

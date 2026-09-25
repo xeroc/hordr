@@ -1,5 +1,6 @@
 /* eslint-disable camelcase -- mirrors snake_case JSON contract from herdr CLI */
 import {expect} from 'chai'
+import {execFileSync} from 'node:child_process'
 import {mkdtempSync, rmSync, writeFileSync} from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -49,7 +50,7 @@ const OPEN_RESULT = {
 
 const YAML = `
 hordr:
-  primary_branch: develop
+  default_vcs: git
 `
 
 describe('runtime / createDeps.createWorktree', () => {
@@ -59,6 +60,8 @@ describe('runtime / createDeps.createWorktree', () => {
   beforeEach(() => {
     configDir = mkdtempSync(path.join(os.tmpdir(), 'hordr-rt-cfg-'))
     writeFileSync(path.join(configDir, '.beans.yml'), YAML)
+    // Real repo on develop — the default worktree base is the current branch.
+    execFileSync('git', ['init', '-b', 'develop', configDir], {stdio: 'ignore'})
     origCwd = process.cwd()
     process.chdir(configDir)
     calls = []
@@ -76,7 +79,7 @@ describe('runtime / createDeps.createWorktree', () => {
     _resetGitRunner()
   })
 
-  it('passes --base develop (from config) by default', () => {
+  it('passes --base <current branch> by default (no configured trunk)', () => {
     responder = () => JSON.stringify({id: 'cli:worktree:create', result: OPEN_RESULT})
     const deps = createDeps()
     const info = deps.createWorktree('hordr-999')

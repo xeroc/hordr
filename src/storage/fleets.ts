@@ -46,6 +46,8 @@ export function getProjectPath(db: Database.Database, projectKey: string): strin
 // --- fleet ---
 
 export interface FleetRow {
+  /** Ref the fleet was based on (current branch/bookmark at create). Merge-back target. '' = pre-base_ref fleets. */
+  baseRef?: string
   branch: string
   createdAt: string
   milestoneBeanId: string
@@ -59,6 +61,7 @@ export interface FleetRow {
 }
 
 interface FleetDbRow {
+  base_ref: null | string
   branch: string
   created_at: string
   milestone_bean_id: string
@@ -71,6 +74,7 @@ interface FleetDbRow {
 
 function toFleetRow(r: FleetDbRow): FleetRow {
   return {
+    baseRef: r.base_ref ?? '',
     branch: r.branch,
     createdAt: r.created_at,
     milestoneBeanId: r.milestone_bean_id,
@@ -83,18 +87,30 @@ function toFleetRow(r: FleetDbRow): FleetRow {
 }
 
 export function registerFleet(db: Database.Database, row: FleetRow): void {
+  // Upsert: `hordr fleet create` is ALSO the documented recovery for a
+  // broken/quarantined fleet — the stale row must be revived, not
+  // PK-conflict. pane_id clears; created_at keeps the original.
   db.prepare(
-    'INSERT INTO fleets (project_key, milestone_bean_id, worktree_path, project_root, branch, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    `INSERT INTO fleets (project_key, milestone_bean_id, worktree_path, project_root, base_ref, branch, status, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(project_key, milestone_bean_id) DO UPDATE SET
+       worktree_path = excluded.worktree_path,
+       project_root  = excluded.project_root,
+       base_ref      = excluded.base_ref,
+       status        = excluded.status,
+       pane_id       = NULL`,
   ).run(
     row.projectKey,
     row.milestoneBeanId,
     row.worktreePath,
     row.projectRoot ?? '',
+    row.baseRef ?? '',
     row.branch,
     row.status,
     row.createdAt,
   )
 }
+
 
 export function getFleet(db: Database.Database, projectKey: string, milestoneId: string): FleetRow | undefined {
   const r = db

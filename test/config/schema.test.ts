@@ -10,7 +10,7 @@ const VALID_YAML = `
 beans:
   path: .beans
 hordr:
-  primary_branch: develop
+  default_vcs: git
   agents:
     implementer:
       harness: opencode
@@ -39,7 +39,7 @@ hordr:
 
 const NO_PERSONA_YAML = `
 hordr:
-  primary_branch: develop
+  default_vcs: git
   agents:
     implementer:
       harness: opencode
@@ -49,7 +49,7 @@ const COMPANY_NULL_YAML = `
 hordr:
   company:
     # path: /tmp/foo
-  primary_branch: develop
+  default_vcs: git
   agents:
     implementer:
       harness: opencode
@@ -77,7 +77,7 @@ describe('config/schema', () => {
 
   it('parses a valid config and returns a typed object', () => {
     const cfg = loadConfig(write(VALID_YAML))
-    expect(cfg.primary_branch).to.equal('develop')
+    expect(cfg.default_vcs).to.equal('git')
     expect(cfg.agents).to.have.property('implementer')
     expect(cfg.agents.implementer!.harness).to.equal('opencode')
     expect(cfg.agents).to.have.property('reviewer')
@@ -95,7 +95,7 @@ describe('config/schema', () => {
   it('returns defaults with no config file present (zero-config) — no ConfigError', () => {
     // chdir into a temp dir whose ancestry has no .beans.yml so the upward
     // search returns undefined. loadConfig() with no pathArg must NOT throw —
-    // it falls back to DEFAULT_AGENTS + primary_branch 'develop'.
+    // it falls back to DEFAULT_AGENTS.
     const origCwd = process.cwd()
     process.chdir(dir)
     try {
@@ -105,7 +105,7 @@ describe('config/schema', () => {
       _resetCompanyContext()
 
       const cfg = loadConfig()
-      expect(cfg.primary_branch).to.equal('develop')
+      expect(cfg.default_vcs).to.equal('git')
       expect(cfg.agents).to.have.property('implementer')
       expect(cfg.agents.implementer!.harness).to.equal('opencode')
       expect(cfg.agents.implementer!.persona).to.be.a('string').with.length.greaterThan(0)

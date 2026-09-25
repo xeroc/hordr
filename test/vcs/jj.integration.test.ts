@@ -149,6 +149,22 @@ describe('vcs/jj integration (real jj)', () => {
     expect(vcs.projectKey(repo)).to.match(/\.git$/)
   })
 
+  it('currentRef: nearest ancestor bookmark; workspace-ahead reports the bookmark; none → ""', () => {
+    // No bookmark exists yet on the main line — set one on the parked head.
+    jj(['bookmark', 'set', 'develop', '-r', '@'], repo)
+    expect(vcs.currentRef(repo)).to.equal('develop')
+
+    // A workspace ahead of the bookmark (uncommitted WIP, snapshotted) still
+    // reports the bookmark — the "current branch" of the workspace.
+    const spike = vcs.createWorkspace({base: 'develop', cwd: repo, name: 'spike'})
+    fs.writeFileSync(path.join(spike.path, 'a.txt'), 'spike wip\n')
+    expect(vcs.currentRef(spike.path)).to.equal('develop')
+
+    // Un-bookmarked ancestry → '' (caller must demand an explicit --base).
+    vcs.deleteRef({cwd: repo, name: 'develop'})
+    expect(vcs.currentRef(spike.path)).to.equal('')
+  })
+
   it('commitPending commits an undescribed head once, then is a no-op (idempotent)', () => {
     expect(vcs.commitPending({cwd: repo, message: 'chore(beans): rollup'})).to.be.false // @ is the parked empty head
 

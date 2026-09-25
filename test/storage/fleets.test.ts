@@ -39,6 +39,7 @@ function seedFleet(db: Database.Database): void {
   })
 }
 
+
 describe('storage/fleets', () => {
   let db: Database.Database
 
@@ -95,6 +96,7 @@ describe('storage/fleets', () => {
       })
       const got = getFleet(db, PK, MS)
       expect(got).to.deep.equal({
+        baseRef: '',
         branch: 'hordr-ms1',
         createdAt: NOW,
         milestoneBeanId: MS,
@@ -135,25 +137,36 @@ describe('storage/fleets', () => {
       expect(getFleetByMilestone(db, 'nope')).to.be.undefined
     })
 
-    it('registerFleet rejects duplicate (composite PK)', () => {
+    it('registerFleet upserts: broken-fleet recovery via `fleet create` revives the row', () => {
+      // The quarantine message recommends 'hordr fleet create <ms>' as the
+      // recovery — re-registering a stale (broken) row must revive it, not
+      // PK-conflict. pane_id clears; created_at keeps the original.
       registerFleet(db, {
+        branch: 'hordr-ms1',
+        createdAt: '2026-01-01T00:00:00Z',
+        milestoneBeanId: MS,
+        projectKey: PK,
+        status: 'active',
+        worktreePath: '/wt-old',
+      })
+      db.prepare('UPDATE fleets SET status = ?, pane_id = ? WHERE milestone_bean_id = ?').run('broken', 'stale-pane', MS)
+
+      registerFleet(db, {
+        baseRef: 'develop',
         branch: 'hordr-ms1',
         createdAt: NOW,
         milestoneBeanId: MS,
         projectKey: PK,
         status: 'active',
-        worktreePath: '/wt',
+        worktreePath: '/wt-new',
       })
-      expect(() =>
-        registerFleet(db, {
-          branch: 'ms/x',
-          createdAt: NOW,
-          milestoneBeanId: MS,
-          projectKey: PK,
-          status: 'active',
-          worktreePath: '/wt2',
-        }),
-      ).to.throw()
+
+      const revived = getFleet(db, PK, MS)!
+      expect(revived.status).to.equal('active')
+      expect(revived.worktreePath).to.equal('/wt-new')
+      expect(revived.baseRef).to.equal('develop')
+      expect(revived.paneId).to.be.null
+      expect(revived.createdAt).to.equal('2026-01-01T00:00:00Z')
     })
 
     it('deleteFleet removes the row', () => {

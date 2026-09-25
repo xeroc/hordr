@@ -79,3 +79,18 @@ export function assertVcsReady(config: Pick<HordrConfig, 'default_vcs'>, cwd: st
     )
   }
 }
+
+/**
+ * The base every "wherever I stand" default resolves to: the working copy's
+ * current ref. Throws VcsError with an actionable message when there isn't
+ * one (detached HEAD / un-bookmarked ancestry) — callers surface --base.
+ */
+export function resolveBaseRef(vcs: Pick<Vcs, 'currentRef' | 'kind'>, cwd: string): string {
+  const ref = vcs.currentRef(cwd)
+  if (ref) return ref
+  throw new VcsError(
+    vcs.kind === 'jj'
+      ? `no bookmark in the working copy's ancestry (${cwd}) — pass --base <bookmark>`
+      : `no branch checked out at ${cwd} (detached HEAD or not a repo) — pass --base <branch>`,
+  )
+}

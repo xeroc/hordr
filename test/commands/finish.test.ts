@@ -2,6 +2,7 @@
 import type {Config} from '@oclif/core'
 
 import {expect} from 'chai'
+import {execFileSync} from 'node:child_process'
 import {mkdtempSync, rmSync, writeFileSync} from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -65,7 +66,6 @@ async function invoke(args: string[]): Promise<RunResult> {
 
 const YAML = `
 hordr:
-  primary_branch: develop
   agents:
     implementer:
       harness: opencode
@@ -115,6 +115,13 @@ describe('commands/finish', () => {
   beforeEach(() => {
     configDir = mkdtempSync(path.join(os.tmpdir(), 'hordr-fin-cfg-'))
     writeFileSync(path.join(configDir, '.beans.yml'), YAML)
+    // Real repo on branch develop: the merge target is the CURRENT branch now.
+    execFileSync('git', ['init', '-b', 'develop', configDir], {stdio: 'ignore'})
+    execFileSync('git', ['add', '.beans.yml'], {cwd: configDir, stdio: 'ignore'})
+    execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-m', 'cfg'], {
+      cwd: configDir,
+      stdio: 'ignore',
+    })
     origCwd = process.cwd()
     process.chdir(configDir)
     wtCalls = []

@@ -28,7 +28,6 @@ export const HordrConfigSchema = z.object({
   // (colocated jj workspaces). Per-repo property — one knob, no per-agent
   // override. jj mode requires a colocated repo (see src/vcs/resolve.ts).
   default_vcs: z.enum(['git', 'jj']).default('git'),
-  primary_branch: z.string().min(1).default('develop'),
 })
 
 export type HordrConfig = z.infer<typeof HordrConfigSchema>

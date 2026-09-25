@@ -7,6 +7,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
 import type {HordrConfig} from '../../src/config/schema.js'
+import type {Vcs} from '../../src/vcs/types.js'
 
 import {
   _resetShell as _resetBeansShell,
@@ -28,12 +29,12 @@ import {_resetGitRunner, _setGitRunnerForTesting, type GitRunner} from '../../sr
 import {applySchema, openDb} from '../../src/storage/db.js'
 import {addLane, ensureProject, getFleet, listLanes, registerFleet} from '../../src/storage/fleets.js'
 import {_resetShell as _resetJjShell, _setShellForTesting as _setJjShell} from '../../src/vcs/jj-vcs.js'
+import {_setVcsForTesting} from '../../src/vcs/resolve.js'
 
 const config: HordrConfig = {
   agents: {implementer: {harness: 'opencode', persona: 'impl'}},
   default_harness: 'opencode',
   default_vcs: 'git' as const,
-  primary_branch: 'develop',
 }
 
 // getDispatchable (dispatch.ts) calls the shell twice: a `beans query` (subtree)
@@ -194,6 +195,82 @@ describe('dispatch/engine', () => {
       // Merger pane is dead (no herdr in test env → fetchPanes returns null),
       // isMergeComplete returns false (not a real git repo) → fleet → 'conflict'.
       expect(getFleet(db, 'pk1', 'ms1')!.status).to.equal('conflict')
+    })
+
+    it('jj: settles a resolved ms→base merge by moving the recorded base bookmark, then tears down', () => {
+      registerFleet(db, {
+        baseRef: 'develop',
+        branch: 'ms/ms1',
+        createdAt: '2026-07-16T00:00:00Z',
+        milestoneBeanId: 'ms1',
+        paneId: null,
+        projectKey: 'pk1',
+        status: 'merging',
+        worktreePath: wt,
+      })
+
+      const ops: string[] = []
+      _setVcsForTesting({
+        commitPending: () => false,
+        deleteRef(o: {name: string}) {
+          ops.push(`deleteRef:${o.name}`)
+        },
+        finalizeIntegration(o: {target?: string}) {
+          ops.push(`finalize:${o.target ?? ''}`)
+        },
+        isIntegrationSettled: () => true,
+        kind: 'jj',
+        removeWorkspace(o: {name: string}) {
+          ops.push(`remove:${o.name}`)
+        },
+      } as unknown as Vcs)
+
+      try {
+        createFleetEngine(config).scanFleet(db)
+
+        expect(ops[0]).to.equal('finalize:develop')
+        expect(ops).to.include('remove:ms/ms1')
+        expect(getFleet(db, 'pk1', 'ms1')).to.be.undefined
+      } finally {
+        _setVcsForTesting(null)
+      }
+    })
+
+    it('jj: a resolved merge with NO recorded base parks in conflict — never tears down (data-loss guard)', () => {
+      registerFleet(db, {
+        branch: 'ms/ms1',
+        createdAt: '2026-07-16T00:00:00Z',
+        milestoneBeanId: 'ms1',
+        paneId: null,
+        projectKey: 'pk1',
+        status: 'merging',
+        worktreePath: wt,
+      })
+
+      const ops: string[] = []
+      _setVcsForTesting({
+        commitPending: () => false,
+        deleteRef() {
+          ops.push('deleteRef')
+        },
+        finalizeIntegration() {
+          ops.push('finalize')
+        },
+        isIntegrationSettled: () => true,
+        kind: 'jj',
+        removeWorkspace() {
+          ops.push('remove')
+        },
+      } as unknown as Vcs)
+
+      try {
+        createFleetEngine(config).scanFleet(db)
+
+        expect(ops).to.deep.equal([]) // no bookmark move, no teardown
+        expect(getFleet(db, 'pk1', 'ms1')!.status).to.equal('conflict')
+      } finally {
+        _setVcsForTesting(null)
+      }
     })
   })
 

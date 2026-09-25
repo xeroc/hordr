@@ -60,6 +60,16 @@ export interface Vcs {
   createWorkspace(opts: {base: string; cwd: string; name: string}): WorkspaceRef
 
   /**
+   * The ref the working copy at `cwd` stands on — hordr's "current branch":
+   * the default base for new workspaces and merge-back target. git: the
+   * checked-out branch ('' on detached HEAD). jj: the nearest ancestor
+   * bookmark of the workspace head ('' when the ancestry has none) — a
+   * workspace ahead of its bookmark reports the bookmark; pass an explicit
+   * base to build on un-bookmarked WIP.
+   */
+  currentRef(cwd: string): string
+
+  /**
    * Delete an integration ref (branch/bookmark). Safe no-op when absent;
    * git uses the safe `-d` (refuses unmerged).
    */

@@ -151,6 +151,22 @@ export function createJjVcs(deps: JjVcsDeps = {}): Vcs {
       return {path: dest, workspaceId: herdrCreate({cwd: dest, label: opts.name}).workspaceId}
     },
 
+    currentRef(cwd) {
+      // The nearest ancestor bookmark of the workspace head — jj's "current
+      // branch". A workspace ahead of its bookmark reports the bookmark; an
+      // un-bookmarked ancestry reports '' (caller demands an explicit base).
+      try {
+        return (
+          run(['log', '-r', 'heads(::@ & bookmarks())', '--no-graph', '-T', 'bookmarks'], cwd)
+            .trim()
+            .split(/\s+/)
+            .find(Boolean) ?? ''
+        )
+      } catch {
+        return ''
+      }
+    },
+
     deleteRef(opts) {
       // jj exits 0 ("No bookmarks to delete") on absent names — natively
       // tolerant. `force` is git's `-D` concern; jj bookmarks carry no

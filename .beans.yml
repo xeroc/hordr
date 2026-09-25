@@ -5,7 +5,6 @@ beans:
   default_status: todo
   default_type: task
 hordr:
-  primary_branch: develop
   worktree_branch_prefix: bean/
   # default_harness: opencode   # one knob for all personas; per-agent harness wins if set
   agents:

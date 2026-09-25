@@ -18,7 +18,7 @@ export default class Prompt extends Command {
     '<%= config.bin %> <%= command.id %> spike-auth --base main',
   ]
   static flags = {
-    base: Flags.string({description: 'Base ref/branch for the worktree (defaults to config.primary_branch)'}),
+    base: Flags.string({description: 'Base branch/bookmark for the worktree (defaults to the current ref of the invocation directory)'}),
     json: Flags.boolean({default: false, description: 'Emit machine-parseable JSON'}),
   }
 

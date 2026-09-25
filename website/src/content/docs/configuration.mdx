@@ -1,6 +1,6 @@
 ---
 title: Configuration
-description: Configure primary branch, roles, harnesses, and personas in .beans.yml.
+description: Configure VCS mode, roles, harnesses, and personas in .beans.yml.
 ---
 
 Hordr is zero-config: a `.beans.yml` with just a `beans:` block is enough.
@@ -15,13 +15,12 @@ beans:
   # …beans settings…
 ```
 
-That's it. `primary_branch` defaults to `develop`.
+That's it. There's no trunk branch to configure — worktrees base on the current ref of wherever you invoke hordr.
 
 ## Full shape
 
 ```yaml
 hordr:
-  primary_branch: develop
   agents:
     implementer:
       harness: opencode
@@ -38,7 +37,7 @@ hordr:
 
 | Field            | Default     | Notes                                                     |
 | ---------------- | ----------- | --------------------------------------------------------- |
-| `primary_branch` | `develop`   | The branch `hordr finish` merges into.                    |
+
 | `agents`         | *(map)*     | Role name → `{harness, persona?}`. Merged over defaults.  |
 | `company`        | *(unset)*   | Path to an Agent Companies package (AGENTS.md, skills).   |
 

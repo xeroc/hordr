@@ -654,8 +654,20 @@ export function createFleetEngine(config: HordrConfig, opts?: {maxLanes?: number
 
         // Pane dead — check integration state.
         if (vcs.isIntegrationSettled({cwd: fleet.worktreePath, source: fleet.branch, target: fleet.branch})) {
-          logger.info(`fleet ${fleet.milestoneBeanId}: merger resolved ms→primary conflicts — finishing`)
-          vcs.finalizeIntegration({cwd: fleet.worktreePath, target: config.primary_branch})
+          // jj moves the base bookmark to the resolved merge here; without a
+          // recorded base there is nowhere to move it — teardown would drop
+          // the resolved work with the ms workspace. Park for a human.
+          if (vcs.kind === 'jj' && !fleet.baseRef) {
+            logger.error(
+              `fleet ${fleet.milestoneBeanId}: merger resolved ms→base conflicts but no base ref is recorded — ` +
+                `move it manually (jj bookmark set <base> -r @ in ${fleet.worktreePath}) and re-run 'hordr fleet check'`,
+            )
+            updateFleetStatus(db, fleet.projectKey, fleet.milestoneBeanId, 'conflict')
+            continue
+          }
+
+          logger.info(`fleet ${fleet.milestoneBeanId}: merger resolved ms→base conflicts — finishing`)
+          vcs.finalizeIntegration({cwd: fleet.worktreePath, target: fleet.baseRef || undefined})
           finishFleetTeardown(vcs, db, fleet, {mainRepoCwd})
           advanced++
         } else {

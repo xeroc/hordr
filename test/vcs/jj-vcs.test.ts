@@ -63,6 +63,35 @@ describe('vcs/jj-vcs', () => {
     })
   })
 
+  describe('currentRef', () => {
+    it('returns the nearest ancestor bookmark of the workspace head', () => {
+      const {calls, shell} = mockShell(() => 'develop\n')
+      _setShellForTesting(shell)
+
+      expect(createJjVcs().currentRef('/w/repo')).to.equal('develop')
+      expect(calls[0].args).to.deep.equal([
+        'log',
+        '-r',
+        'heads(::@ & bookmarks())',
+        '--no-graph',
+        '-T',
+        'bookmarks',
+      ])
+    })
+
+    it('takes the first of several bookmarks and tolerates probe failure ("")', () => {
+      const {shell} = mockShell(() => 'main release\n')
+      _setShellForTesting(shell)
+      expect(createJjVcs().currentRef('/w/repo')).to.equal('main')
+
+      const {shell: failShell} = mockShell(() => {
+        throw new Error('jj probe boom')
+      })
+      _setShellForTesting(failShell)
+      expect(createJjVcs().currentRef('/w/repo')).to.equal('')
+    })
+  })
+
   describe('createWorkspace', () => {
     it('creates a sibling workspace from a bookmark/revset base and adopts a herdr workspace', () => {
       const herdr = herdrFake()

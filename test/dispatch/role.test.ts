@@ -30,7 +30,6 @@ function mockConfig(roles: Record<string, {harness: string; persona?: string}>):
     agents: roles,
     default_harness: 'opencode',
     default_vcs: 'git',
-    primary_branch: 'develop',
   }
 }
 
