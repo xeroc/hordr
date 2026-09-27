@@ -173,6 +173,20 @@ function maybeCompleteMilestone(vcs: Vcs, fleet: FleetRow): void {
 }
 
 /**
+ * Epic-level blocker gate (hordr-dkl1). beans' `--ready` does not propagate
+ * an epic's own `blocked_by` to its child tasks, so a cross-epic-blocked
+ * epic shows phantom-ready work (any clean task) before the blocking epic
+ * merged. Ask beans directly for the epic's blockers and their statuses IN
+ * THE GIVEN VIEW: the ms view gates lane creation + stale-done recreation,
+ * the lane view gates dispatch (a lane only dispatches once it can SEE the
+ * blocker completed — i.e. after the ms→lane refresh carried it in).
+ */
+function epicUnblocked(epicId: string, cwd: string): boolean {
+  const {blockers} = fetchDependencyStatus(epicId, {cwd})
+  return blockers.every((b) => b.status === 'completed')
+}
+
+/**
  * Cross-epic blocker refresh (hordr-lcsi). An idle lane can be starved by
  * stale `.beans/` state: a `--blocked-by` task in another epic completed
  * and merged into `ms/<id>`, but this lane's worktree never pulled that
@@ -456,9 +470,13 @@ export function createFleetEngine(config: HordrConfig, opts?: {maxLanes?: number
     // --- idle: dispatch the next task, or merge if epic is done ---
     if (!lane.currentTaskBeanId) {
       let dispatchable = getDispatchable(lane.epicBeanId, {cwd: beansCwd})
-      if (dispatchable.length === 0) {
+      // Epic-level blocker gate (hordr-dkl1): clean tasks look dispatchable
+      // while the epic's own blocker is unmerged. Treat a blocked epic like
+      // an empty one — the refresh path below pulls ms in (blocker
+      // completion + code) before dispatch resumes.
+      if (dispatchable.length === 0 || !epicUnblocked(lane.epicBeanId, beansCwd)) {
         let epicStat = getBean(lane.epicBeanId, {cwd: beansCwd}).status
-        logger.debug(`lane, no dispatchable, epic status=${epicStat}`)
+        logger.debug(`lane, no dispatchable or epic blocked, epic status=${epicStat}`)
 
         if (epicStat !== 'completed') {
           rollupSweep(lane.epicBeanId, beansCwd)
@@ -510,8 +528,10 @@ export function createFleetEngine(config: HordrConfig, opts?: {maxLanes?: number
         }
 
         // 'refreshed' → re-read dispatchable from the now-up-to-date worktree.
+        // The blocker gate re-checks too: the merge was what carried the
+        // epic blocker's completion into this lane's view.
         dispatchable = getDispatchable(lane.epicBeanId, {cwd: beansCwd})
-        if (dispatchable.length === 0) return {action: 'idle'}
+        if (dispatchable.length === 0 || !epicUnblocked(lane.epicBeanId, beansCwd)) return {action: 'idle'}
       }
 
       // Global concurrency cap (hordr fleet check --max-lanes): an idle lane
@@ -709,13 +729,16 @@ export function createFleetEngine(config: HordrConfig, opts?: {maxLanes?: number
               const lane = allLanes.find((l) => l.epicBeanId === epic.id)
               return `lane=${lane?.status ?? '?'} task=${lane?.currentTaskBeanId ?? '(idle)'}`
             })()
-          : getDispatchable(epic.id, {cwd: fleet.worktreePath}).length > 0
-            ? 'ready (no lane yet)'
-            : 'not ready'
+          : epicUnblocked(epic.id, fleet.worktreePath)
+            ? getDispatchable(epic.id, {cwd: fleet.worktreePath}).length > 0
+              ? 'ready (no lane yet)'
+              : 'not ready'
+            : 'blocked (epic-level --blocked-by not completed)'
         logger.debug(`  epic ${epic.id}: ${laneInfo} — ${epic.title}`)
       }
 
       const newLanes = scanForNewLanes(fleet.milestoneBeanId, {
+        epicBlockersSatisfied: (epicId) => epicUnblocked(epicId, fleet.worktreePath),
         fetchEpics: (msId) => fetchEpics(msId, {cwd: fleet.worktreePath}),
         hasReadyWork: (epicId) => getDispatchable(epicId, {cwd: fleet.worktreePath}).length > 0,
         laneExists: (epicId) => existingLaneEpicIds.has(epicId),
@@ -745,13 +768,19 @@ export function createFleetEngine(config: HordrConfig, opts?: {maxLanes?: number
       const lanes = listLanes(db, fleet.projectKey, fleet.milestoneBeanId)
       for (const lane of lanes) {
         if (lane.status === 'done') {
-          // Stale-done cleanup (hordr-sq00): a lane can go 'done' while its epic
-          // still has tasks that were blocked-by another epic. When the blocker
+          // Stale-done cleanup (hordr-sq00): a lane can go 'done' while its
+          // epic still has tasks blocked-by another epic. When the blocker
           // merges, those tasks become ready but the lane would stay done
-          // forever. If the epic isn't completed AND has ready work, drop the
-          // stale row so scanForNewLanes recreates a fresh lane next pass.
+          // forever. If the epic isn't completed, isn't epic-level blocked
+          // (hordr-dkl1 — otherwise the "ready work" is phantom), AND has
+          // ready work, drop the stale row so scanForNewLanes recreates a
+          // fresh lane next pass.
           const epicStat = getBean(lane.epicBeanId, {cwd: fleet.worktreePath}).status
-          if (epicStat !== 'completed' && getDispatchable(lane.epicBeanId, {cwd: fleet.worktreePath}).length > 0) {
+          if (
+            epicStat !== 'completed' &&
+            epicUnblocked(lane.epicBeanId, fleet.worktreePath) &&
+            getDispatchable(lane.epicBeanId, {cwd: fleet.worktreePath}).length > 0
+          ) {
             logger.info(
               `lane ${lane.epicBeanId}: done but epic is ${epicStat} with ready work → deleting stale lane row`,
             )

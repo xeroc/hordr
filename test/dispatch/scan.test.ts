@@ -7,6 +7,7 @@ const epic = (id: string) => ({id, title: `Epic ${id}`})
 describe('dispatch/scan', () => {
   it('returns epics that have ready work AND no existing lane', () => {
     const result = scanForNewLanes('hordr-ms1', {
+      epicBlockersSatisfied: () => true,
       fetchEpics: () => [epic('epic-1'), epic('epic-2'), epic('epic-3')],
       hasReadyWork: (id) => id === 'epic-1' || id === 'epic-3',
       laneExists: (id) => id === 'epic-3', // epic-3 already has a lane
@@ -17,6 +18,7 @@ describe('dispatch/scan', () => {
 
   it('returns empty when all epics are blocked (no ready work)', () => {
     const result = scanForNewLanes('hordr-ms1', {
+      epicBlockersSatisfied: () => true,
       fetchEpics: () => [epic('epic-1'), epic('epic-2')],
       hasReadyWork: () => false,
       laneExists: () => false,
@@ -27,6 +29,7 @@ describe('dispatch/scan', () => {
 
   it('returns empty when all ready epics already have lanes', () => {
     const result = scanForNewLanes('hordr-ms1', {
+      epicBlockersSatisfied: () => true,
       fetchEpics: () => [epic('epic-1')],
       hasReadyWork: () => true,
       laneExists: () => true,
@@ -37,6 +40,7 @@ describe('dispatch/scan', () => {
 
   it('returns empty when milestone has no epics', () => {
     const result = scanForNewLanes('hordr-ms1', {
+      epicBlockersSatisfied: () => true,
       fetchEpics: () => [],
       hasReadyWork: () => true,
       laneExists: () => false,
@@ -47,11 +51,47 @@ describe('dispatch/scan', () => {
 
   it('returns multiple epics when several are newly unblocked', () => {
     const result = scanForNewLanes('hordr-ms1', {
+      epicBlockersSatisfied: () => true,
       fetchEpics: () => [epic('epic-1'), epic('epic-2'), epic('epic-3')],
       hasReadyWork: () => true,
       laneExists: () => false,
     })
 
     expect(result.map((e) => e.id)).to.deep.equal(['epic-1', 'epic-2', 'epic-3'])
+  })
+
+  // --- epic-level blocker gate (hordr-dkl1) ---
+
+  it('excludes an epic whose epic-level blockers are unsatisfied, even with ready work and no lane', () => {
+    const result = scanForNewLanes('hordr-ms1', {
+      epicBlockersSatisfied: (id) => id !== 'epic-1',
+      fetchEpics: () => [epic('epic-1'), epic('epic-2')],
+      hasReadyWork: () => true, // phantom-ready: clean tasks under a blocked epic
+      laneExists: () => false,
+    })
+
+    expect(result.map((e) => e.id)).to.deep.equal(['epic-2'])
+  })
+
+  it('includes an epic whose epic-level blockers are all completed', () => {
+    const result = scanForNewLanes('hordr-ms1', {
+      epicBlockersSatisfied: () => true,
+      fetchEpics: () => [epic('epic-1')],
+      hasReadyWork: () => true,
+      laneExists: () => false,
+    })
+
+    expect(result.map((e) => e.id)).to.deep.equal(['epic-1'])
+  })
+
+  it('excludes every blocked epic when all are phantom-ready', () => {
+    const result = scanForNewLanes('hordr-ms1', {
+      epicBlockersSatisfied: () => false,
+      fetchEpics: () => [epic('epic-1'), epic('epic-2')],
+      hasReadyWork: () => true,
+      laneExists: () => false,
+    })
+
+    expect(result).to.have.length(0)
   })
 })

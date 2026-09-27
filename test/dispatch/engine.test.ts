@@ -383,6 +383,364 @@ describe('dispatch/engine', () => {
     })
   })
 
+  describe('scanFleet: epic-level blocked_by lane gate (hordr-dkl1)', () => {
+    let db: Database.Database
+    let msWt: string
+    let wsOps: Array<{base?: string; name?: string}>
+
+    beforeEach(() => {
+      db = openDb(':memory:')
+      applySchema(db)
+      ensureProject(db, {beansPath: '/b', companyPath: null, configPath: '/c', projectKey: 'pk1'})
+      msWt = join(tmpdir(), `hordr-epicgate-ms-${process.pid}-${Date.now()}`)
+      mkdirSync(msWt, {recursive: true})
+      registerFleet(db, {
+        branch: 'ms/ms1',
+        createdAt: '2026-07-16T00:00:00Z',
+        milestoneBeanId: 'ms1',
+        projectKey: 'pk1',
+        status: 'active',
+        worktreePath: msWt,
+      })
+      wsOps = []
+    })
+
+    afterEach(() => {
+      _resetShell()
+      _resetBeansShell()
+      _resetGitRunner()
+      _resetPaneShell()
+      _setVcsForTesting(null)
+      db.close()
+    })
+
+    /**
+     * Wire beans mocks for a two-epic fleet (epic-a, epic-b) where every epic
+     * has one clean ready task (task-a). `blockers` is view-agnostic here —
+     * the scan gate consults the MS view only.
+     *
+     * readyInLane=false keeps a freshly created lane idle in the same tick
+     * (no pane/spawn machinery needed for the scan assertions).
+     */
+    function wireShell(opts: {blockers: (epicId: string) => Array<{id: string; status: string}>}): void {
+      _setBeansShell(((_cmd: string, args: string[]) => {
+        if (args[0] === 'show') {
+          const id = args[2]
+          return JSON.stringify({
+            body: '',
+            created_at: '',
+            etag: 'e1',
+            id,
+            path: 'p',
+            priority: 'normal',
+            slug: id,
+            status: 'todo',
+            title: id,
+            type: id === 'ms1' ? 'milestone' : 'epic',
+            updated_at: '',
+          })
+        }
+
+        throw new Error(`unexpected beans call: ${args.join(' ')}`)
+      }) as unknown as BeansShellFn)
+
+      _setShellForTesting(((args: string[], o?: {cwd?: string}) => {
+        if (args[0] === 'list') {
+          // task-a is ready in the ms view (phantom-ready under a blocked
+          // epic), not in a lane view — keeps new lanes idle this tick.
+          const inLane = (o?.cwd ?? '').includes('epicgate-lane') || (o?.cwd ?? '').includes('epic-b') || (o?.cwd ?? '').includes('epic-a')
+          return JSON.stringify(
+            inLane
+              ? []
+              : [{id: 'task-a', priority: 'normal', status: 'todo', title: 'Task A', type: 'task'}],
+          )
+        }
+
+        if (args[0] === 'query') {
+          const q = args[2] ?? ''
+          if (q.includes('blockedBy')) {
+            const id = q.match(/bean\(id: "([^"]+)"\)/)?.[1] ?? ''
+            return JSON.stringify({bean: {blockedBy: opts.blockers(id)}})
+          }
+
+          if (q.includes('children { id status }')) {
+            return JSON.stringify({bean: {children: [{id: 'task-a', status: 'todo'}]}})
+          }
+
+          return JSON.stringify({
+            bean: {
+              children: [
+                {
+                  children: [{id: 'task-a', priority: 'normal', title: 'Task A', type: 'task'}],
+                  id: 'epic-a',
+                  priority: 'normal',
+                  title: 'Epic A',
+                  type: 'epic',
+                },
+                {
+                  children: [{id: 'task-a', priority: 'normal', title: 'Task A', type: 'task'}],
+                  id: 'epic-b',
+                  priority: 'normal',
+                  title: 'Epic B',
+                  type: 'epic',
+                },
+              ],
+            },
+          })
+        }
+
+        throw new Error(`unexpected dispatch call: ${args.join(' ')}`)
+      }) as ShellFn)
+
+      _setGitRunnerForTesting(((_args: string[], _o?: {cwd?: string}) => '') as GitRunner)
+      _setPaneShellForTesting((() =>
+        JSON.stringify({result: {root_pane: {pane_id: 'p-gate'}}})) as unknown as (args: string[]) => string)
+      _setVcsForTesting({
+        commitPending: () => false,
+        createWorkspace(o: {base: string; name: string}) {
+          wsOps.push(o)
+          const p = join(tmpdir(), `hordr-epicgate-lane-${o.name}-${process.pid}`)
+          mkdirSync(p, {recursive: true}) // must exist on disk — the scan loop heals missing lane worktrees
+          return {path: p, workspaceId: `ws-${o.name}`}
+        },
+        hasNewCommits: () => false,
+        integrateHead: () => ({status: 'merged'}),
+        isCleanIgnoringBeans: () => true,
+        kind: 'git',
+      } as unknown as Vcs)
+    }
+
+    it('creates no lane for a blocked epic with phantom-ready work — only for the unblocked sibling', () => {
+      wireShell({
+        blockers: (id) => (id === 'epic-a' ? [{id: 'epic-other', status: 'todo'}] : []),
+      })
+
+      createFleetEngine(config).scanFleet(db)
+
+      expect(wsOps.map((o) => o.name), 'only the unblocked epic gets a worktree').to.deep.equal(['epic-b'])
+      expect(
+        listLanes(db, 'pk1', 'ms1').map((l) => l.epicBeanId),
+        'only the unblocked epic gets a lane row',
+      ).to.deep.equal(['epic-b'])
+    })
+
+    it('does not recreate a stale done lane while the epic is blocked (phantom-ready clean tasks)', () => {
+      addLane(db, {
+        branch: 'epic-a',
+        createdAt: '2026-07-16T00:00:00Z',
+        currentTaskBeanId: null,
+        epicBeanId: 'epic-a',
+        fleetMilestoneBeanId: 'ms1',
+        paneId: 'p1',
+        projectKey: 'pk1',
+        status: 'done',
+        workspaceId: 'ws1',
+        worktreePath: msWt,
+      })
+      wireShell({blockers: () => [{id: 'epic-other', status: 'todo'}]})
+
+      createFleetEngine(config).scanFleet(db)
+
+      expect(
+        listLanes(db, 'pk1', 'ms1').find((l) => l.epicBeanId === 'epic-a'),
+        'blocked epic keeps its done lane row — no phantom recreate',
+      ).to.not.equal(undefined)
+      expect(wsOps, 'no worktree is created while every epic is blocked').to.deep.equal([])
+    })
+  })
+
+  describe('advanceLane: epic-level blocked_by dispatch gate (hordr-dkl1)', () => {
+    let db: Database.Database
+    let msWt: string
+    let laneWt: string
+    let integrateOps: Array<{cwd?: string; source?: string}>
+    let integrateCalls: number
+    let paneShellTouched: boolean
+
+    beforeEach(() => {
+      db = openDb(':memory:')
+      applySchema(db)
+      ensureProject(db, {beansPath: '/b', companyPath: null, configPath: '/c', projectKey: 'pk1'})
+      msWt = join(tmpdir(), `hordr-dgate-ms-${process.pid}-${Date.now()}`)
+      laneWt = join(tmpdir(), `hordr-dgate-lane-${process.pid}-${Date.now()}`)
+      mkdirSync(msWt, {recursive: true})
+      mkdirSync(laneWt, {recursive: true})
+      registerFleet(db, {
+        branch: 'ms/ms1',
+        createdAt: '2026-07-16T00:00:00Z',
+        milestoneBeanId: 'ms1',
+        projectKey: 'pk1',
+        status: 'active',
+        worktreePath: msWt,
+      })
+      addLane(db, {
+        branch: 'epic-a',
+        createdAt: '2026-07-16T00:00:00Z',
+        currentTaskBeanId: null,
+        epicBeanId: 'epic-a',
+        fleetMilestoneBeanId: 'ms1',
+        paneId: 'p1',
+        projectKey: 'pk1',
+        status: 'active',
+        workspaceId: 'ws1',
+        worktreePath: laneWt,
+      })
+      integrateOps = []
+      integrateCalls = 0
+      paneShellTouched = false
+    })
+
+    afterEach(() => {
+      _resetShell()
+      _resetBeansShell()
+      _resetGitRunner()
+      _resetPaneShell()
+      _setVcsForTesting(null)
+      db.close()
+    })
+
+    /**
+     * View-aware beans mocks. `laneBlockers`/`msBlockers` answer the epic's
+     * own blockedBy query from the lane / ms worktree respectively. The clean
+     * task-a is ready in BOTH views — no readiness diff — so only the
+     * blocker-status gate can tell stale from current.
+     */
+    function wireShell(opts: {
+      laneBlockers: () => Array<{id: string; status: string}>
+      msBlockers: () => Array<{id: string; status: string}>
+    }): void {
+      _setBeansShell(((_cmd: string, args: string[]) => {
+        if (args[0] === 'show') {
+          const id = args[2]
+          return JSON.stringify({
+            body: '',
+            created_at: '',
+            etag: 'e1',
+            id,
+            path: 'p',
+            priority: 'normal',
+            slug: id,
+            status: 'todo',
+            title: id,
+            type: id === 'ms1' ? 'milestone' : 'task',
+            updated_at: '',
+          })
+        }
+
+        throw new Error(`unexpected beans call: ${args.join(' ')}`)
+      }) as unknown as BeansShellFn)
+
+      _setShellForTesting(((args: string[], o?: {cwd?: string}) => {
+        const inLane = (o?.cwd ?? '').includes('dgate-lane')
+        if (args[0] === 'list') {
+          return JSON.stringify([
+            {id: 'task-a', priority: 'normal', status: 'todo', title: 'Task A', type: 'task'},
+          ])
+        }
+
+        if (args[0] === 'query') {
+          const q = args[2] ?? ''
+          if (q.includes('blockedBy')) {
+            return JSON.stringify({
+              bean: {blockedBy: inLane ? opts.laneBlockers() : opts.msBlockers()},
+            })
+          }
+
+          if (q.includes('children { id status }')) {
+            return JSON.stringify({bean: {children: [{id: 'task-a', status: 'todo'}]}})
+          }
+
+          return JSON.stringify({
+            bean: {
+              children: [
+                {
+                  children: [{id: 'task-a', priority: 'normal', title: 'Task A', type: 'task'}],
+                  id: 'epic-a',
+                  priority: 'normal',
+                  title: 'Epic A',
+                  type: 'epic',
+                },
+              ],
+            },
+          })
+        }
+
+        throw new Error(`unexpected dispatch call: ${args.join(' ')}`)
+      }) as ShellFn)
+
+      _setGitRunnerForTesting(((_args: string[], _o?: {cwd?: string}) => '') as GitRunner)
+      // Any pane I/O past the gate means dispatch was attempted — tests spy on it.
+      _setPaneShellForTesting((() => {
+        paneShellTouched = true
+        throw new Error('pane shell must not be reached by a gated lane')
+      }) as unknown as (args: string[]) => string)
+    }
+
+    function wireVcs(opts: {hasNewCommits: boolean}): void {
+      _setVcsForTesting({
+        commitPending: () => false,
+        hasNewCommits: () => opts.hasNewCommits,
+        integrateHead(o: {cwd?: string; source?: string}) {
+          integrateCalls++
+          integrateOps.push({cwd: o.cwd, source: o.source})
+          return {status: 'merged'}
+        },
+        isCleanIgnoringBeans: () => true,
+        kind: 'git',
+      } as unknown as Vcs)
+    }
+
+    it('idles without spawning while the epic is blocked in the lane view (clean tasks phantom-ready)', () => {
+      wireShell({
+        laneBlockers: () => [{id: 'epic-other', status: 'todo'}],
+        msBlockers: () => [{id: 'epic-other', status: 'todo'}],
+      })
+      wireVcs({hasNewCommits: false})
+
+      const engine = createFleetEngine(config)
+      const res = engine.advanceLane(db, getFleet(db, 'pk1', 'ms1')!, listLanes(db, 'pk1', 'ms1')[0])
+
+      expect(res.action, 'blocked epic must idle, never dispatch').to.equal('idle')
+      expect(listLanes(db, 'pk1', 'ms1')[0].currentTaskBeanId).to.equal(null)
+      expect(paneShellTouched, 'gate must short-circuit before any pane/spawn I/O').to.equal(false)
+    })
+
+    it('proceeds toward dispatch when the epic-level blockers are completed (gate open)', () => {
+      wireShell({
+        laneBlockers: () => [],
+        msBlockers: () => [],
+      })
+      wireVcs({hasNewCommits: false})
+
+      const engine = createFleetEngine(config)
+      // Gate open → advance proceeds to ensureLanePane → pane shell throws.
+      // The throw IS the proof the gate did not short-circuit (same pattern
+      // as the --max-lanes control test).
+      expect(() =>
+        engine.advanceLane(db, getFleet(db, 'pk1', 'ms1')!, listLanes(db, 'pk1', 'ms1')[0]),
+      ).to.throw()
+    })
+
+    it('refreshes a stale-blocked lane from ms (integrateHead) once ms sees the blocker completed, then dispatches', () => {
+      wireShell({
+        // Lane view flips to unblocked only AFTER the ms→lane merge lands —
+        // the merge is what carries the blocker's completion into the lane.
+        laneBlockers: () => (integrateCalls > 0 ? [] : [{id: 'epic-other', status: 'todo'}]),
+        msBlockers: () => [{id: 'epic-other', status: 'completed'}],
+      })
+      wireVcs({hasNewCommits: true})
+
+      const engine = createFleetEngine(config)
+      expect(() =>
+        engine.advanceLane(db, getFleet(db, 'pk1', 'ms1')!, listLanes(db, 'pk1', 'ms1')[0]),
+      ).to.throw(/pane/)
+
+      expect(integrateCalls, 'ms→lane refresh must run exactly once').to.equal(1)
+      expect(integrateOps[0].source, 'refresh pulls the ms branch').to.equal('ms/ms1')
+      expect(integrateOps[0].cwd, 'refresh runs inside the lane worktree').to.equal(laneWt)
+    })
+  })
+
   describe('scanFleet: milestone auto-completion (hordr-45f3, ADR-0015)', () => {
     let db: Database.Database
     let wt: string

@@ -25,6 +25,7 @@ describe('dispatch (lane flow integration)', () => {
   it('scan → dispatch → heal → rollup: the lane lifecycle composes', () => {
     // --- 1. Scan: find an unblocked epic without a lane ---
     const newLanes = scanForNewLanes('hordr-ms1', {
+      epicBlockersSatisfied: () => true,
       fetchEpics: () => [{id: 'epic-1', title: 'Epic 1'}],
       hasReadyWork: () => true,
       laneExists: () => false,
@@ -80,6 +81,7 @@ describe('dispatch (lane flow integration)', () => {
   it('multiple lanes scan independently (N parallel lanes)', () => {
     // Two epics are unblocked, one is blocked → two lanes created
     const newLanes = scanForNewLanes('hordr-ms1', {
+      epicBlockersSatisfied: () => true,
       fetchEpics: () => [
         {id: 'epic-1', title: 'E1'},
         {id: 'epic-2', title: 'E2'},
